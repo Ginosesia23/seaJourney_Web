@@ -5,13 +5,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format, isAfter, subDays } from 'date-fns';
 import {
-  Calendar,
   Check,
   Copy,
   Download,
   ExternalLink,
-  FileCheck,
-  FileText,
   FolderOpen,
   Layers,
   Loader2,
@@ -24,7 +21,6 @@ import {
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -159,22 +155,26 @@ const KIND_META: Record<
   vessel_generated: {
     label: 'Testimonial (vessel)',
     short: 'Testimonial',
-    badge: 'border-sky-500/20 bg-sky-500/10 text-sky-800 dark:text-sky-300',
+    badge:
+      'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400',
   },
   proof: {
     label: 'Proof of service',
     short: 'Proof',
-    badge: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300',
+    badge:
+      'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
   },
   approved: {
     label: 'Testimonial (approved)',
     short: 'Approved',
-    badge: 'border-violet-500/20 bg-violet-500/10 text-violet-800 dark:text-violet-300',
+    badge:
+      'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-400',
   },
   pending: {
     label: 'Testimonial',
     short: 'Pending',
-    badge: 'border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300',
+    badge:
+      'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300',
   },
 };
 
@@ -789,7 +789,7 @@ export function VesselDocumentsArchive({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 rounded-lg"
+            className="h-7 w-7 rounded-md"
             aria-label="Copy verification code"
             onClick={() => void handleCopyCode(row)}
           >
@@ -802,8 +802,17 @@ export function VesselDocumentsArchive({
         ) : null}
 
         {isVesselArchiveViewer && row.crewUserId ? (
-          <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-lg" asChild>
-            <Link href={`/dashboard/crew?member=${row.crewUserId}`} aria-label="Open crew member">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-md"
+            asChild
+          >
+            <Link
+              href={`/dashboard/crew?member=${row.crewUserId}`}
+              aria-label="Open crew member"
+            >
               <ExternalLink className="h-3.5 w-3.5" />
             </Link>
           </Button>
@@ -814,11 +823,17 @@ export function VesselDocumentsArchive({
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 rounded-lg px-2.5"
+            className="h-7 rounded-md border-border px-2 text-xs"
             disabled={busy}
-            onClick={() => void handleDownloadVesselGenerated(row.vesselGenerated!, row.key)}
+            onClick={() =>
+              void handleDownloadVesselGenerated(row.vesselGenerated!, row.key)
+            }
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
             <span className="ml-1.5 hidden sm:inline">PDF</span>
           </Button>
         ) : row.action === 'pos_pdf' && row.proofRow ? (
@@ -826,15 +841,25 @@ export function VesselDocumentsArchive({
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 rounded-lg px-2.5"
+            className="h-7 rounded-md border-border px-2 text-xs"
             disabled={busy}
             onClick={() => void handleDownloadProof(row.proofRow!, row.key)}
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
             <span className="ml-1.5 hidden sm:inline">PDF</span>
           </Button>
         ) : row.action === 'pdf_url' && row.pdfUrl ? (
-          <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg px-2.5" asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 rounded-md border-border px-2 text-xs"
+            asChild
+          >
             <a href={row.pdfUrl} target="_blank" rel="noopener noreferrer">
               <Download className="h-3.5 w-3.5" />
               <span className="ml-1.5 hidden sm:inline">PDF</span>
@@ -845,13 +870,20 @@ export function VesselDocumentsArchive({
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 rounded-lg px-2.5"
+            className="h-7 rounded-md border-border px-2 text-xs"
             disabled={busy}
             onClick={() =>
-              void handleDownloadStoredTestimonialPdf(row.key, row.testimonialIdForPdf!)
+              void handleDownloadStoredTestimonialPdf(
+                row.key,
+                row.testimonialIdForPdf!,
+              )
             }
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
             <span className="ml-1.5 hidden sm:inline">PDF</span>
           </Button>
         ) : row.action === 'testimonial_pdf' &&
@@ -860,7 +892,7 @@ export function VesselDocumentsArchive({
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 rounded-lg px-2.5"
+            className="h-7 rounded-md border-border px-2 text-xs"
             disabled={busy}
             onClick={() =>
               void handleDownloadTestimonialPdf(row.key, {
@@ -869,7 +901,11 @@ export function VesselDocumentsArchive({
               })
             }
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
             <span className="ml-1.5 hidden sm:inline">PDF</span>
           </Button>
         ) : (
@@ -880,14 +916,19 @@ export function VesselDocumentsArchive({
   };
 
   const renderRow = (row: UnifiedRow) => (
-    <TableRow key={row.key} className="group">
-      <TableCell className="align-top">
-        <Badge
-          variant="outline"
-          className={cn('rounded-md font-mono text-[10px] uppercase tracking-wider', KIND_META[row.kind].badge)}
+    <TableRow
+      key={row.key}
+      className="border-border bg-background hover:bg-muted/40"
+    >
+      <TableCell className="py-2.5 align-middle">
+        <span
+          className={cn(
+            'inline-flex rounded border px-1.5 py-0.5 text-[10px]',
+            KIND_META[row.kind].badge,
+          )}
         >
           {row.shortType}
-        </Badge>
+        </span>
         {row.formatLabel ? (
           <div className="mt-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
             {row.formatLabel}
@@ -895,54 +936,63 @@ export function VesselDocumentsArchive({
         ) : null}
       </TableCell>
       {isVesselArchiveViewer ? (
-        <TableCell className="align-top">
-          <div className="font-medium leading-snug">{row.crewName || '—'}</div>
+        <TableCell className="py-2.5 align-middle">
+          <div className="text-sm text-foreground">{row.crewName || '—'}</div>
           {row.crewPosition ? (
-            <div className="mt-0.5 text-xs text-muted-foreground">{row.crewPosition}</div>
+            <div className="mt-0.5 text-[11px] capitalize text-muted-foreground">
+              {row.crewPosition}
+            </div>
           ) : null}
         </TableCell>
       ) : null}
       {!isVesselArchiveViewer ? (
-        <TableCell className="align-top font-medium">{row.vesselName}</TableCell>
+        <TableCell className="py-2.5 align-middle text-sm text-foreground">
+          {row.vesselName}
+        </TableCell>
       ) : null}
-      <TableCell className="align-top">
-        <div className="flex items-start gap-1.5 text-sm">
-          <Calendar className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <div>
-            <div className="leading-snug">
-              {format(new Date(row.startDate), 'd MMM yyyy')} –{' '}
-              {format(new Date(row.endDate), 'd MMM yyyy')}
-            </div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              {row.totalDays != null ? `${row.totalDays} days` : null}
-              {row.totalDays != null && row.periodExtra ? ' · ' : null}
-              {row.periodExtra || null}
-            </div>
-          </div>
+      <TableCell className="py-2.5 align-middle">
+        <div className="text-xs tabular-nums text-foreground">
+          {format(new Date(row.startDate), 'd MMM yyyy')} –{' '}
+          {format(new Date(row.endDate), 'd MMM yyyy')}
+        </div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">
+          {row.totalDays != null ? `${row.totalDays} days` : null}
+          {row.totalDays != null && row.periodExtra ? ' · ' : null}
+          {row.periodExtra || null}
         </div>
       </TableCell>
-      <TableCell className="align-top">
+      <TableCell className="py-2.5 align-middle">
         <code
           className={cn(
-            'rounded-md px-1.5 py-0.5 font-mono text-[11px]',
-            row.hasVerification ? 'bg-muted text-foreground' : 'text-muted-foreground',
+            'rounded border border-border px-1.5 py-0.5 font-mono text-[11px]',
+            row.hasVerification
+              ? 'bg-muted/60 text-foreground'
+              : 'text-muted-foreground',
           )}
         >
           {row.verificationDisplay}
         </code>
-        <div className="mt-1 text-[10px] text-muted-foreground">
+        <div className="mt-1 text-[11px] text-muted-foreground">
           {format(new Date(row.sortAt), 'd MMM yyyy')}
         </div>
       </TableCell>
-      <TableCell className="align-top text-right">{renderActions(row)}</TableCell>
+      <TableCell className="py-2.5 text-right align-middle">
+        {renderActions(row)}
+      </TableCell>
     </TableRow>
   );
 
   if (profileLoading) {
     return (
       <div className="flex flex-col gap-6">
-        <Skeleton className="h-36 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-8 w-64" />
+        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <Skeleton key={i} className="h-20 rounded-md" />
+          ))}
+        </div>
+        <Skeleton className="h-64 w-full rounded-md" />
       </div>
     );
   }
@@ -954,19 +1004,31 @@ export function VesselDocumentsArchive({
   if (isVesselArchiveViewer && !activeVesselId) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-          <div className="px-5 py-10 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border bg-muted/40 text-muted-foreground">
-              <Ship className="h-6 w-6" />
-            </div>
-            <h1 className="mt-4 text-lg font-semibold tracking-tight">Select an active vessel</h1>
-            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-              Choose an active vessel in your profile to browse documents generated for its crew.
-            </p>
-            <Button asChild className="mt-4 rounded-lg" size="sm">
-              <Link href="/dashboard/profile">Open vessel profile</Link>
-            </Button>
+        <div className="border-b border-border pb-5">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>Vessel</span>
+            <span className="text-border">/</span>
+            <span className="text-foreground">Generated documents</span>
           </div>
+          <h1 className="mt-1 text-xl font-medium tracking-tight text-foreground">
+            Generated documents
+          </h1>
+        </div>
+        <div className="rounded-md border border-border bg-background px-4 py-12 text-center">
+          <Ship className="mx-auto h-5 w-5 text-muted-foreground" />
+          <p className="mt-3 text-sm text-foreground">Select an active vessel</p>
+          <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+            Choose an active vessel in your profile to browse documents
+            generated for its crew.
+          </p>
+          <Button
+            asChild
+            size="sm"
+            className="mt-4 h-8 rounded-md text-xs"
+          >
+            <Link href="/dashboard/profile">Open vessel profile</Link>
+          </Button>
         </div>
       </div>
     );
@@ -975,232 +1037,339 @@ export function VesselDocumentsArchive({
   const empty = !loading && filteredRows.length === 0;
   const hasAnyDocs = tableRows.length > 0;
 
+  const typeTabs: Array<{ id: TypeFilter; label: string; count: number }> = [
+    { id: 'all', label: 'All', count: stats.total },
+    {
+      id: 'vessel_generated',
+      label: 'Testimonials',
+      count: stats.testimonials,
+    },
+    { id: 'proof', label: 'Proofs', count: stats.proofs },
+    ...(isPersonalDocsViewer
+      ? ([
+          {
+            id: 'approved' as const,
+            label: 'Approved',
+            count: tableRows.filter((r) => r.kind === 'approved').length,
+          },
+          {
+            id: 'pending' as const,
+            label: 'Pending',
+            count: tableRows.filter((r) => r.kind === 'pending').length,
+          },
+        ] as const)
+      : []),
+  ];
+
+  const statTiles = [
+    {
+      label: 'Total',
+      value: stats.total,
+      hint: 'All documents',
+      tone: 'default' as const,
+    },
+    {
+      label: 'Testimonials',
+      value: stats.testimonials,
+      hint: 'Sea service',
+      tone: 'sky' as const,
+    },
+    {
+      label: 'Proofs',
+      value: stats.proofs,
+      hint: 'Proof of service',
+      tone: 'emerald' as const,
+    },
+    {
+      label: 'Verified',
+      value: stats.verified,
+      hint: 'With SJ/POS code',
+      tone: 'default' as const,
+    },
+    {
+      label: '30 days',
+      value: stats.recent,
+      hint: 'Recently created',
+      tone: 'amber' as const,
+    },
+    isVesselArchiveViewer
+      ? {
+          label: 'Crew',
+          value: stats.crewCount,
+          hint: 'People covered',
+          tone: 'default' as const,
+        }
+      : {
+          label: 'Vessels',
+          value: new Set(tableRows.map((r) => r.vesselName)).size,
+          hint: 'Sources',
+          tone: 'default' as const,
+        },
+  ];
+
   return (
     <div className="flex flex-col gap-6">
-      {/* Console header */}
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        {!embedded ? (
-        <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+      {/* Header */}
+      {!embedded ? (
+        <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <FolderOpen className="h-3.5 w-3.5" />
-              {isVesselArchiveViewer ? 'Vessel archive' : 'Your documents'}
+              <span>{isVesselArchiveViewer ? 'Vessel' : 'Career'}</span>
+              <span className="text-border">/</span>
+              <span className="text-foreground">
+                {isVesselArchiveViewer ? 'Generated documents' : 'Documents'}
+              </span>
             </div>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">
+            <h1 className="text-xl font-medium tracking-tight text-foreground">
               {isVesselArchiveViewer ? 'Generated documents' : 'Documents'}
             </h1>
-            <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+            <p className="max-w-2xl text-sm text-muted-foreground">
               {isVesselArchiveViewer
                 ? 'Search, filter, and download every sea-service document created for crew on this vessel.'
                 : 'Sea service documents vessels have created for you — including SJ- and POS- verification codes.'}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="rounded-lg"
+              className="h-8 gap-1.5 rounded-md border-border text-xs"
               disabled={loading}
               onClick={() => void loadData()}
             >
-              <RefreshCw className={cn('mr-2 h-3.5 w-3.5', loading && 'animate-spin')} />
+              <RefreshCw
+                className={cn('h-3.5 w-3.5', loading && 'animate-spin')}
+              />
               Refresh
             </Button>
             {isVesselArchiveViewer ? (
-              <Button asChild size="sm" className="rounded-lg">
+              <Button
+                asChild
+                size="sm"
+                className="h-8 gap-1.5 rounded-md text-xs"
+              >
                 <Link href="/dashboard/documents">
-                  <Layers className="mr-2 h-3.5 w-3.5" />
+                  <Layers className="h-3.5 w-3.5" />
                   Document generator
                 </Link>
               </Button>
             ) : null}
           </div>
         </div>
-        ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
-            Documents vessels issued for you — search, filter, and download with SJ-/POS- codes.
+            Documents vessels issued for you — search, filter, and download with
+            SJ-/POS- codes.
           </p>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="rounded-lg"
+            className="h-8 gap-1.5 rounded-md border-border text-xs"
             disabled={loading}
             onClick={() => void loadData()}
           >
-            <RefreshCw className={cn('mr-2 h-3.5 w-3.5', loading && 'animate-spin')} />
+            <RefreshCw
+              className={cn('h-3.5 w-3.5', loading && 'animate-spin')}
+            />
             Refresh
           </Button>
         </div>
-        )}
+      )}
 
-        <div className="grid grid-cols-2 border-t bg-muted/30 sm:grid-cols-3 lg:grid-cols-6">
-          {[
-            { label: 'Total', value: stats.total, hint: 'All documents', icon: FileText },
-            { label: 'Testimonials', value: stats.testimonials, hint: 'Sea service', icon: FileCheck },
-            { label: 'Proofs', value: stats.proofs, hint: 'Proof of service', icon: FileText },
-            { label: 'Verified', value: stats.verified, hint: 'With SJ/POS code', icon: Check },
-            { label: '30 days', value: stats.recent, hint: 'Recently created', icon: Calendar },
-            ...(isVesselArchiveViewer
-              ? [{ label: 'Crew', value: stats.crewCount, hint: 'People covered', icon: Users }]
-              : [{ label: 'Vessels', value: new Set(tableRows.map((r) => r.vesselName)).size, hint: 'Sources', icon: Ship }]),
-          ].map((m, i, arr) => {
-            const Icon = m.icon;
-            return (
+      {/* Stats — kept as top section */}
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {statTiles.map((tile) => (
+          <div
+            key={tile.label}
+            className="overflow-hidden rounded-md border border-border bg-background"
+          >
+            <div className="border-b border-border bg-muted/40 px-3 py-2">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                {tile.label}
+              </span>
+            </div>
+            <div className="px-3 py-3">
               <div
-                key={m.label}
                 className={cn(
-                  'border-border px-4 py-3 sm:px-5',
-                  i < arr.length - 1 && 'lg:border-r',
-                  i % 2 === 0 && 'max-sm:border-r',
-                  i < 4 && 'max-sm:border-b',
-                  i < 3 && 'sm:border-r sm:max-lg:[&:nth-child(3)]:border-r-0',
-                  i >= 3 && i < 6 && 'sm:border-b lg:border-b-0',
+                  'font-mono text-2xl font-medium tabular-nums tracking-tight',
+                  tile.tone === 'emerald' && 'text-emerald-600',
+                  tile.tone === 'sky' && 'text-sky-600',
+                  tile.tone === 'amber' && 'text-amber-600',
+                  tile.tone === 'default' && 'text-foreground',
                 )}
               >
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  <Icon className="h-3 w-3" />
-                  {m.label}
-                </div>
-                <div className="mt-1 font-mono text-2xl font-semibold tabular-nums leading-none">
-                  {loading ? '—' : String(m.value).padStart(2, '0')}
-                </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">{m.hint}</div>
+                {loading ? '…' : tile.value}
               </div>
-            );
-          })}
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {tile.hint}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+            {typeTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setTypeFilter(tab.id)}
+                className={cn(
+                  'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-xs transition-colors',
+                  typeFilter === tab.id
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {tab.label}
+                <span
+                  className={cn(
+                    'rounded px-1 font-mono text-[10px] tabular-nums',
+                    typeFilter === tab.id
+                      ? 'bg-muted text-muted-foreground'
+                      : 'text-muted-foreground/70',
+                  )}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-full lg:w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={
+                isVesselArchiveViewer
+                  ? 'Search crew, code, format…'
+                  : 'Search vessel, code, type…'
+              }
+              className="h-8 rounded-md border-border bg-background pl-8 text-xs shadow-none"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          {isVesselArchiveViewer && crewOptions.length > 0 ? (
+            <Select value={crewFilter} onValueChange={setCrewFilter}>
+              <SelectTrigger className="h-8 w-full rounded-md border-border text-xs sm:w-[160px]">
+                <SelectValue placeholder="Crew" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">
+                  All crew
+                </SelectItem>
+                {crewOptions.map((c) => (
+                  <SelectItem key={c.id} value={c.id} className="text-xs">
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+
+          <Select
+            value={sortKey}
+            onValueChange={(v) => setSortKey(v as SortKey)}
+          >
+            <SelectTrigger className="h-8 w-full rounded-md border-border text-xs sm:w-[150px]">
+              <SelectValue placeholder="Sort" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest" className="text-xs">
+                Newest first
+              </SelectItem>
+              <SelectItem value="oldest" className="text-xs">
+                Oldest first
+              </SelectItem>
+              <SelectItem value="period" className="text-xs">
+                By period
+              </SelectItem>
+              {isVesselArchiveViewer ? (
+                <SelectItem value="crew" className="text-xs">
+                  By crew
+                </SelectItem>
+              ) : null}
+            </SelectContent>
+          </Select>
+
+          <Button
+            type="button"
+            variant={recentOnly ? 'default' : 'outline'}
+            size="sm"
+            className="h-8 rounded-md border-border text-xs"
+            onClick={() => setRecentOnly((v) => !v)}
+          >
+            Last 30 days
+          </Button>
+
+          {isVesselArchiveViewer ? (
+            <Button
+              type="button"
+              variant={groupByCrew ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 gap-1.5 rounded-md border-border text-xs"
+              onClick={() => setGroupByCrew((v) => !v)}
+            >
+              <Users className="h-3.5 w-3.5" />
+              Group by crew
+            </Button>
+          ) : null}
+
+          <p className="text-xs text-muted-foreground sm:ml-auto">
+            <span className="font-mono tabular-nums">
+              {filteredRows.length}
+            </span>
+            {' of '}
+            <span className="font-mono tabular-nums">{tableRows.length}</span>
+            {' shown'}
+            {(search ||
+              typeFilter !== 'all' ||
+              crewFilter !== 'all' ||
+              recentOnly) && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  className="text-foreground hover:underline"
+                  onClick={() => {
+                    setSearch('');
+                    setTypeFilter('all');
+                    setCrewFilter('all');
+                    setRecentOnly(false);
+                  }}
+                >
+                  Clear filters
+                </button>
+              </>
+            )}
+          </p>
         </div>
       </div>
 
-      {/* Filters + table */}
-      <section className="overflow-hidden rounded-xl border bg-card">
-        <div className="flex flex-col gap-3 border-b bg-muted/20 px-4 py-3 sm:px-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={
-                  isVesselArchiveViewer
-                    ? 'Search crew, code, format…'
-                    : 'Search vessel, code, type…'
-                }
-                className="h-9 rounded-lg pl-8"
-              />
-            </div>
-
-            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as TypeFilter)}>
-              <SelectTrigger className="h-9 w-[150px] rounded-lg">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All types</SelectItem>
-                <SelectItem value="vessel_generated">Testimonials</SelectItem>
-                <SelectItem value="proof">Proof of service</SelectItem>
-                {isPersonalDocsViewer ? (
-                  <>
-                    <SelectItem value="approved">Approved</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                  </>
-                ) : null}
-              </SelectContent>
-            </Select>
-
-            {isVesselArchiveViewer && crewOptions.length > 0 ? (
-              <Select value={crewFilter} onValueChange={setCrewFilter}>
-                <SelectTrigger className="h-9 w-[160px] rounded-lg">
-                  <SelectValue placeholder="Crew" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All crew</SelectItem>
-                  {crewOptions.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-
-            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-              <SelectTrigger className="h-9 w-[140px] rounded-lg">
-                <SelectValue placeholder="Sort" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest first</SelectItem>
-                <SelectItem value="oldest">Oldest first</SelectItem>
-                <SelectItem value="period">By period</SelectItem>
-                {isVesselArchiveViewer ? <SelectItem value="crew">By crew</SelectItem> : null}
-              </SelectContent>
-            </Select>
-
-            <Button
-              type="button"
-              variant={recentOnly ? 'default' : 'outline'}
-              size="sm"
-              className="h-9 rounded-lg"
-              onClick={() => setRecentOnly((v) => !v)}
-            >
-              Last 30 days
-            </Button>
-
-            {isVesselArchiveViewer ? (
-              <Button
-                type="button"
-                variant={groupByCrew ? 'default' : 'outline'}
-                size="sm"
-                className="h-9 rounded-lg"
-                onClick={() => setGroupByCrew((v) => !v)}
-              >
-                <Users className="mr-1.5 h-3.5 w-3.5" />
-                Group by crew
-              </Button>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
-            <span>
-              Showing{' '}
-              <span className="font-mono font-semibold text-foreground">
-                {filteredRows.length.toString().padStart(2, '0')}
-              </span>{' '}
-              of{' '}
-              <span className="font-mono font-semibold text-foreground">
-                {tableRows.length.toString().padStart(2, '0')}
-              </span>
-            </span>
-            {(search || typeFilter !== 'all' || crewFilter !== 'all' || recentOnly) && (
-              <button
-                type="button"
-                className="font-medium text-primary hover:underline"
-                onClick={() => {
-                  setSearch('');
-                  setTypeFilter('all');
-                  setCrewFilter('all');
-                  setRecentOnly(false);
-                }}
-              >
-                Clear filters
-              </button>
-            )}
-          </div>
-        </div>
-
+      {/* Data table */}
+      <div className="overflow-hidden rounded-md border border-border bg-muted/40">
         {loading ? (
-          <div className="flex justify-center gap-2 py-16 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
+          <div className="flex items-center justify-center gap-2 bg-background py-16 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
             Loading archive…
           </div>
         ) : empty ? (
-          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl border bg-muted/40 text-muted-foreground">
-              <Ship className="h-6 w-6" />
-            </div>
-            <p className="mt-4 text-sm font-semibold">
-              {hasAnyDocs ? 'No documents match these filters' : 'No documents yet'}
+          <div className="flex flex-col items-center justify-center bg-background px-4 py-16 text-center">
+            <Ship className="h-5 w-5 text-muted-foreground" />
+            <p className="mt-3 text-sm text-foreground">
+              {hasAnyDocs
+                ? 'No documents match these filters'
+                : 'No documents yet'}
             </p>
             <p className="mt-1 max-w-md text-xs text-muted-foreground">
               {hasAnyDocs
@@ -1210,9 +1379,13 @@ export function VesselDocumentsArchive({
                   : 'When a vessel generates a document for you, it will show up here with any verification code.'}
             </p>
             {isVesselArchiveViewer && !hasAnyDocs ? (
-              <Button asChild size="sm" className="mt-4 rounded-lg">
+              <Button
+                asChild
+                size="sm"
+                className="mt-4 h-8 gap-1.5 rounded-md text-xs"
+              >
                 <Link href="/dashboard/documents">
-                  <Layers className="mr-2 h-3.5 w-3.5" />
+                  <Layers className="h-3.5 w-3.5" />
                   Open Document generator
                 </Link>
               </Button>
@@ -1222,18 +1395,26 @@ export function VesselDocumentsArchive({
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="font-mono text-[10px] uppercase tracking-wider">Type</TableHead>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    Type
+                  </TableHead>
                   {isVesselArchiveViewer ? (
-                    <TableHead className="font-mono text-[10px] uppercase tracking-wider">Crew</TableHead>
+                    <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                      Crew
+                    </TableHead>
                   ) : (
-                    <TableHead className="font-mono text-[10px] uppercase tracking-wider">Vessel</TableHead>
+                    <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                      Vessel
+                    </TableHead>
                   )}
-                  <TableHead className="font-mono text-[10px] uppercase tracking-wider">Period</TableHead>
-                  <TableHead className="font-mono text-[10px] uppercase tracking-wider">
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    Period
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
                     Code / created
                   </TableHead>
-                  <TableHead className="w-[150px] text-right font-mono text-[10px] uppercase tracking-wider">
+                  <TableHead className="h-9 w-[140px] bg-muted/40 text-right text-[11px] font-normal text-muted-foreground">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -1241,13 +1422,18 @@ export function VesselDocumentsArchive({
               <TableBody>
                 {groupedRows
                   ? groupedRows.flatMap(([crewId, group]) => [
-                      <TableRow key={`g-${crewId}`} className="bg-muted/40 hover:bg-muted/40">
+                      <TableRow
+                        key={`g-${crewId}`}
+                        className="border-border bg-muted/30 hover:bg-muted/30"
+                      >
                         <TableCell colSpan={5} className="py-2">
                           <div className="flex items-center gap-2">
                             <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-sm font-semibold">{group.name}</span>
+                            <span className="text-xs font-medium text-foreground">
+                              {group.name}
+                            </span>
                             <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                              {String(group.rows.length).padStart(2, '0')} docs
+                              {group.rows.length} docs
                             </span>
                           </div>
                         </TableCell>
@@ -1259,7 +1445,7 @@ export function VesselDocumentsArchive({
             </Table>
           </div>
         )}
-      </section>
+      </div>
     </div>
   );
 }

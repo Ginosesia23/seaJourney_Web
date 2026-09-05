@@ -99,7 +99,7 @@ export function AssignmentsTab({ userId }: Props) {
 
   if (isLoading) {
     return (
-      <Card className="rounded-2xl">
+      <Card className="rounded-md border-border shadow-none">
         <CardContent className="flex items-center justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </CardContent>
@@ -108,31 +108,48 @@ export function AssignmentsTab({ userId }: Props) {
   }
 
   return (
-    <Card className="rounded-2xl">
-      <CardHeader>
-        <CardTitle className="text-base">Vessel assignments</CardTitle>
-        <CardDescription>
-          {stats.total} assignment{stats.total === 1 ? '' : 's'} ·{' '}
-          {stats.active} active · {stats.totalDays} total days
+    <Card className="rounded-md border-border shadow-none">
+      <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
+        <CardTitle className="text-xs font-medium">Vessel assignments</CardTitle>
+        <CardDescription className="text-[11px]">
+          <span className="font-mono tabular-nums">{stats.total}</span> assignment
+          {stats.total === 1 ? '' : 's'} ·{' '}
+          <span className="font-mono tabular-nums">{stats.active}</span> active ·{' '}
+          <span className="font-mono tabular-nums">{stats.totalDays}</span> total
+          days
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-0">
         {rows.length === 0 ? (
-          <p className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+          <p className="px-4 py-10 text-center text-xs text-muted-foreground">
             No vessel assignments on file.
           </p>
         ) : (
-          <div className="rounded-lg border">
+          <div className="overflow-hidden">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Vessel</TableHead>
-                  <TableHead>Position</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>From</TableHead>
-                  <TableHead>To</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Status</TableHead>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    Vessel
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    Position
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    Role
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    From
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    To
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    Duration
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                    Status
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

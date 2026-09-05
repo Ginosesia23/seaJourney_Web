@@ -3,29 +3,11 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import {
   canonicalizeVesselTier,
-  hasActiveSubscription,
   hasAisHistoryImportTier,
-  VESSEL_PREMIUM_PLUS_TIERS,
 } from '@/supabase/database/subscription-helpers';
-import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
+import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-tier';
 
-export { hasAisHistoryImportTier };
-
-/** Vessel Premium, Professional, and Fleet may enable live AIS tracking. */
-export function hasVesselAisTrackingTier(userProfile: unknown): boolean {
-  if (!userProfile) return false;
-
-  const p = userProfile as Record<string, unknown>;
-  const role = (p.role || '').toString().toLowerCase();
-  if (role === 'admin') return true;
-  if (role !== 'vessel') return false;
-
-  const tier = canonicalizeVesselTier(
-    (p.subscription_tier || p.subscriptionTier || 'free').toString(),
-  );
-
-  return VESSEL_PREMIUM_PLUS_TIERS.has(tier) && hasActiveSubscription(p);
-}
+export { hasAisHistoryImportTier, hasVesselAisTrackingTier };
 
 export type VesselManagerAuth = {
   userId: string;
@@ -82,6 +64,9 @@ export async function authenticateAisHistoryUser(
   const authResult = await authenticateBearerUser(request, supabaseAdmin);
   if ('error' in authResult) return authResult;
 
+  const { getCrewVesselFeatureBoost } = await import(
+    '@/lib/crew-vessel-feature-boost.server'
+  );
   const vesselBoost = await getCrewVesselFeatureBoost(authResult.auth.userId);
 
   if (!hasAisHistoryImportTier(authResult.auth.profile, vesselBoost)) {

@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { hasPaidDashboardAccess as checkDashboardAccess, isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
 import { isVesselLinkedHrefAllowed } from '@/lib/vessel-linked-features';
-import { isCrewDashboardHrefAllowed } from '@/lib/crew-vessel-feature-boost';
+import { isCrewRestrictedDashboardHrefAllowed } from '@/lib/feature-flags/crew-restricted-nav';
 import { CrewVesselFeatureBoostProvider, useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Loader2 } from 'lucide-react';
@@ -33,15 +33,25 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     isRouteEnabled,
     isLoading: isFlagsLoading,
     isAdmin,
+    flags,
+    tierAccess,
   } = useFeatureFlags();
+
+  const featureGate = useMemo(
+    () => ({ enabledMap: flags, tierAccess, isAdmin }),
+    [flags, tierAccess, isAdmin],
+  );
 
   const {
     data: userProfile,
     isLoading: isProfileLoading,
   } = useDoc<UserProfile>('users', user?.id);
 
-  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
-
+  const { boost: vesselBoost, managerTier } = useCrewVesselFeatureBoost();
+  const vesselContext = useMemo(
+    () => ({ boost: vesselBoost, managerTier }),
+    [vesselBoost, managerTier],
+  );
 
   // Paid (or vessel-managed) entitlement — free / inactive accounts stay on /offers
   const hasActiveSubscription = checkDashboardAccess(userProfile);
@@ -139,7 +149,14 @@ useEffect(() => {
       router.replace('/dashboard');
       return;
     }
-    if (!isCrewDashboardHrefAllowed(pathname, userProfile, vesselBoost)) {
+    if (
+      !isCrewRestrictedDashboardHrefAllowed(
+        pathname,
+        userProfile,
+        vesselContext,
+        featureGate,
+      )
+    ) {
       router.replace('/dashboard');
     }
   }, [
@@ -150,8 +167,9 @@ useEffect(() => {
     hasActiveSubscription,
     pathname,
     userProfile,
-    vesselBoost,
+    vesselContext,
     isRouteEnabled,
+    featureGate,
     router,
   ]);
 
@@ -182,7 +200,12 @@ useEffect(() => {
     (!isRouteEnabled(pathname) ||
       (isVesselLinkedAccount(userProfile) &&
         !isVesselLinkedHrefAllowed(userProfile, pathname)) ||
-      !isCrewDashboardHrefAllowed(pathname, userProfile, vesselBoost))
+      !isCrewRestrictedDashboardHrefAllowed(
+        pathname,
+        userProfile,
+        vesselContext,
+        featureGate,
+      ))
   ) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">

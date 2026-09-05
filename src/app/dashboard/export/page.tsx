@@ -28,9 +28,8 @@ import { toast } from '@/hooks/use-toast';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { getVesselAssignments } from '@/supabase/database/queries';
-import { hasActiveSubscription, hasCrewPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
-import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import type { Vessel, UserProfile, VesselAssignment } from '@/lib/types';
 import Link from 'next/link';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -85,7 +84,7 @@ const formatOptions = [
     label: 'JSON',
     description: 'Raw data structure for developers and data processing',
     icon: FileJson,
-    color: 'text-purple-600 dark:text-purple-400',
+    color: 'text-[#7629BB] dark:text-purple-400',
     bgColor: 'bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800',
   },
   {
@@ -129,6 +128,7 @@ export default function ExportPage() {
     // Fetch user profile to check subscription
     const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
     const { boost: vesselBoost } = useCrewVesselFeatureBoost();
+    const { isEnabled: isFeatureEnabled, isLoading: isFlagsLoading } = useFeatureFlags();
     
     const userProfile = useMemo(() => {
         if (!userProfileRaw) return null;
@@ -147,39 +147,14 @@ export default function ExportPage() {
         } as UserProfile;
     }, [userProfileRaw]);
 
-    // Check if user has access (premium/pro for crew, any active tier for vessels).
-    // crew_limited is always blocked. vessel_linked only when the vessel
-    // manager has granted Export reports on Team accounts.
-    const hasAccess = useMemo(() => {
-        if (!userProfile || !userProfileRaw) return false;
-        const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toString().toLowerCase();
-        const role = (userProfile as any).role || userProfile.role || 'crew';
-        const entitled = hasActiveSubscription(userProfileRaw);
+    const hasAccess = isFeatureEnabled('export_reports');
 
-        if (isVesselLinkedFeatureGranted(userProfileRaw, 'export_reports')) {
-            return entitled;
-        }
-        if (tier === 'vessel_linked') {
-            return false;
-        }
-
-        if (role === 'vessel') {
-            return (tier.startsWith('vessel_') || tier === 'vessel_lite' || tier === 'vessel_basic' || tier === 'vessel_pro' || tier === 'vessel_fleet') && entitled;
-        }
-
-        if (role === 'crew' || role === 'captain') {
-            return hasCrewPremiumPlusFeatures(userProfileRaw, vesselBoost);
-        }
-
-        return false;
-    }, [userProfile, userProfileRaw, vesselBoost]);
-
-    // Redirect non-premium users to dashboard
+    // Redirect when feature flag tier access denies this account
     useEffect(() => {
-        if (!isLoadingProfile && userProfile && !hasAccess) {
+        if (!isLoadingProfile && !isFlagsLoading && userProfile && !hasAccess) {
             router.push('/dashboard');
         }
-    }, [isLoadingProfile, userProfile, hasAccess, router]);
+    }, [isLoadingProfile, isFlagsLoading, userProfile, hasAccess, router]);
 
     // Determine if user is a vessel manager
     const isVesselManager = useMemo(() => {

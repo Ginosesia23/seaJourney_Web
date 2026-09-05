@@ -39,7 +39,6 @@ import {
 
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
 import type { VesselLinkedRole } from '@/lib/types';
 import {
   VESSEL_LINKED_CORE_FEATURES,
@@ -169,7 +168,7 @@ export default function VesselRolesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { flags } = useFeatureFlags();
+  const { flags, isEnabled: isFeatureEnabled } = useFeatureFlags();
   const grantableFeatures = useMemo(
     () => grantableVesselLinkedFeatures((key) => !!flags[key]),
     [flags],
@@ -183,11 +182,7 @@ export default function VesselRolesPage() {
   const activeVesselId = (profileRaw?.active_vessel_id as string) || null;
 
   const isVesselManager = role === 'vessel';
-  const hasPremiumPlusTier = useMemo(() => {
-    if (!profileRaw) return false;
-    if (!isVesselManager) return false;
-    return hasVesselPremiumPlusFeatures(profileRaw);
-  }, [profileRaw, isVesselManager]);
+  const hasPremiumPlusTier = isFeatureEnabled('vessel_team_accounts');
 
   const panelStats = useMemo(() => {
     const live = linked.filter((a) => Boolean(a.lastSignInAt)).length;

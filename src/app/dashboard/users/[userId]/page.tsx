@@ -7,16 +7,10 @@ import Link from 'next/link';
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import type { UserProfile } from '@/lib/types';
+import { formatSubscriptionTierLabel } from '@/lib/subscription-tier-labels';
+import { cn } from '@/lib/utils';
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -174,8 +168,9 @@ export default function AdminUserDetailPage() {
   if (isLoadingActor) {
     return (
       <div className="flex flex-col gap-6">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-32 w-full rounded-2xl" />
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-8 w-72" />
+        <Skeleton className="h-24 w-full rounded-md" />
       </div>
     );
   }
@@ -185,11 +180,9 @@ export default function AdminUserDetailPage() {
     return (
       <div className="flex flex-col gap-6">
         <BackLink />
-        <Card className="rounded-2xl">
-          <CardContent className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </CardContent>
-        </Card>
+        <div className="flex items-center justify-center rounded-md border border-border bg-muted/40 py-16">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
       </div>
     );
   }
@@ -198,14 +191,12 @@ export default function AdminUserDetailPage() {
     return (
       <div className="flex flex-col gap-6">
         <BackLink />
-        <Card className="rounded-2xl border-destructive/30">
-          <CardHeader>
-            <CardTitle>User not found</CardTitle>
-            <CardDescription>
-              {loadError || 'No account exists for this id.'}
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <div className="rounded-md border border-destructive/30 bg-background px-4 py-6">
+          <p className="text-sm font-medium text-foreground">User not found</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {loadError || 'No account exists for this id.'}
+          </p>
+        </div>
       </div>
     );
   }
@@ -215,69 +206,131 @@ export default function AdminUserDetailPage() {
     target.username ||
     target.email ||
     '—';
-  const initials = (fullName.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('') || '?').toUpperCase();
+  const initials = (
+    fullName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0])
+      .join('') || '?'
+  ).toUpperCase();
+  const role = (target.role || 'crew').toLowerCase();
+  const subStatus = (target.subscription_status || '').toLowerCase();
 
   return (
     <div className="flex flex-col gap-6">
-      <BackLink />
+      {/* Page header — Supabase Studio style */}
+      <div className="flex flex-col gap-4 border-b border-border pb-5">
+        <BackLink />
 
-      {/* Header card */}
-      <Card className="rounded-2xl border shadow-sm">
-        <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-5">
-          <Avatar className="h-16 w-16 border">
-            {target.profile_picture ? (
-              <AvatarImage src={target.profile_picture} alt={fullName} />
-            ) : null}
-            <AvatarFallback className="text-base font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold leading-tight tracking-tight">
-                {fullName}
-              </h1>
-              <RoleChip role={target.role || 'crew'} />
-              {target.is_testing === true && (
-                <Badge
-                  variant="outline"
-                  className="gap-1 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <Avatar className="h-11 w-11 rounded-md border border-border">
+              {target.profile_picture ? (
+                <AvatarImage src={target.profile_picture} alt={fullName} />
+              ) : null}
+              <AvatarFallback className="rounded-md text-sm font-medium">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                <span>Platform</span>
+                <span className="text-border">/</span>
+                <Link
+                  href="/dashboard/users"
+                  className="hover:text-foreground"
                 >
-                  <FlaskConical className="h-3 w-3" />
-                  Testing
-                </Badge>
-              )}
-              {target.subscription_tier && (
-                <Badge variant="outline" className="capitalize">
-                  {target.subscription_tier} · {target.subscription_status ?? '—'}
-                </Badge>
-              )}
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-              {target.username && <span>@{target.username}</span>}
-              {target.email && (
-                <span className="inline-flex items-center gap-1">
-                  <Mail className="h-3.5 w-3.5" />
-                  {target.email}
-                </span>
-              )}
-              {target.position && <span>{target.position}</span>}
-              {vesselName && (
-                <span className="inline-flex items-center gap-1">
-                  <Ship className="h-3.5 w-3.5" />
-                  {vesselName}
-                </span>
-              )}
+                  Users
+                </Link>
+                <span className="text-border">/</span>
+                <span className="truncate text-foreground">{fullName}</span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-medium tracking-tight text-foreground">
+                  {fullName}
+                </h1>
+                <RoleChip role={role} />
+                {target.is_testing === true ? (
+                  <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-300">
+                    <FlaskConical className="h-2.5 w-2.5" />
+                    Testing
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                {target.username ? (
+                  <span className="font-mono">@{target.username}</span>
+                ) : null}
+                {target.email ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Mail className="h-3 w-3" />
+                    <span className="truncate">{target.email}</span>
+                  </span>
+                ) : null}
+                {target.position ? (
+                  <span className="capitalize">{target.position}</span>
+                ) : null}
+                {vesselName ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Ship className="h-3 w-3" />
+                    {vesselName}
+                    {vesselSource === 'profile' ? (
+                      <span className="text-amber-600">(profile)</span>
+                    ) : null}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 self-start sm:self-center">
-            {(target.role === 'crew' ||
-              target.role === 'captain' ||
-              target.role === 'vessel') && (
-              <Button asChild variant="outline" size="sm">
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {target.subscription_tier ? (
+              <div className="hidden items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
+                <span className="text-foreground">
+                  {formatSubscriptionTierLabel(target.subscription_tier)}
+                </span>
+                <span className="h-3 w-px bg-border" />
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 capitalize',
+                    subStatus === 'active' && 'text-emerald-600',
+                    subStatus === 'past-due' && 'text-amber-600',
+                    (subStatus === 'inactive' || subStatus === 'canceled') &&
+                      'text-destructive',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 rounded-full',
+                      subStatus === 'active' && 'bg-emerald-500',
+                      subStatus === 'past-due' && 'bg-amber-500',
+                      (subStatus === 'inactive' || subStatus === 'canceled') &&
+                        'bg-destructive',
+                      !['active', 'past-due', 'inactive', 'canceled'].includes(
+                        subStatus,
+                      ) && 'bg-muted-foreground/50',
+                    )}
+                  />
+                  {target.subscription_status?.replace(/_/g, ' ') ?? '—'}
+                </span>
+              </div>
+            ) : null}
+
+            {(role === 'crew' || role === 'captain' || role === 'vessel') && (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-md border-border text-xs"
+              >
                 <Link
                   href={
-                    target.role === 'vessel'
+                    role === 'vessel'
                       ? '/dashboard/vessel-subscriptions'
                       : '/dashboard/crew-subscriptions'
                   }
@@ -287,19 +340,33 @@ export default function AdminUserDetailPage() {
               </Button>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Tabs */}
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-xl bg-muted/40 p-1">
-          <TabTrigger value="overview" icon={ShieldCheck}>Overview</TabTrigger>
-          <TabTrigger value="calendar" icon={CalendarIcon}>Calendar</TabTrigger>
-          <TabTrigger value="assignments" icon={Ship}>Assignments</TabTrigger>
-          <TabTrigger value="watches" icon={Navigation}>Watches</TabTrigger>
-          <TabTrigger value="passages" icon={ClipboardList}>Passages</TabTrigger>
-          <TabTrigger value="testimonials" icon={FileSignature}>Testimonials</TabTrigger>
-          <TabTrigger value="seatime" icon={CalendarIcon}>Sea time</TabTrigger>
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+          <TabTrigger value="overview" icon={ShieldCheck}>
+            Overview
+          </TabTrigger>
+          <TabTrigger value="calendar" icon={CalendarIcon}>
+            Calendar
+          </TabTrigger>
+          <TabTrigger value="assignments" icon={Ship}>
+            Assignments
+          </TabTrigger>
+          <TabTrigger value="watches" icon={Navigation}>
+            Watches
+          </TabTrigger>
+          <TabTrigger value="passages" icon={ClipboardList}>
+            Passages
+          </TabTrigger>
+          <TabTrigger value="testimonials" icon={FileSignature}>
+            Testimonials
+          </TabTrigger>
+          <TabTrigger value="seatime" icon={CalendarIcon}>
+            Sea time
+          </TabTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -338,14 +405,17 @@ export default function AdminUserDetailPage() {
 
 function BackLink() {
   return (
-    <div>
-      <Button asChild variant="ghost" size="sm" className="-ml-2 text-muted-foreground">
-        <Link href="/dashboard/users">
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Back to user lookup
-        </Link>
-      </Button>
-    </div>
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      className="-ml-2 h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+    >
+      <Link href="/dashboard/users">
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Back to user lookup
+      </Link>
+    </Button>
   );
 }
 
@@ -361,7 +431,7 @@ function TabTrigger({
   return (
     <TabsTrigger
       value={value}
-      className="gap-1.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"
+      className="h-7 gap-1.5 rounded-[5px] px-2.5 text-xs text-muted-foreground shadow-none data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
     >
       <Icon className="h-3.5 w-3.5" />
       {children}
@@ -370,17 +440,23 @@ function TabTrigger({
 }
 
 function RoleChip({ role }: { role: string }) {
-  const variant: 'default' | 'secondary' | 'destructive' | 'outline' =
-    role === 'admin'
-      ? 'destructive'
-      : role === 'vessel'
-        ? 'default'
-        : role === 'captain'
-          ? 'default'
-          : 'secondary';
   return (
-    <Badge variant={variant} className="capitalize">
+    <span
+      className={cn(
+        'rounded border px-1.5 py-0.5 text-[10px] capitalize',
+        role === 'admin' &&
+          'border-destructive/40 bg-destructive/10 text-destructive',
+        role === 'vessel' &&
+          'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+        role === 'captain' &&
+          'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400',
+        role !== 'admin' &&
+          role !== 'vessel' &&
+          role !== 'captain' &&
+          'border-border bg-muted/60 text-muted-foreground',
+      )}
+    >
       {role}
-    </Badge>
+    </span>
   );
 }

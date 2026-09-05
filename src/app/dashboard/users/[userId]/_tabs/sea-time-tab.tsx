@@ -106,7 +106,7 @@ export function SeaTimeTab({ userId }: Props) {
 
   if (isLoading) {
     return (
-      <Card className="rounded-2xl">
+      <Card className="rounded-md border-border shadow-none">
         <CardContent className="flex items-center justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </CardContent>
@@ -115,16 +115,21 @@ export function SeaTimeTab({ userId }: Props) {
   }
 
   return (
-    <Card className="rounded-2xl">
-      <CardHeader>
-        <CardTitle className="text-base">Sea time requests</CardTitle>
-        <CardDescription>
-          {stats.total} total · {stats.approved} approved · {stats.pending} pending · {stats.rejected} rejected
+    <Card className="rounded-md border-border shadow-none">
+      <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
+        <CardTitle className="text-xs font-medium">Sea time requests</CardTitle>
+        <CardDescription className="text-[11px]">
+          <span className="font-mono tabular-nums">{stats.total}</span> total ·{' '}
+          <span className="font-mono tabular-nums">{stats.approved}</span>{' '}
+          approved ·{' '}
+          <span className="font-mono tabular-nums">{stats.pending}</span> pending
+          · <span className="font-mono tabular-nums">{stats.rejected}</span>{' '}
+          rejected
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 py-3">
         {rows.length === 0 ? (
-          <p className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+          <p className="py-10 text-center text-xs text-muted-foreground">
             No sea time requests on file.
           </p>
         ) : (

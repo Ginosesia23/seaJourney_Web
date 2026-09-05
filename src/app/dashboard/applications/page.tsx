@@ -20,20 +20,20 @@ function RedirectInner() {
     router.replace(dest);
   }, [router, searchParams]);
 
-  return (
+    return (
     <div className="flex min-h-[240px] items-center justify-center text-muted-foreground">
       <Loader2 className="h-6 w-6 animate-spin" />
-    </div>
-  );
-}
+      </div>
+    );
+  }
 
 export default function ApplicationsRedirectPage() {
-  return (
+    return (
     <Suspense
       fallback={
         <div className="flex min-h-[240px] items-center justify-center text-muted-foreground">
           <Loader2 className="h-6 w-6 animate-spin" />
-        </div>
+          </div>
       }
     >
       <RedirectInner />

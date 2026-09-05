@@ -11,6 +11,7 @@ export type CareerLevel =
   | 'deckhand'
   | 'rating'
   | 'watch_rating'
+  | 'edh'
   | 'oow'
   | 'chief_mate'
   | 'master'
@@ -39,6 +40,7 @@ const DECK_ORDER: CareerLevel[] = [
   'entry',
   'deckhand',
   'watch_rating',
+  'edh',
   'oow',
   'chief_mate',
   'master',
@@ -59,6 +61,7 @@ export const CAREER_LEVEL_LABELS: Record<CareerLevel, string> = {
   deckhand: 'Deckhand',
   rating: 'Senior deck / Bosun',
   watch_rating: 'Watch Rating',
+  edh: 'Efficient Deck Hand (EDH)',
   oow: 'Officer of the Watch (OOW)',
   chief_mate: 'Chief Mate',
   master: 'Master / Captain',
@@ -93,6 +96,12 @@ export const TARGETABLE_LEVELS: Array<{
     level: 'watch_rating',
     label: 'Watch Rating (deck)',
     hint: 'Typical next step after deckhand / AB experience',
+  },
+  {
+    track: 'deck',
+    level: 'edh',
+    label: 'Efficient Deck Hand (EDH)',
+    hint: 'Required before OOW — often held 18+ months',
   },
   {
     track: 'deck',

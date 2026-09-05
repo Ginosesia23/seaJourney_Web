@@ -341,7 +341,7 @@ export function ProofOfServicePanel({ embedded = false }: { embedded?: boolean }
                   </div>
                   <div>
                     <span className="text-muted-foreground">Standby</span>
-                    <p className="font-semibold text-purple-600 dark:text-purple-400">{entry.standbyDays}</p>
+                    <p className="font-semibold text-[#7629BB] dark:text-purple-400">{entry.standbyDays}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Yard</span>

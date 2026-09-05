@@ -1,6 +1,7 @@
 /**
  * When crew (or captains) join a vessel on Vessel Professional / Fleet,
- * pause their personal plan and put them on `crew_limited` (vessel-paid access).
+ * pause their personal plan and put them on `crew_limited` (vessel-paid access)
+ * — but only after the vessel account approves plan coverage.
  * When they leave every such vessel, restore the last personal plan and email them.
  */
 
@@ -18,12 +19,21 @@ import {
   VESSEL_LINKED_TIER,
 } from '@/supabase/database/subscription-helpers';
 import { managerForVessel } from '@/lib/crew-vessel-feature-boost.server';
+import {
+  ensurePendingVesselPlanCoverageRequest,
+  hasApprovedVesselPlanCoverage,
+} from '@/lib/vessel-plan-coverage';
+import { VESSEL_PLANS_THAT_PAUSE_CREW_BILLING } from '@/lib/vessel-crew-plan-constants';
 
 /** Vessel plans that cover assigned crew — personal billing should pause. */
-export const VESSEL_PLANS_THAT_PAUSE_CREW_BILLING = new Set<string>([
-  'vessel_pro',
-  'vessel_fleet',
-]);
+export { VESSEL_PLANS_THAT_PAUSE_CREW_BILLING };
+
+export async function vesselRequiresPlanCoverageApproval(
+  vesselId: string,
+): Promise<boolean> {
+  const manager = await managerForVessel(vesselId);
+  return vesselPlanCoversAssignedCrew(manager);
+}
 
 const PAID_CREW_TIERS = new Set<string>([
   'standard',
@@ -87,26 +97,37 @@ function vesselPlanCoversAssignedCrew(manager: {
   return VESSEL_PLANS_THAT_PAUSE_CREW_BILLING.has(tier);
 }
 
-async function qualifyingActiveAssignment(userId: string): Promise<{
-  vesselId: string;
-} | null> {
+async function coveringActiveAssignments(userId: string): Promise<
+  Array<{ vesselId: string; coverageApproved: boolean }>
+> {
   const { data: assignments, error } = await supabaseAdmin
     .from('vessel_assignments')
     .select('vessel_id')
     .eq('user_id', userId)
     .is('end_date', null);
 
-  if (error || !assignments?.length) return null;
+  if (error || !assignments?.length) return [];
 
+  const results: Array<{ vesselId: string; coverageApproved: boolean }> = [];
   for (const row of assignments) {
     const vesselId = row.vessel_id as string;
     const manager = await managerForVessel(vesselId);
     if (manager?.id === userId) continue;
-    if (vesselPlanCoversAssignedCrew(manager)) {
-      return { vesselId };
-    }
+    if (!vesselPlanCoversAssignedCrew(manager)) continue;
+    const approved = await hasApprovedVesselPlanCoverage(userId, vesselId);
+    results.push({ vesselId, coverageApproved: approved });
   }
-  return null;
+  return results;
+}
+
+/** Self-joined crew/captain — vessel must approve before they fall under the vessel plan. */
+function shouldRequestVesselPlanCoverage(user: UserPlanRow): boolean {
+  const role = (user.role || '').toLowerCase();
+  if (role === 'vessel' || role === 'admin') return false;
+  if (user.managed_by_vessel_id) return false;
+  const tier = (user.subscription_tier || '').toLowerCase();
+  if (tier === VESSEL_LINKED_TIER) return false;
+  return role === 'crew' || role === 'captain' || !role;
 }
 
 function shouldPausePersonalPlan(user: UserPlanRow): boolean {
@@ -254,9 +275,38 @@ export async function reconcileCrewPersonalPlanForUser(
   }
 
   const row = user as UserPlanRow;
-  const qualifying = await qualifyingActiveAssignment(userId);
+  const covering = await coveringActiveAssignments(userId);
+  const qualifying = covering.find((c) => c.coverageApproved) || covering[0] || null;
 
-  if (qualifying && shouldPausePersonalPlan(row)) {
+  // Open a pending request for every Pro/Fleet assignment that is not yet approved.
+  // Self-join must always notify the vessel — do not wait for a paid personal plan.
+  if (shouldRequestVesselPlanCoverage(row)) {
+    for (const entry of covering) {
+      if (entry.coverageApproved) continue;
+      try {
+        await ensurePendingVesselPlanCoverageRequest({
+          crewUserId: userId,
+          vesselId: entry.vesselId,
+        });
+      } catch (err) {
+        console.error('[crew-plan] Failed to open coverage request', entry.vesselId, err);
+      }
+    }
+  }
+
+  // Qualifying vessel exists but vessel has not approved coverage yet.
+  if (qualifying && !qualifying.coverageApproved) {
+    // Never keep vessel-managed billing until the vessel approves coverage.
+    const tierLower = (row.subscription_tier || '').toLowerCase();
+    if (row.personal_plan_paused_at || tierLower === CREW_LIMITED_TIER) {
+      await resumePersonalPlan(row);
+      return { action: 'resumed' };
+    }
+
+    return { action: 'noop' };
+  }
+
+  if (qualifying?.coverageApproved && shouldPausePersonalPlan(row)) {
     if (
       row.personal_plan_paused_at &&
       row.subscription_tier === CREW_LIMITED_TIER &&
@@ -268,7 +318,11 @@ export async function reconcileCrewPersonalPlanForUser(
     return { action: 'paused' };
   }
 
-  if (!qualifying && row.personal_plan_paused_at) {
+  // No approved covering vessel — resume if currently paused.
+  if (
+    row.personal_plan_paused_at &&
+    (!qualifying || !qualifying.coverageApproved)
+  ) {
     await resumePersonalPlan(row);
     return { action: 'resumed' };
   }

@@ -29,7 +29,7 @@ const routeLabels: Record<string, string> = {
   "/dashboard/vessels": "Vessels",
   "/dashboard/profile": "Profile",
   "/dashboard/crew": "Crew",
-  "/dashboard/pending-requests": "Pending requests",
+  "/dashboard/inbox": "Inbox",
   "/dashboard/career-documents": "Career documents",
   "/dashboard/applications": "Career documents",
   "/dashboard/proof-of-service": "Career documents",

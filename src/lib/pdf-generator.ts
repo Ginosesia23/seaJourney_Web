@@ -2561,7 +2561,7 @@ async function generateSeaJourneyTestimonialModern(
   const colors = {
     navy: SJ_PDF_NAVY_RGB as RGB,
     blue: SJ_PDF_ACCENT_RGB as RGB,
-    purple: [126, 34, 206] as RGB,
+    purple: [118, 41, 187] as RGB,
     text: [28, 28, 30] as RGB,
     muted: [107, 114, 128] as RGB,
     border: [226, 232, 240] as RGB,
@@ -3641,7 +3641,7 @@ export async function generateProofOfServicePDF(
   const colors = {
     navy: SJ_PDF_NAVY_RGB as [number, number, number],
     blue: SJ_PDF_ACCENT_RGB as [number, number, number],
-    purple: [126, 34, 206] as [number, number, number],
+    purple: [118, 41, 187] as [number, number, number],
     text: [28, 28, 30] as [number, number, number],
     muted: [107, 114, 128] as [number, number, number],
     border: [226, 232, 240] as [number, number, number],
@@ -4056,7 +4056,7 @@ export async function generateSeaServiceBreakdownPDF(
   const colors = {
     navy: SJ_PDF_NAVY_RGB as [number, number, number],
     blue: SJ_PDF_ACCENT_RGB as [number, number, number],
-    purple: [126, 34, 206] as [number, number, number],
+    purple: [118, 41, 187] as [number, number, number],
     text: [28, 28, 30] as [number, number, number],
     muted: [107, 114, 128] as [number, number, number],
     border: [226, 232, 240] as [number, number, number],
@@ -4305,7 +4305,7 @@ export async function generateCustomDocumentPDF(
   const colors = {
     navy: SJ_PDF_NAVY_RGB as [number, number, number],
     blue: SJ_PDF_ACCENT_RGB as [number, number, number],
-    purple: [126, 34, 206] as [number, number, number],
+    purple: [118, 41, 187] as [number, number, number],
     text: [28, 28, 30] as [number, number, number],
     muted: [107, 114, 128] as [number, number, number],
     border: [226, 232, 240] as [number, number, number],

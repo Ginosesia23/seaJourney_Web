@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { reconcileCrewPersonalPlanForUser } from '@/lib/crew-personal-plan-on-vessel';
+import { approveVesselPlanCoverageForInvite } from '@/lib/vessel-plan-coverage';
 
 export async function POST(req: NextRequest) {
   try {
@@ -301,6 +302,17 @@ export async function POST(req: NextRequest) {
           .eq('id', existingAssignment.id);
         
         console.log('[APPROVE CAPTAINCY API] Updated vessel assignment for captain:', captainUserId, 'onboard:', shouldSetOnboard);
+      }
+
+      try {
+        await approveVesselPlanCoverageForInvite({
+          crewUserId: captainUserId,
+          vesselId,
+          reviewedBy: user.id,
+          notes: 'Auto-approved when vessel/admin approved captaincy claim',
+        });
+      } catch (coverageErr) {
+        console.error('[APPROVE CAPTAINCY API] Plan coverage auto-approve failed', coverageErr);
       }
 
       void reconcileCrewPersonalPlanForUser(captainUserId).catch((err) =>

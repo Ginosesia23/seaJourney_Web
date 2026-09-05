@@ -2571,7 +2571,7 @@ export function TestimonialsWorkspace({ embedded = false }: { embedded?: boolean
                         >
                           <Icon className="mr-2 h-4 w-4" />
                           {type.label}
-                          <Sparkles className="ml-2 h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                          <Sparkles className="ml-2 h-4 w-4 text-[#7629BB] dark:text-purple-400 shrink-0" />
                         </Button>
                       </div>
                     </TooltipTrigger>
@@ -3053,7 +3053,7 @@ export function TestimonialsWorkspace({ embedded = false }: { embedded?: boolean
                             </div>
                             <div>
                               <div className="text-muted-foreground text-[10px]">Standby</div>
-                              <div className="font-semibold text-purple-600 dark:text-purple-400">{dayCountsPreview.standby_days}</div>
+                              <div className="font-semibold text-[#7629BB] dark:text-purple-400">{dayCountsPreview.standby_days}</div>
                             </div>
                             <div>
                               <div className="text-muted-foreground text-[10px]">Yard</div>
@@ -4709,7 +4709,7 @@ export function TestimonialsWorkspace({ embedded = false }: { embedded?: boolean
                   </div>
                   <div className="rounded-lg border bg-muted/40 p-3">
                     <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Standby</div>
-                    <div className="text-lg font-semibold text-purple-600 dark:text-purple-400">{viewTestimonialBreakdown.standby_days}</div>
+                    <div className="text-lg font-semibold text-[#7629BB] dark:text-purple-400">{viewTestimonialBreakdown.standby_days}</div>
                   </div>
                   <div className="rounded-lg border bg-muted/40 p-3">
                     <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">In yard</div>

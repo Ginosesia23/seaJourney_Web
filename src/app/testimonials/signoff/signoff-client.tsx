@@ -356,7 +356,7 @@ function VesselBreakdownView({
               <span className="shrink-0 font-medium tabular-nums">{summary.passage}</span>
             </div>
             <div className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1.5">
-              <Clock className="h-3 w-3 shrink-0 text-purple-600" />
+              <Clock className="h-3 w-3 shrink-0 text-[#7629BB]" />
               <div className="min-w-0 flex-1 truncate text-muted-foreground">Standby</div>
               <span className="shrink-0 font-medium tabular-nums">{summary.standby}</span>
             </div>
@@ -557,7 +557,7 @@ function SignoffDayCell({
         </div>
       )}
       {isStandby && !isPassage && (
-        <div className="flex items-center gap-2 text-purple-600">
+        <div className="flex items-center gap-2 text-[#7629BB]">
           <Clock className="h-3.5 w-3.5" />
           <span>Counted as Standby</span>
         </div>
@@ -594,7 +594,7 @@ function SignoffDayCell({
             {indicator === 'standby' && (
               <div
                 aria-hidden
-                className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-purple-600"
+                className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-[#7629BB]"
               />
             )}
           </div>

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
-import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
+import { isFeatureAccessibleServer } from '@/lib/feature-flags/server';
 import { createPassageLog, getPassageLogs, getPassageLogsByVessel, updatePassageLog } from '@/supabase/database/queries';
 import { resolvePassageEndpointNames } from '@/lib/passages-map/resolve-endpoint-name';
 import {
@@ -20,12 +19,21 @@ import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-async function assertMapAndLogbookFlags(profile: {
-  role?: string | null;
-}): Promise<NextResponse | null> {
+async function assertMapAndLogbookFlags(
+  profile: Record<string, unknown>,
+  vesselBoost: Awaited<ReturnType<typeof getCrewVesselFeatureBoost>>,
+): Promise<NextResponse | null> {
   const isAdmin = String(profile.role || '').toLowerCase() === 'admin';
-  const mapOn = await isFeatureEnabledServer('passages_map', { isAdmin });
-  const logOn = await isFeatureEnabledServer('passage_logbook', { isAdmin });
+  const mapOn = await isFeatureAccessibleServer('passages_map', {
+    isAdmin,
+    profile,
+    vesselBoost,
+  });
+  const logOn = await isFeatureAccessibleServer('passage_logbook', {
+    isAdmin,
+    profile,
+    vesselBoost,
+  });
   if (!mapOn || !logOn) {
     return NextResponse.json(
       { error: 'This passages feature is temporarily unavailable.' },
@@ -82,14 +90,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
     const vesselBoost = await getCrewVesselFeatureBoost(user.id);
-    if (!hasPassagesMapAccess(profile, vesselBoost)) {
-      return NextResponse.json(
-        { error: 'Passages map is not included on your plan' },
-        { status: 402 },
-      );
-    }
-
-    const blocked = await assertMapAndLogbookFlags(profile);
+    const blocked = await assertMapAndLogbookFlags(profile, vesselBoost);
     if (blocked) return blocked;
 
     const body = (await req.json()) as PromoteBody;
@@ -319,10 +320,19 @@ export async function GET(req: NextRequest) {
       .eq('id', user.id)
       .maybeSingle();
     const vesselBoost = await getCrewVesselFeatureBoost(user.id);
-    if (!profile || !hasPassagesMapAccess(profile, vesselBoost)) {
+    if (!profile) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    }
+    const role = String(profile.role || '').toLowerCase();
+    const mapOn = await isFeatureAccessibleServer('passages_map', {
+      isAdmin: role === 'admin',
+      profile,
+      vesselBoost,
+    });
+    if (!mapOn) {
       return NextResponse.json(
-        { error: 'Passages map is not included on your plan' },
-        { status: 402 },
+        { error: 'Passages map is not available for your plan.' },
+        { status: 403 },
       );
     }
 

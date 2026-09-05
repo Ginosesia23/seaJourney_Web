@@ -39,6 +39,7 @@ export function DashboardStatRow({
     label: string;
     value: string | number;
     hint?: string;
+    tone?: 'default' | 'sky' | 'emerald' | 'purple' | 'amber';
   }>;
   className?: string;
 }) {
@@ -57,7 +58,15 @@ export function DashboardStatRow({
           <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             {item.label}
           </div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight">
+          <div
+            className={cn(
+              'mt-1 text-2xl font-semibold tabular-nums tracking-tight',
+              item.tone === 'sky' && 'text-sky-600',
+              item.tone === 'emerald' && 'text-emerald-600',
+              item.tone === 'purple' && 'text-[#7629BB]',
+              item.tone === 'amber' && 'text-amber-600',
+            )}
+          >
             {item.value}
           </div>
           {item.hint ? (

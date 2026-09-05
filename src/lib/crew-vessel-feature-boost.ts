@@ -1,8 +1,12 @@
 /**
- * While a crew account is on an active assignment to a vessel on Vessel Premium
- * or Professional, they inherit that vessel's crew feature level (Premium or
- * Professional). When the assignment ends they fall back to their own tier
- * (crew_limited base, or a resumed personal subscription).
+ * While a crew account is on an active assignment, they inherit a feature
+ * ceiling from the vessel manager's plan:
+ *   Vessel Standard → Standard and below
+ *   Vessel Premium → Premium and below
+ *   Vessel Professional/Fleet → Professional and below
+ * They never receive features above that vessel plan. When the assignment ends
+ * they fall back to their own tier (crew_limited base, or a resumed personal
+ * subscription).
  *
  * Client-safe module — no service-role Supabase imports.
  * Server resolvers live in `crew-vessel-feature-boost.server.ts`.
@@ -15,12 +19,15 @@ import {
   hasActiveSubscription,
   isCrewLimitedAccount,
   isPersonalPlanPausedForVessel,
-  VESSEL_PREMIUM_PLUS_TIERS,
 } from '@/supabase/database/subscription-helpers';
 import { CREW_LIMITED_ALLOWED_HREFS } from '@/lib/vessel-linked-features';
+import { VESSEL_PLANS_THAT_PAUSE_CREW_BILLING } from '@/lib/vessel-crew-plan-constants';
 
-/** Feature level granted to crew from the vessel manager's plan. */
-export type CrewVesselFeatureBoost = 'premium' | 'professional';
+/**
+ * Feature ceiling granted to vessel-managed crew from the vessel manager's plan.
+ * Higher vessel plans unlock that plan and everything below — never above.
+ */
+export type CrewVesselFeatureBoost = 'standard' | 'premium' | 'professional';
 
 export type CrewVesselFeatureBoostState = {
   boost: CrewVesselFeatureBoost | null;
@@ -51,19 +58,30 @@ function getRoleLower(userProfile: unknown): string {
   return (p?.role || 'crew').toString().toLowerCase();
 }
 
-/** Map vessel manager tier → crew feature boost (null = no uplift). */
+/** Map vessel manager tier → crew feature ceiling (null = stay crew_limited). */
 export function vesselTierToCrewFeatureBoost(
   managerTier: string | null | undefined,
 ): CrewVesselFeatureBoost | null {
   const tier = canonicalizeVesselTier(managerTier);
   if (tier === 'vessel_pro' || tier === 'vessel_fleet') return 'professional';
   if (tier === 'vessel_basic') return 'premium';
+  if (tier === 'vessel_lite') return 'standard';
   return null;
 }
 
 function boostRank(boost: CrewVesselFeatureBoost | null): number {
-  if (boost === 'professional') return 2;
-  if (boost === 'premium') return 1;
+  if (boost === 'professional') return 3;
+  if (boost === 'premium') return 2;
+  if (boost === 'standard') return 1;
+  return 0;
+}
+
+function assignmentVesselTierRank(tier: string | null | undefined): number {
+  const t = canonicalizeVesselTier(tier);
+  if (t === 'vessel_fleet') return 4;
+  if (t === 'vessel_pro') return 3;
+  if (t === 'vessel_basic') return 2;
+  if (t === 'vessel_lite') return 1;
   return 0;
 }
 
@@ -104,9 +122,7 @@ async function managerForVesselClient(
 
 function managerGrantsCrewFeatureBoost(manager: ManagerRow | null): CrewVesselFeatureBoost | null {
   if (!manager || !hasActiveSubscription(manager)) return null;
-  const tier = canonicalizeVesselTier(manager.subscription_tier);
-  if (!VESSEL_PREMIUM_PLUS_TIERS.has(tier)) return null;
-  return vesselTierToCrewFeatureBoost(tier);
+  return vesselTierToCrewFeatureBoost(manager.subscription_tier);
 }
 
 /** Client: resolve best vessel feature boost via RLS-safe supabase client. */
@@ -125,18 +141,40 @@ export async function fetchCrewVesselFeatureBoost(
   }
 
   const vesselIds = assignments.map((a) => a.vessel_id as string);
+
+  const coverageByVessel = new Map<string, string>();
+  const { data: coverageRows } = await supabase
+    .from('vessel_plan_coverage_requests')
+    .select('vessel_id, status')
+    .eq('crew_user_id', userId)
+    .in('vessel_id', vesselIds);
+  for (const row of coverageRows || []) {
+    coverageByVessel.set(row.vessel_id as string, (row.status as string) || '');
+  }
+
   let best: CrewVesselFeatureBoost | null = null;
   let bestVesselId: string | null = null;
   let bestManagerTier: string | null = null;
+  let bestAssignmentTierRank = -1;
 
   for (const vesselId of vesselIds) {
     const manager = await managerForVesselClient(supabase, vesselId);
     if (manager?.id === userId) continue;
+    const managerTierCanon = canonicalizeVesselTier(manager?.subscription_tier);
+    if (VESSEL_PLANS_THAT_PAUSE_CREW_BILLING.has(managerTierCanon)) {
+      if (coverageByVessel.get(vesselId) !== 'approved') continue;
+    }
+
+    const assignmentRank = assignmentVesselTierRank(manager?.subscription_tier);
+    if (assignmentRank > bestAssignmentTierRank) {
+      bestAssignmentTierRank = assignmentRank;
+      bestManagerTier = manager?.subscription_tier ?? null;
+    }
+
     const boost = managerGrantsCrewFeatureBoost(manager);
     if (boostRank(boost) > boostRank(best)) {
       best = boost;
       bestVesselId = vesselId;
-      bestManagerTier = manager?.subscription_tier ?? null;
     }
   }
 
@@ -179,6 +217,7 @@ export function getEffectiveCrewFeatureTier(
 
   if (vesselBoost === 'professional') return 'professional';
   if (vesselBoost === 'premium') return 'premium';
+  if (vesselBoost === 'standard') return 'standard';
   return CREW_LIMITED_TIER;
 }
 
@@ -212,5 +251,6 @@ export function isCrewDashboardHrefAllowed(
 export function crewVesselBoostLabel(boost: CrewVesselFeatureBoost | null): string | null {
   if (boost === 'professional') return 'Vessel Professional features';
   if (boost === 'premium') return 'Vessel Premium features';
+  if (boost === 'standard') return 'Vessel Standard features';
   return null;
 }

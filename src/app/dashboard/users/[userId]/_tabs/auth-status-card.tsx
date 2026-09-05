@@ -5,7 +5,6 @@ import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import {
   AlertTriangle,
   Ban,
-  CheckCircle2,
   Loader2,
   Mail,
   RefreshCw,
@@ -22,7 +21,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -229,11 +227,11 @@ export function AuthStatusCard({
 
   if (isLoading) {
     return (
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Authentication</CardTitle>
+      <Card className="rounded-md border-border shadow-none">
+        <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
+          <CardTitle className="text-xs font-medium">Authentication</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-2 px-4 py-3">
           <Skeleton className="h-5 w-48" />
           <Skeleton className="h-4 w-32" />
         </CardContent>
@@ -243,13 +241,15 @@ export function AuthStatusCard({
 
   if (error || !status) {
     return (
-      <Card className="rounded-2xl border-destructive/30">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base text-destructive">
-            <AlertTriangle className="h-4 w-4" />
+      <Card className="rounded-md border-destructive/30 shadow-none">
+        <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
+          <CardTitle className="flex items-center gap-1.5 text-xs font-medium text-destructive">
+            <AlertTriangle className="h-3.5 w-3.5" />
             Authentication
           </CardTitle>
-          <CardDescription>{error || 'No auth record found.'}</CardDescription>
+          <CardDescription className="text-[11px]">
+            {error || 'No auth record found.'}
+          </CardDescription>
         </CardHeader>
       </Card>
     );
@@ -261,84 +261,87 @@ export function AuthStatusCard({
   return (
     <Card
       className={cn(
-        'rounded-2xl',
-        !confirmed && 'border-amber-300 bg-amber-50/40 dark:bg-amber-950/10',
-        banned && 'border-destructive/40 bg-destructive/5',
+        'rounded-md border-border shadow-none',
+        !confirmed && 'border-amber-500/40 bg-amber-500/[0.04]',
+        banned && 'border-destructive/40 bg-destructive/[0.04]',
       )}
     >
-      <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
+      <CardHeader className="flex flex-row items-start justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
         <div>
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-1.5 text-xs font-medium">
             {banned ? (
-              <ShieldAlert className="h-4 w-4 text-destructive" />
+              <ShieldAlert className="h-3.5 w-3.5 text-destructive" />
             ) : confirmed ? (
-              <ShieldCheck className="h-4 w-4 text-green-600" />
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
             ) : (
-              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
             )}
             Authentication
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="mt-0.5 text-[11px]">
             {banned
               ? 'This account is disabled and cannot sign in.'
               : confirmed
-                ? 'This user has confirmed their email and can sign in.'
-                : 'This user has NOT confirmed their email — they cannot sign in until they do.'}
+                ? 'Email confirmed — they can sign in.'
+                : 'Email not confirmed — they cannot sign in until they verify.'}
           </CardDescription>
         </div>
         <StatusBadge confirmed={confirmed} banned={banned} />
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3 px-4 py-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Email confirmed">
             {confirmed ? (
               <div className="flex flex-col">
-                <span className="inline-flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
+                <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                   Confirmed
                 </span>
                 {status.emailConfirmedAt && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[11px] text-muted-foreground">
                     {fmtDateTime(status.emailConfirmedAt)} ·{' '}
                     {fmtRelative(status.emailConfirmedAt)}
                   </span>
                 )}
               </div>
             ) : (
-              <span className="font-medium text-amber-600">Not confirmed</span>
+              <span className="inline-flex items-center gap-1.5 text-sm text-amber-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Not confirmed
+              </span>
             )}
           </Field>
 
           <Field label="Last sign in">
             {status.lastSignInAt ? (
               <div className="flex flex-col">
-                <span className="font-medium">
+                <span className="text-sm text-foreground">
                   {fmtDateTime(status.lastSignInAt)}
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   {fmtRelative(status.lastSignInAt)}
                 </span>
               </div>
             ) : (
-              <span className="text-muted-foreground">Never</span>
+              <span className="text-sm text-muted-foreground">Never</span>
             )}
           </Field>
 
           <Field label="Auth account created">
-            <span className="font-medium">
+            <span className="text-sm text-foreground">
               {status.createdAt ? fmtDateTime(status.createdAt) : '—'}
             </span>
           </Field>
 
           <Field label="Provider">
-            <span className="font-medium capitalize">
+            <span className="text-sm capitalize text-foreground">
               {status.providers?.join(', ') || status.provider || 'email'}
             </span>
           </Field>
 
           {banned && (
             <Field label="Disabled until">
-              <span className="font-medium text-destructive">
+              <span className="text-sm text-destructive">
                 {fmtDateTime(status.bannedUntil!)}
               </span>
             </Field>
@@ -346,17 +349,16 @@ export function AuthStatusCard({
         </div>
 
         {!confirmed && (
-          <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/20">
+          <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
             <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
-              <Mail className="mt-0.5 h-4 w-4 shrink-0" />
+              <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <div className="flex-1">
-                <p className="font-medium">
+                <p className="text-xs font-medium">
                   Resend confirmation link to{' '}
-                  <span className="break-all">{status.email}</span>?
+                  <span className="break-all font-mono">{status.email}</span>?
                 </p>
-                <p className="text-xs text-amber-800/90 dark:text-amber-200/80">
-                  Sends a fresh email-confirmation link via Supabase. The user must click
-                  it before they can sign in.
+                <p className="mt-0.5 text-[11px] text-amber-800/90 dark:text-amber-200/80">
+                  Sends a fresh confirmation link via Supabase.
                 </p>
               </div>
             </div>
@@ -365,7 +367,7 @@ export function AuthStatusCard({
                 size="sm"
                 onClick={handleResend}
                 disabled={isResending || !status.email}
-                className="bg-amber-600 hover:bg-amber-600/90"
+                className="h-8 rounded-md bg-amber-600 text-xs hover:bg-amber-600/90"
               >
                 {isResending ? (
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -378,14 +380,14 @@ export function AuthStatusCard({
           </div>
         )}
 
-        <div className="rounded-lg border border-destructive/20 p-3">
-          <p className="text-sm font-medium">Account access</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Disable blocks sign-in and signs them out. Delete removes the login; related
-            sea-time records may keep an anonymised profile.
+        <div className="rounded-md border border-border bg-muted/20 p-3">
+          <p className="text-xs font-medium text-foreground">Account access</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Disable blocks sign-in and signs them out. Delete removes the login;
+            related sea-time records may keep an anonymised profile.
           </p>
           {locked ? (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 text-[11px] text-muted-foreground">
               {isSelf
                 ? 'You cannot disable or delete your own admin account.'
                 : 'Admin accounts cannot be disabled or deleted here.'}
@@ -398,6 +400,7 @@ export function AuthStatusCard({
                   variant="outline"
                   onClick={() => void handleSetDisabled(false)}
                   disabled={isUpdatingAccess}
+                  className="h-8 rounded-md border-border text-xs"
                 >
                   {isUpdatingAccess ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -412,6 +415,7 @@ export function AuthStatusCard({
                   variant="outline"
                   onClick={() => setDisableOpen(true)}
                   disabled={isUpdatingAccess}
+                  className="h-8 rounded-md border-border text-xs"
                 >
                   <Ban className="mr-1.5 h-3.5 w-3.5" />
                   Disable account
@@ -425,6 +429,7 @@ export function AuthStatusCard({
                   setDeleteOpen(true);
                 }}
                 disabled={isDeleting}
+                className="h-8 rounded-md text-xs"
               >
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 Delete account
@@ -514,20 +519,26 @@ function StatusBadge({
   banned: boolean;
 }) {
   if (banned) {
-    return <Badge variant="destructive">Disabled</Badge>;
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive">
+        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+        Disabled
+      </span>
+    );
   }
   if (confirmed) {
     return (
-      <Badge className="bg-green-600 hover:bg-green-600/90">Verified</Badge>
+      <span className="inline-flex items-center gap-1.5 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        Verified
+      </span>
     );
   }
   return (
-    <Badge
-      variant="outline"
-      className="border-amber-400 text-amber-700 dark:text-amber-300"
-    >
+    <span className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-300">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
       Unverified
-    </Badge>
+    </span>
   );
 }
 

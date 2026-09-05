@@ -2,11 +2,10 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { format, startOfYear, endOfYear, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDaysInMonth, getDay, isSameMonth, isToday, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore, parse, addDays } from 'date-fns';
-import { Calendar as CalendarIcon, Waves, Anchor, Building, Briefcase, Ship, Wrench, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, CheckSquare, Clock, User, XCircle } from 'lucide-react';
+import { Waves, Anchor, Building, Briefcase, Ship, Wrench, ChevronLeft, ChevronRight, Loader2, MousePointer2, BoxSelect, CheckSquare, Clock, User, XCircle } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -25,6 +24,10 @@ import {
   MonthStateSummary,
   buildMonthSummaryItems,
 } from '@/components/dashboard/month-state-summary';
+import {
+  CalendarPageHeader,
+  CalendarSection,
+} from '@/components/dashboard/calendar-page-ui';
 
 const vesselStates: { value: DailyStatus; label: string; color: string; icon: React.FC<any> }[] = [
   { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
@@ -1560,13 +1563,13 @@ export default function CalendarPage() {
     }
 
     return (
-      <Card key={month.toISOString()} className="rounded-xl border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold">
+      <Card key={month.toISOString()} className="rounded-md border border-border shadow-none">
+        <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
+          <CardTitle className="text-xs font-medium">
             {format(month, 'MMMM yyyy')}
           </CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col pb-6">
+        <CardContent className="flex flex-col px-4 pb-4 pt-3">
           <div className="flex-1 space-y-1">
             {/* Day headers */}
             <div className="grid grid-cols-7 gap-1 mb-2">
@@ -1679,7 +1682,7 @@ export default function CalendarPage() {
                           </div>
                         )}
                         {isCountedStandby && !hasWatch && (
-                          <div className="flex items-center gap-2 text-purple-600">
+                          <div className="flex items-center gap-2 text-[#7629BB]">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
                           </div>
@@ -1818,7 +1821,7 @@ export default function CalendarPage() {
                     )}
                     {secondaryIndicatorBar === 'standby' && (
                       <div
-                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-purple-600"
+                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-[#7629BB]"
                         aria-hidden
                       />
                     )}
@@ -1866,19 +1869,13 @@ export default function CalendarPage() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="space-y-2">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div className="space-y-1">
-              <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
-              <p className="text-muted-foreground">
-                View and manage your vessel states throughout the year.
-              </p>
-            </div>
-          </div>
-          <Separator />
-        </div>
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <CalendarPageHeader
+          title="Calendar"
+          description="View and manage your vessel states throughout the year."
+        />
+        <div className="flex min-h-[220px] items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading calendar…
         </div>
       </div>
     );
@@ -1886,157 +1883,178 @@ export default function CalendarPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header Section */}
-      <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
-              <p className="text-muted-foreground">
-                {isVesselLinked
-                  ? "Read-only view of the vessel's daily state record. You can browse the calendar but can't edit entries from a linked account."
-                  : 'View and manage your vessel states throughout the year. Use single date, date range, or multi-select to choose dates, then change their state.'}
-              </p>
-          </div>
-          {/* Captain View Mode Toggle — personal captains only */}
-          {isApprovedCaptain && !isVesselLinked && (
-            <div className="flex items-center gap-2 rounded-lg border bg-card p-1">
+      <CalendarPageHeader
+        title="Calendar"
+        description={
+          isVesselLinked
+            ? "Read-only view of the vessel's daily state record. You can browse the calendar but can't edit entries from a linked account."
+            : 'View and manage your vessel states throughout the year. Use single date, date range, or multi-select to choose dates, then change their state.'
+        }
+        actions={
+          isApprovedCaptain && !isVesselLinked ? (
+            <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5">
               <Button
-                variant={captainViewMode === 'personal' ? 'default' : 'ghost'}
+                variant="ghost"
                 size="sm"
                 onClick={() => setCaptainViewMode('personal')}
                 className={cn(
-                  "rounded-md",
-                  captainViewMode === 'personal' && "bg-primary text-primary-foreground"
+                  'h-7 rounded-[5px] px-2.5 text-xs',
+                  captainViewMode === 'personal'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <User className="h-4 w-4 mr-2" />
+                <User className="mr-1.5 h-3.5 w-3.5" />
                 My Sea Time
               </Button>
               <Button
-                variant={captainViewMode === 'vessel' ? 'default' : 'ghost'}
+                variant="ghost"
                 size="sm"
                 onClick={() => setCaptainViewMode('vessel')}
                 className={cn(
-                  "rounded-md",
-                  captainViewMode === 'vessel' && "bg-primary text-primary-foreground"
+                  'h-7 rounded-[5px] px-2.5 text-xs',
+                  captainViewMode === 'vessel'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <Ship className="h-4 w-4 mr-2" />
+                <Ship className="mr-1.5 h-3.5 w-3.5" />
                 Vessel Sea Time
               </Button>
             </div>
-          )}
-        </div>
-        <Separator />
-      </div>
+          ) : undefined
+        }
+      />
 
       {/* Sticky toolbar: year nav + selection mode — full-width bar so content doesn’t show behind */}
       <div
-        className="sticky -top-4 z-20 -mx-8 px-8 pt-4 pb-4 border-b border-border bg-content-background shadow-[0_1px_3px_0_hsl(var(--border))]"
+        className="sticky -top-4 z-20 -mx-8 border-b border-border bg-content-background px-8 py-3"
         style={{ marginBottom: '-1px' }}
       >
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {/* Year navigation */}
-          <div className="flex items-center justify-between sm:justify-start gap-6 min-w-0">
+          <div className="flex min-w-0 items-center justify-between gap-4 sm:justify-start sm:gap-5">
             <Button
               variant="outline"
               size="icon"
               onClick={() => setSelectedYear(selectedYear - 1)}
-              className="rounded-xl shrink-0 h-10 w-10"
+              className="h-8 w-8 shrink-0 rounded-md"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 text-center sm:text-left min-w-0 flex-1 sm:flex-initial justify-center">
-              <h2 className="text-2xl font-bold tabular-nums tracking-tight">{selectedYear}</h2>
-            </div>
+            <h2 className="min-w-0 flex-1 text-center text-lg font-medium tabular-nums tracking-tight sm:flex-initial sm:text-left">
+              {selectedYear}
+            </h2>
             <Button
               variant="outline"
               size="icon"
               onClick={() => setSelectedYear(selectedYear + 1)}
               disabled={isCurrentYear}
-              className="rounded-xl shrink-0 h-10 w-10"
+              className="h-8 w-8 shrink-0 rounded-md"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
 
           {/* Selection mode */}
-          <div className="flex flex-col gap-2 shrink-0">
-            <p className="text-sm font-medium text-foreground">Selection mode</p>
-            <div className="flex gap-2">
-              <Button
-                variant={selectionMode === 'single' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setSelectionMode('single');
-                  setDateRange(undefined);
-                  setSelectedDate(null);
-                  setMultiSelectedDates(new Set());
-                }}
-                className="rounded-xl"
-              >
-                <MousePointer2 className="mr-2 h-4 w-4" />
-                Single date
-              </Button>
-              <Button
-                variant={selectionMode === 'range' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setSelectionMode('range');
-                  setSelectedDate(null);
-                  setDateRange(undefined);
-                  setMultiSelectedDates(new Set());
-                }}
-                className="rounded-xl"
-              >
-                <BoxSelect className="mr-2 h-4 w-4" />
-                Date range
-              </Button>
-              <Button
-                variant={selectionMode === 'multi' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setSelectionMode('multi');
-                  setSelectedDate(null);
-                  setDateRange(undefined);
-                }}
-                className="rounded-xl"
-              >
-                <CheckSquare className="mr-2 h-4 w-4" />
-                Multi
-              </Button>
+          <div className="flex shrink-0 flex-col gap-1.5">
+            <p className="text-[11px] font-medium text-muted-foreground">Selection mode</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectionMode('single');
+                    setDateRange(undefined);
+                    setSelectedDate(null);
+                    setMultiSelectedDates(new Set());
+                  }}
+                  className={cn(
+                    'h-7 rounded-[5px] px-2.5 text-xs',
+                    selectionMode === 'single'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <MousePointer2 className="mr-1.5 h-3.5 w-3.5" />
+                  Single
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectionMode('range');
+                    setSelectedDate(null);
+                    setDateRange(undefined);
+                    setMultiSelectedDates(new Set());
+                  }}
+                  className={cn(
+                    'h-7 rounded-[5px] px-2.5 text-xs',
+                    selectionMode === 'range'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <BoxSelect className="mr-1.5 h-3.5 w-3.5" />
+                  Range
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectionMode('multi');
+                    setSelectedDate(null);
+                    setDateRange(undefined);
+                  }}
+                  className={cn(
+                    'h-7 rounded-[5px] px-2.5 text-xs',
+                    selectionMode === 'multi'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <CheckSquare className="mr-1.5 h-3.5 w-3.5" />
+                  Multi
+                </Button>
+              </div>
+              {selectionMode === 'multi' && multiSelectedDates.size > 0 && (
+                <Button
+                  size="sm"
+                  onClick={openMultiSelectDialog}
+                  className="h-8 rounded-md text-xs"
+                >
+                  Change state ({multiSelectedDates.size})
+                </Button>
+              )}
             </div>
             {selectionMode === 'range' && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {dateRange?.from && !dateRange?.to
                   ? `Range started: ${format(dateRange.from, 'MMM d, yyyy')}. Click another date to complete.`
                   : 'Click a date to start the range, then click another to complete it.'}
               </p>
             )}
             {selectionMode === 'multi' && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {multiSelectedDates.size > 0
                   ? `${multiSelectedDates.size} date${multiSelectedDates.size > 1 ? 's' : ''} selected. Click "Change state" to apply.`
                   : 'Click dates to select multiple (non-contiguous). Then click "Change state" to apply.'}
               </p>
-            )}
-            {selectionMode === 'multi' && multiSelectedDates.size > 0 && (
-              <Button size="sm" onClick={openMultiSelectDialog} className="rounded-xl mt-1">
-                Change state ({multiSelectedDates.size})
-              </Button>
             )}
           </div>
         </div>
       </div>
 
       {/* Legend */}
-      <Card className="rounded-xl border">
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">State Legend</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <CalendarSection title="State legend">
+        <div className="space-y-3">
+          <div
+            className={cn(
+              'grid grid-cols-2 gap-3',
+              isVesselAccount ? 'md:grid-cols-4' : 'md:grid-cols-3 lg:grid-cols-6',
+            )}
+          >
             {vesselStates
               .filter(state => !isVesselAccount || state.value !== 'on-leave')
               .map((state) => {
@@ -2044,52 +2062,59 @@ export default function CalendarPage() {
               return (
                 <div key={state.value} className="flex items-center gap-2">
                   <div
-                    className="h-8 w-8 rounded-[6px] flex items-center justify-center"
+                    className="flex h-6 w-6 items-center justify-center rounded-[5px]"
                     style={{ backgroundColor: state.color }}
                   >
-                    <StateIcon className="h-4 w-4 text-white" />
+                    <StateIcon className="h-3.5 w-3.5 text-white" />
                   </div>
-                  <span className="text-sm font-medium">{state.label}</span>
+                  <span className="text-xs font-medium">{state.label}</span>
                 </div>
               );
             })}
-            </div>
-            <Separator />
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-4 text-sm">
-                {/* Part of Active Passage - shown for all users */}
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-[6px] border border-border bg-muted/40 relative overflow-hidden shrink-0">
-                    <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-blue-600" />
-                  </div>
-                  <span>Part of Active Passage (blue bottom bar)</span>
+            {!isVesselAccount && (
+              <div className="flex items-center gap-2">
+                <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-[5px] border border-border bg-muted/40">
+                  <Clock className="h-3 w-3 text-[#7629BB]" />
+                  <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px] bg-[#7629BB]" />
                 </div>
-                {!isVesselAccount && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-[6px] border border-border bg-muted/40 relative overflow-hidden shrink-0">
-                        <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-yellow-400" />
-                      </div>
-                      <span>On Watch (yellow bottom bar)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-[6px] border border-border bg-muted/40 relative overflow-hidden shrink-0">
-                        <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-purple-600" />
-                      </div>
-                      <span>Counted as Standby (purple bottom bar)</span>
-                    </div>
-                  </>
-                )}
+                <span className="text-xs font-medium">Standby</span>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {isVesselAccount 
-                  ? 'Dates marked as part of active passage count as "at sea" and are shown with a blue bar along the bottom (~20% of the cell). The primary state fill remains visible above.'
-                  : 'Dates marked as watch (officers only) show a yellow bottom bar. Part of active passage shows a blue bottom bar. Standby shows a purple bottom bar. Each bar uses about 20% of the cell height; the primary state color fills the rest.'}
-              </p>
-            </div>
+            )}
           </div>
-        </CardContent>
-      </Card>
+          <div className="border-t border-border pt-3">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              {/* Part of Active Passage - shown for all users */}
+              <div className="flex items-center gap-2">
+                <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-[5px] border border-border bg-muted/40">
+                  <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px] bg-blue-600" />
+                </div>
+                <span>Part of Active Passage (blue bottom bar)</span>
+              </div>
+              {!isVesselAccount && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-[5px] border border-border bg-muted/40">
+                      <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px] bg-yellow-400" />
+                    </div>
+                    <span>On Watch (yellow bottom bar)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-[5px] border border-border bg-muted/40">
+                      <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px] bg-[#7629BB]" />
+                    </div>
+                    <span>Counted as Standby (purple bottom bar)</span>
+                  </div>
+                </>
+              )}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {isVesselAccount
+                ? 'Dates marked as part of active passage count as "at sea" and are shown with a blue bar along the bottom (~20% of the cell). The primary state fill remains visible above.'
+                : 'Dates marked as watch (officers only) show a yellow bottom bar. Part of active passage shows a blue bottom bar. Standby shows a purple bottom bar. Each bar uses about 20% of the cell height; the primary state color fills the rest.'}
+            </p>
+          </div>
+        </div>
+      </CalendarSection>
 
       {/* Calendar Grid: 3 cols from lg until 1700px; 4 cols at min-width 1701px */}
       <TooltipProvider delayDuration={100}>
@@ -2114,7 +2139,7 @@ export default function CalendarPage() {
           setNotesInDialog('');
         }
       }}>
-        <DialogContent className="rounded-xl max-w-2xl">
+        <DialogContent className="rounded-md max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {dateRange?.from && dateRange?.to
@@ -2165,10 +2190,10 @@ export default function CalendarPage() {
                     }}
                     disabled={isSaving}
                     className={cn(
-                      "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2",
-                      isSelected 
-                        ? "shadow-md scale-[1.02]" 
-                        : "hover:scale-[1.01]"
+                      "h-auto py-3 px-3 flex flex-col items-center gap-2 rounded-md transition-all relative border",
+                      isSelected
+                        ? "shadow-sm"
+                        : "hover:bg-muted/40"
                     )}
                     style={{
                       backgroundColor: isSelected 
@@ -2180,12 +2205,12 @@ export default function CalendarPage() {
                     }}
                   >
                     <div
-                      className="h-12 w-12 rounded-[6px] flex items-center justify-center shadow-sm"
+                      className="h-10 w-10 rounded-md flex items-center justify-center shadow-sm"
                       style={{ backgroundColor: state.color }}
                     >
-                      <StateIcon className="h-6 w-6 text-white" />
+                      <StateIcon className="h-5 w-5 text-white" />
                     </div>
-                    <span className="font-semibold text-sm">{state.label}</span>
+                    <span className="font-medium text-sm">{state.label}</span>
                     {isSelected && (
                       <div className="absolute top-2 right-2">
                         <div className="h-2 w-2 rounded-full" style={{ backgroundColor: state.color }}></div>
@@ -2215,7 +2240,7 @@ export default function CalendarPage() {
                     onClick={handleRemoveState}
                     disabled={isSaving}
                     className={cn(
-                      "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2 hover:scale-[1.01]"
+                      "h-auto py-3 px-3 flex flex-col items-center gap-2 rounded-md transition-all relative border hover:bg-muted/40"
                     )}
                     style={{
                       backgroundColor: 'hsl(var(--destructive) / 0.08)',
@@ -2223,11 +2248,11 @@ export default function CalendarPage() {
                     }}
                   >
                     <div
-                      className="h-12 w-12 rounded-[6px] flex items-center justify-center shadow-sm bg-destructive"
+                      className="h-10 w-10 rounded-md flex items-center justify-center shadow-sm bg-destructive"
                     >
-                      <XCircle className="h-6 w-6 text-white" />
+                      <XCircle className="h-5 w-5 text-white" />
                     </div>
-                    <span className="font-semibold text-sm">Remove State</span>
+                    <span className="font-medium text-sm">Remove State</span>
                   </Button>
                 );
               })()}
@@ -2238,7 +2263,7 @@ export default function CalendarPage() {
               {selectedState !== 'underway' &&
                 selectedState !== 'in-yard' &&
                 selectedState !== 'on-leave' && (
-                <div className="flex items-start space-x-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors">
+                <div className="flex items-start space-x-3 p-3 rounded-md border border-border hover:bg-accent/50 transition-colors">
                   <Checkbox
                     id="part-of-active-passage-calendar"
                     checked={isPartOfActivePassageInDialog}
@@ -2260,7 +2285,7 @@ export default function CalendarPage() {
               )}
               {isOfficer && selectedDate && !dateRange && (
                 <div className={cn(
-                  "flex items-start space-x-3 p-3 rounded-lg border transition-colors",
+                  "flex items-start space-x-3 p-3 rounded-md border transition-colors",
                   selectedState === 'at-anchor' 
                     ? "border-border hover:bg-accent/50" 
                     : "border-border/50 bg-muted/30 opacity-60"
@@ -2299,13 +2324,13 @@ export default function CalendarPage() {
             if (isCountedStandby) {
               return (
                 <div className="border-t pt-4 px-1">
-                  <div className="flex items-start space-x-3 p-3 rounded-lg border border-purple-600/30 bg-purple-600/10">
-                    <Clock className="h-5 w-5 text-purple-600 mt-0.5 shrink-0" />
+                  <div className="flex items-start space-x-3 p-3 rounded-md border border-[#7629BB]/30 bg-[#7629BB]/10">
+                    <Clock className="h-5 w-5 text-[#7629BB] mt-0.5 shrink-0" />
                     <div className="flex-1">
-                      <div className="text-sm font-semibold text-purple-700 dark:text-purple-400">
+                      <div className="text-sm font-semibold text-[#7629BB] dark:text-purple-400">
                         Counted as Standby
                       </div>
-                      <div className="text-xs text-purple-600 dark:text-purple-500 mt-1">
+                      <div className="text-xs text-[#7629BB] dark:text-purple-500 mt-1">
                         This date is counted as standby time and will be included in your standby calculations.
                       </div>
                     </div>
@@ -2350,14 +2375,14 @@ export default function CalendarPage() {
                 setNotesInDialog('');
                 setSelectedState(null);
               }}
-              className="rounded-xl"
+              className="h-8 rounded-md text-xs"
             >
               Cancel
             </Button>
             <Button
               onClick={() => selectedState && handleStateChange(selectedState)}
               disabled={!selectedState || isSaving}
-              className="rounded-xl"
+              className="h-8 rounded-md text-xs"
             >
               {isSaving ? (
                 <>

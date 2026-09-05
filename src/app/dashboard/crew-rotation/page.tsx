@@ -30,7 +30,7 @@ import {
 
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 
 import { Badge } from '@/components/ui/badge';
@@ -1392,6 +1392,7 @@ export default function CrewRotationPage() {
 
   const role            = (profileRaw?.role as string) || 'crew';
   const activeVesselId  = (profileRaw?.active_vessel_id as string) || null;
+  const { isEnabled: isFeatureEnabled } = useFeatureFlags();
 
   // Auth guard — vessel managers and admins only
   useEffect(() => {
@@ -1402,10 +1403,7 @@ export default function CrewRotationPage() {
     }
   }, [isUserLoading, isProfileLoading, user, profileRaw, role, router]);
 
-  const hasPremiumPlusTier = useMemo(
-    () => hasVesselPremiumPlusFeatures(profileRaw),
-    [profileRaw],
-  );
+  const hasPremiumPlusTier = isFeatureEnabled('crew_rotation');
 
   // ---- Feature state ----
   const [rotations,   setRotations]   = useState<CrewRotation[]>([]);

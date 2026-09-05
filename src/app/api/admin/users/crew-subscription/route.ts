@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/supabase/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { applyManualSubscriptionUpdate } from '@/lib/admin/manual-subscription';
 import { executeSubscriptionPlanChange } from '@/lib/subscription-plan-change';
 
 async function getAuthedUserId(req: NextRequest): Promise<string | null> {
@@ -14,25 +15,6 @@ async function getAuthedUserId(req: NextRequest): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
   return session?.user?.id ?? null;
 }
-
-const CREW_TIERS = new Set([
-  'free',
-  'crew_limited',
-  'standard',
-  'premium',
-]);
-
-const VESSEL_TIERS = new Set([
-  'free',
-  'vessel_lite',
-  'vessel_basic',
-  'vessel_pro',
-  'vessel_fleet',
-]);
-
-const ACCOUNT_ROLES = new Set(['crew', 'captain', 'vessel']);
-
-const STATUSES = new Set(['active', 'inactive', 'past_due']);
 
 /**
  * PATCH: Admin updates a crew/captain (or converts to vessel) subscription.
@@ -133,30 +115,6 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (action === 'manual') {
-      // Starting role must be crew/captain (this page’s source list) or already vessel
-      // if an admin is adjusting after conversion.
-      if (
-        currentRole !== 'crew' &&
-        currentRole !== 'captain' &&
-        currentRole !== 'vessel'
-      ) {
-        return NextResponse.json(
-          { error: 'Only crew, captain, or vessel accounts can be updated here' },
-          { status: 403 },
-        );
-      }
-
-      let nextRole = currentRole;
-      if (typeof body.role === 'string' && body.role.trim()) {
-        nextRole = body.role.toLowerCase().trim();
-      }
-      if (!ACCOUNT_ROLES.has(nextRole)) {
-        return NextResponse.json(
-          { error: 'role must be crew, captain, or vessel' },
-          { status: 400 },
-        );
-      }
-
       const tier =
         typeof body.subscriptionTier === 'string'
           ? body.subscriptionTier.toLowerCase().trim()
@@ -165,98 +123,30 @@ export async function PATCH(req: NextRequest) {
         typeof body.subscriptionStatus === 'string'
           ? body.subscriptionStatus.toLowerCase().trim()
           : '';
-      if (status === 'past-due') {
-        status = 'past_due';
-      }
 
-      const allowedTiers = nextRole === 'vessel' ? VESSEL_TIERS : CREW_TIERS;
-      if (!tier || !allowedTiers.has(tier)) {
+      if (!tier || !status) {
         return NextResponse.json(
-          {
-            error:
-              nextRole === 'vessel'
-                ? 'Invalid subscriptionTier for vessel account'
-                : 'Invalid subscriptionTier for crew account',
-          },
-          { status: 400 },
-        );
-      }
-      if (!status || !STATUSES.has(status)) {
-        return NextResponse.json(
-          { error: 'subscriptionStatus must be active, inactive, or past-due' },
+          { error: 'Missing subscriptionTier or subscriptionStatus' },
           { status: 400 },
         );
       }
 
-      const roleChanged = nextRole !== currentRole;
-      const updatePayload: Record<string, unknown> = {
-        role: nextRole,
-        subscription_tier: tier,
-        subscription_status: status,
-        pending_subscription_tier: null,
-        pending_change_effective_at: null,
-      };
+      const result = await applyManualSubscriptionUpdate(userId, {
+        role: typeof body.role === 'string' ? body.role : undefined,
+        subscriptionTier: tier,
+        subscriptionStatus: status,
+      });
 
-      // Converting to a vessel manager: drop crew-side links that would confuse
-      // vessel-manager flows. They can create / attach a vessel afterward.
-      // Note: linked_account_features is NOT NULL (JSONB) — reset to [] rather than null.
-      if (roleChanged && nextRole === 'vessel') {
-        updatePayload.active_vessel_id = null;
-        updatePayload.managed_by_vessel_id = null;
-        updatePayload.linked_account_features = [];
-      }
-
-      // Converting back to crew/captain from vessel: clear vessel-manager link.
-      if (roleChanged && nextRole !== 'vessel' && currentRole === 'vessel') {
-        updatePayload.active_vessel_id = null;
-        updatePayload.managed_by_vessel_id = null;
-        updatePayload.linked_account_features = [];
-      }
-
-      const { data: updated, error: updateError } = await supabaseAdmin
-        .from('users')
-        .update(updatePayload)
-        .eq('id', userId)
-        .select(
-          'id, role, subscription_tier, subscription_status, current_period_end, cancel_at_period_end, stripe_subscription_id, active_vessel_id',
-        )
-        .single();
-
-      if (updateError) {
-        console.error('[ADMIN CREW SUBSCRIPTION] manual update', updateError);
-        return NextResponse.json(
-          {
-            error: updateError.message || 'Failed to update user',
-            details: updateError.message,
-            code: updateError.code,
-          },
-          { status: 500 },
-        );
-      }
-
-      const warnings: string[] = [];
-      if (target.stripe_subscription_id) {
-        warnings.push(
-          'User still has a Stripe subscription — billing may not match this manual tier until Stripe or the webhook updates it.',
-        );
-      }
-      if (roleChanged && nextRole === 'vessel') {
-        warnings.push(
-          'Account is now a vessel account. It will leave the Crew subscriptions list; manage it under Vessel subscriptions after linking a vessel.',
-        );
-      }
-      if (roleChanged && currentRole === 'vessel' && nextRole !== 'vessel') {
-        warnings.push(
-          'Account was converted from vessel back to a crew-style role.',
-        );
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
       }
 
       return NextResponse.json({
         success: true,
         mode: 'manual',
-        roleChanged,
-        user: updated,
-        warning: warnings.length ? warnings.join(' ') : null,
+        roleChanged: result.roleChanged,
+        user: result.user,
+        warning: result.warning,
       });
     }
 

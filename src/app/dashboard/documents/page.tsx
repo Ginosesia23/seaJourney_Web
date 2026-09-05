@@ -31,7 +31,7 @@ import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import type { UserProfile, VesselAssignment, Vessel, VesselGeneratedTestimonial, StateLog, Testimonial } from '@/lib/types';
 import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
-import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 import {
   getVesselCalculationCategory,
@@ -170,10 +170,8 @@ export default function DocumentsGeneratorPage() {
     } as UserProfile;
   }, [currentUserProfileRaw]);
 
-  const hasPremiumPlusTier = useMemo(
-    () => hasVesselPremiumPlusFeatures(currentUserProfileRaw),
-    [currentUserProfileRaw],
-  );
+  const { isEnabled: isFeatureEnabled } = useFeatureFlags();
+  const hasPremiumPlusTier = isFeatureEnabled('vessel_document_generator');
 
   const { data: vesselsCollection } = useCollection<Vessel>('vessels');
   const activeVesselId = currentUserProfile?.role === 'vessel' ? (currentUserProfile as any).active_vessel_id ?? (currentUserProfile as any).activeVesselId : null;
@@ -2758,7 +2756,7 @@ export default function DocumentsGeneratorPage() {
                       {
                         label: 'Standby',
                         value: calculatedSeaTime.standbyDays,
-                        className: 'text-purple-600 dark:text-purple-400',
+                        className: 'text-[#7629BB] dark:text-purple-400',
                       },
                       { label: 'Yard', value: calculatedSeaTime.yardDays, className: '' },
                       { label: 'Leave', value: calculatedSeaTime.leaveDays, className: '' },

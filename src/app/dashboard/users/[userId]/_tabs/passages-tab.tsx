@@ -93,7 +93,7 @@ export function PassagesTab({ userId }: Props) {
 
   if (isLoading) {
     return (
-      <Card className="rounded-2xl">
+      <Card className="rounded-md border-border shadow-none">
         <CardContent className="flex items-center justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </CardContent>
@@ -102,21 +102,27 @@ export function PassagesTab({ userId }: Props) {
   }
 
   return (
-    <Card className="rounded-2xl">
-      <CardHeader>
-        <CardTitle className="text-base">Passages</CardTitle>
-        <CardDescription>
-          {stats.count} passage{stats.count === 1 ? '' : 's'} ·{' '}
-          {stats.totalNm.toFixed(1)} NM · {stats.totalHours} h underway
+    <Card className="rounded-md border-border shadow-none">
+      <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
+        <CardTitle className="text-xs font-medium">Passages</CardTitle>
+        <CardDescription className="text-[11px]">
+          <span className="font-mono tabular-nums">{stats.count}</span> passage
+          {stats.count === 1 ? '' : 's'} ·{' '}
+          <span className="font-mono tabular-nums">
+            {stats.totalNm.toFixed(1)}
+          </span>{' '}
+          NM ·{' '}
+          <span className="font-mono tabular-nums">{stats.totalHours}</span> h
+          underway
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 py-3">
         {error ? (
-          <p className="rounded-xl border border-destructive/30 bg-destructive/5 py-6 text-center text-sm text-destructive">
+          <p className="rounded-md border border-destructive/30 bg-destructive/5 py-6 text-center text-xs text-destructive">
             {error}
           </p>
         ) : rows.length === 0 ? (
-          <p className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+          <p className="py-10 text-center text-xs text-muted-foreground">
             No passages logged.
           </p>
         ) : (

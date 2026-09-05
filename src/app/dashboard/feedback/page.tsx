@@ -7,11 +7,9 @@ import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -23,6 +21,7 @@ import { Loader2, MessageSquare, Bug, Sparkles, HelpCircle, CheckCircle2, Clock,
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import type { UserProfile } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 const feedbackSchema = z.object({
   type: z.enum(['bug', 'feature', 'other'], {
@@ -385,267 +384,382 @@ export default function FeedbackPage() {
     }
   };
 
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Header Section */}
-      <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Feedback</h1>
-            <p className="text-muted-foreground">
-              {isAdmin ? 'Manage user feedback and respond to requests' : 'Report problems or suggest new features'}
+  const filterChip = (
+    active: boolean,
+    onClick: () => void,
+    label: string,
+    count: number,
+    Icon: React.ComponentType<{ className?: string }>,
+  ) => (
+    <button
+      key={label}
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-xs transition-colors',
+        active
+          ? 'bg-background text-foreground shadow-sm'
+          : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      {label}
+      <span
+        className={cn(
+          'rounded px-1 font-mono text-[10px] tabular-nums',
+          active ? 'bg-muted text-muted-foreground' : 'text-muted-foreground/70',
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  );
+
+  const renderFeedbackItem = (feedback: Feedback) => {
+    const isReceivedMessage = !isAdmin && feedback.recipientId === user?.id;
+    const typeInfo = feedbackTypeLabels[feedback.type];
+    const statusInfo = statusLabels[feedback.status];
+    const TypeIcon = typeInfo.icon;
+    const StatusIcon = statusInfo.icon;
+
+    return (
+      <div
+        key={feedback.id}
+        className="overflow-hidden rounded-md border border-border bg-background"
+      >
+        <div className="flex flex-col gap-3 border-b border-border bg-muted/40 px-4 py-2.5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <TypeIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <h3 className="text-sm font-medium text-foreground">{feedback.subject}</h3>
+              {isReceivedMessage ? (
+                <Badge variant="secondary" className="text-[10px]">
+                  Message from admin
+                </Badge>
+              ) : (
+                <>
+                  <Badge
+                    variant={feedback.type === 'bug' ? 'destructive' : 'outline'}
+                    className="text-[10px]"
+                  >
+                    {typeInfo.label}
+                  </Badge>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 rounded-full',
+                        feedback.status === 'resolved' && 'bg-emerald-500',
+                        feedback.status === 'open' && 'bg-amber-500',
+                        feedback.status === 'in_progress' && 'bg-sky-500',
+                        feedback.status === 'closed' && 'bg-muted-foreground',
+                      )}
+                    />
+                    <StatusIcon className="h-3 w-3" />
+                    {statusInfo.label}
+                  </span>
+                </>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {isReceivedMessage
+                ? `Received ${format(new Date(feedback.createdAt), 'MMM d, yyyy · HH:mm')}`
+                : isAdmin
+                  ? `Submitted ${format(new Date(feedback.createdAt), 'MMM d, yyyy · HH:mm')}`
+                  : `Submitted ${format(new Date(feedback.createdAt), 'MMM d, yyyy · HH:mm')}`}
+            </p>
+            {isAdmin ? (
+              <p className="text-[11px] text-muted-foreground">
+                {feedback.recipientId && feedback.recipient
+                  ? `To: ${[feedback.recipient.first_name, feedback.recipient.last_name].filter(Boolean).join(' ').trim() || feedback.recipient.username || 'Unknown'}${feedback.recipient.email ? ` (${feedback.recipient.email})` : ''}`
+                  : `From: ${
+                      feedback.submitter
+                        ? [feedback.submitter.first_name, feedback.submitter.last_name]
+                            .filter(Boolean)
+                            .join(' ')
+                            .trim() ||
+                          feedback.submitter.username ||
+                          'Unknown'
+                        : 'Unknown user'
+                    }${
+                      feedback.submitter?.email
+                        ? ` (${feedback.submitter.email})`
+                        : feedback.userId
+                          ? ` (${feedback.userId.slice(0, 8)}…)`
+                          : ''
+                    }`}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {isAdmin ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-md border-border text-xs"
+                  onClick={() => openResponseDialog(feedback)}
+                >
+                  {feedback.recipientId
+                    ? feedback.adminResponse
+                      ? 'Edit follow-up'
+                      : 'Add follow-up'
+                    : feedback.adminResponse
+                      ? 'Edit response'
+                      : 'Respond'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-md border-border text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => setDeleteConfirmId(feedback.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </div>
+        <div className="space-y-3 px-4 py-3 sm:px-5 sm:py-4">
+          <p className="whitespace-pre-wrap text-sm text-foreground">{feedback.message}</p>
+          {feedback.adminResponse ? (
+            <div
+              className={cn(
+                'rounded-md border px-3 py-2.5',
+                !feedback.adminResponseReadAt && !isAdmin
+                  ? 'border-amber-500/30 bg-amber-500/5'
+                  : 'border-border bg-muted/40',
+              )}
+            >
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-foreground">Admin response</span>
+                  {!feedback.adminResponseReadAt && !isAdmin ? (
+                    <Badge className="text-[10px]">New</Badge>
+                  ) : null}
+                  {feedback.adminResponseAt ? (
+                    <span className="text-[11px] text-muted-foreground">
+                      {format(new Date(feedback.adminResponseAt), 'MMM d, yyyy · HH:mm')}
+                    </span>
+                  ) : null}
+                </div>
+                {!feedback.adminResponseReadAt && !isAdmin ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 rounded-md border-border text-xs"
+                    onClick={() => handleMarkAsRead(feedback.id)}
+                    disabled={isMarkingAsRead === feedback.id}
+                  >
+                    {isMarkingAsRead === feedback.id ? (
+                      <>
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Marking…
+                      </>
+                    ) : (
+                      'Mark as read'
+                    )}
+                  </Button>
+                ) : null}
+              </div>
+              <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                {feedback.adminResponse}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderFeedbackList = () => {
+    if (isLoadingFeedback) {
+      return (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="overflow-hidden rounded-md border border-border bg-background"
+            >
+              <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+                <Skeleton className="h-4 w-1/3" />
+              </div>
+              <div className="space-y-2 px-4 py-4">
+                <Skeleton className="h-3 w-1/4" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (displayFeedback.length === 0) {
+      return (
+        <div className="overflow-hidden rounded-md border border-border bg-background">
+          <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+            <p className="text-xs font-medium text-foreground">
+              {isAdmin ? 'No matching feedback' : 'No feedback yet'}
             </p>
           </div>
-          {isAdmin && (
-            <Button onClick={() => setIsNewMessageDialogOpen(true)} className="rounded-xl shrink-0">
-              <Send className="h-4 w-4 mr-2" />
+          <div className="flex flex-col items-center justify-center px-4 py-14 text-center">
+            <MessageSquare className="h-5 w-5 text-muted-foreground" />
+            <p className="mt-3 max-w-md text-xs text-muted-foreground">
+              {isAdmin
+                ? 'No feedback found matching your filters.'
+                : "You haven't submitted any feedback yet."}
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-3">{displayFeedback.map(renderFeedbackItem)}</div>
+    );
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <MessageSquare className="h-3.5 w-3.5" />
+            <span>{isAdmin ? 'Platform' : 'Dashboard'}</span>
+            <span className="text-border">/</span>
+            <span className="text-foreground">Feedback</span>
+          </div>
+          <h1 className="text-xl font-medium tracking-tight text-foreground">Feedback</h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            {isAdmin
+              ? 'Review user feedback, reply, and send direct messages.'
+              : 'Report problems or suggest improvements for SeaJourney.'}
+          </p>
+        </div>
+        {isAdmin ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="hidden items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                <span className="font-mono tabular-nums text-foreground">{statusCounts.open}</span>
+                open
+              </span>
+              <span className="h-3 w-px bg-border" />
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                <span className="font-mono tabular-nums text-foreground">
+                  {statusCounts.in_progress}
+                </span>
+                in progress
+              </span>
+            </div>
+            <Button
+              onClick={() => setIsNewMessageDialogOpen(true)}
+              className="h-8 shrink-0 rounded-md text-xs"
+            >
+              <Send className="mr-1.5 h-3.5 w-3.5" />
               New message
             </Button>
-          )}
-        </div>
-        <Separator />
+          </div>
+        ) : null}
       </div>
 
       {isAdmin ? (
-        // Admin view - no tabs, just feedback list
-        <div className="flex flex-col gap-6">
-          {/* Status filters */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</p>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { value: 'all' as const, label: 'All', icon: MessageSquare },
-                { value: 'open' as const, label: 'New / Open', icon: Clock },
-                { value: 'in_progress' as const, label: 'In Progress', icon: AlertCircle },
-                { value: 'resolved' as const, label: 'Resolved', icon: CheckCircle2 },
-                { value: 'closed' as const, label: 'Closed', icon: XCircle },
-              ].map(({ value, label, icon: Icon }) => {
-                const isActive = statusFilter === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setStatusFilter(value)}
-                    className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                      isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    <span>{label}</span>
-                    <span
-                      className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-xs tabular-nums ${
-                        isActive ? 'bg-primary-foreground/20' : 'bg-muted-foreground/15'
-                      }`}
-                    >
-                      {statusCounts[value]}
-                    </span>
-                  </button>
-                );
-              })}
+        <div className="flex flex-col gap-4">
+          <div className="overflow-hidden rounded-md border border-border bg-background">
+            <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+              <p className="text-xs font-medium text-foreground">Filters</p>
+            </div>
+            <div className="space-y-3 px-4 py-3 sm:px-5">
+              <div className="space-y-1.5">
+                <p className="text-[11px] text-muted-foreground">Status</p>
+                <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+                  {(
+                    [
+                      ['all', 'All', statusCounts.all, MessageSquare],
+                      ['open', 'Open', statusCounts.open, Clock],
+                      ['in_progress', 'In progress', statusCounts.in_progress, AlertCircle],
+                      ['resolved', 'Resolved', statusCounts.resolved, CheckCircle2],
+                      ['closed', 'Closed', statusCounts.closed, XCircle],
+                    ] as const
+                  ).map(([value, label, count, Icon]) =>
+                    filterChip(
+                      statusFilter === value,
+                      () => setStatusFilter(value),
+                      label,
+                      count,
+                      Icon,
+                    ),
+                  )}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[11px] text-muted-foreground">Type</p>
+                <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+                  {(
+                    [
+                      ['all', 'All types', typeCounts.all, MessageSquare],
+                      ['bug', 'Bug', typeCounts.bug, Bug],
+                      ['feature', 'Feature', typeCounts.feature, Sparkles],
+                      ['other', 'Other', typeCounts.other, HelpCircle],
+                    ] as const
+                  ).map(([value, label, count, Icon]) =>
+                    filterChip(
+                      typeFilter === value,
+                      () => setTypeFilter(value),
+                      label,
+                      count,
+                      Icon,
+                    ),
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Type filters */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Type</p>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { value: 'all' as const, label: 'All Types', icon: MessageSquare },
-                { value: 'bug' as const, label: 'Bug', icon: Bug },
-                { value: 'feature' as const, label: 'Feature', icon: Sparkles },
-                { value: 'other' as const, label: 'Other', icon: HelpCircle },
-              ].map(({ value, label, icon: Icon }) => {
-                const isActive = typeFilter === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setTypeFilter(value)}
-                    className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                      isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    <span>{label}</span>
-                    <span
-                      className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-xs tabular-nums ${
-                        isActive ? 'bg-primary-foreground/20' : 'bg-muted-foreground/15'
-                      }`}
-                    >
-                      {typeCounts[value]}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Feedback List */}
-          {isLoadingFeedback ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <Card key={i}>
-                  <CardHeader>
-                    <Skeleton className="h-6 w-1/3" />
-                    <Skeleton className="h-4 w-1/4 mt-2" />
-                  </CardHeader>
-                  <CardContent>
-                    <Skeleton className="h-20 w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : displayFeedback.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">
-                  No feedback found matching your filters.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {displayFeedback.map((feedback) => {
-                const typeInfo = feedbackTypeLabels[feedback.type];
-                const statusInfo = statusLabels[feedback.status];
-                const TypeIcon = typeInfo.icon;
-                const StatusIcon = statusInfo.icon;
-
-                return (
-                  <Card key={feedback.id}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <TypeIcon className="h-5 w-5" />
-                            <CardTitle className="text-lg">{feedback.subject}</CardTitle>
-                            <Badge variant={feedback.type === 'bug' ? 'destructive' : 'default'}>
-                              {typeInfo.label}
-                            </Badge>
-                            <Badge variant={feedback.status === 'resolved' ? 'default' : 'secondary'}>
-                              <StatusIcon className="h-3 w-3 mr-1" />
-                              {statusInfo.label}
-                            </Badge>
-                          </div>
-                          <CardDescription className="flex flex-col gap-0.5">
-                            <span>Submitted on {format(new Date(feedback.createdAt), 'PPP p')}</span>
-                            <span className="text-muted-foreground">
-                              {feedback.recipientId && feedback.recipient
-                                ? `To: ${[feedback.recipient.first_name, feedback.recipient.last_name].filter(Boolean).join(' ').trim() || feedback.recipient.username || 'Unknown'}${feedback.recipient.email ? ` (${feedback.recipient.email})` : ''}`
-                                : `Submitted by: ${feedback.submitter
-                                  ? [feedback.submitter.first_name, feedback.submitter.last_name].filter(Boolean).join(' ').trim() || feedback.submitter.username || 'Unknown'
-                                  : 'Unknown user'}${feedback.submitter?.email ? ` (${feedback.submitter.email})` : feedback.userId ? ` (user ID: ${feedback.userId.slice(0, 8)}…)` : ''}`}
-                            </span>
-                          </CardDescription>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openResponseDialog(feedback)}
-                          >
-                            {feedback.adminResponse ? 'Edit Response' : 'Respond'}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => setDeleteConfirmId(feedback.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div>
-                        <p className="text-sm whitespace-pre-wrap">{feedback.message}</p>
-                      </div>
-
-                      {feedback.adminResponse && (
-                        <>
-                          <Separator />
-                          <div className={`rounded-lg p-4 ${!feedback.adminResponseReadAt && !isAdmin ? 'bg-primary/10 border border-primary/20' : 'bg-muted/50'}`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold">Admin Response</span>
-                                {!feedback.adminResponseReadAt && !isAdmin && (
-                                  <Badge variant="default" className="text-xs">New</Badge>
-                                )}
-                                {feedback.adminResponseAt && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {format(new Date(feedback.adminResponseAt), 'PPP p')}
-                                  </span>
-                                )}
-                              </div>
-                              {!feedback.adminResponseReadAt && !isAdmin && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleMarkAsRead(feedback.id)}
-                                  disabled={isMarkingAsRead === feedback.id}
-                                >
-                                  {isMarkingAsRead === feedback.id ? (
-                                    <>
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                      Marking...
-                                    </>
-                                  ) : (
-                                    'Mark as Read'
-                                  )}
-                                </Button>
-                              )}
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap">{feedback.adminResponse}</p>
-                          </div>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+          {renderFeedbackList()}
         </div>
       ) : (
-        // Regular user view - with tabs for submit and history
-        <Tabs defaultValue="submit" className="w-full">
-          <TabsList className="rounded-xl">
-            <TabsTrigger value="submit" className="!rounded-lg">
-              <MessageSquare className="h-4 w-4 mr-2" />
-              Submit Feedback
-            </TabsTrigger>
-            <TabsTrigger value="history" className="!rounded-lg">
-              <Clock className="h-4 w-4 mr-2" />
-              My Feedback
-            </TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="submit" className="w-full space-y-4">
+          <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5 w-fit">
+            <TabsList className="h-auto bg-transparent p-0">
+              <TabsTrigger
+                value="submit"
+                className="h-7 rounded-[5px] px-2.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
+                <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                Submit
+              </TabsTrigger>
+              <TabsTrigger
+                value="history"
+                className="h-7 rounded-[5px] px-2.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
+                <Clock className="mr-1.5 h-3.5 w-3.5" />
+                My feedback
+                <span className="ml-1.5 rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+                  {userFeedback.length}
+                </span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-          <TabsContent value="submit" className="mt-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Submit Feedback</CardTitle>
-                <CardDescription>
-                  Found a problem or have an idea for a new feature? Let us know!
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+          <TabsContent value="submit" className="mt-0">
+            <div className="overflow-hidden rounded-md border border-border bg-background">
+              <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+                <h2 className="text-xs font-medium text-foreground">Submit feedback</h2>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Found a problem or have an idea? Send it here.
+                </p>
+              </div>
+              <div className="px-4 py-4 sm:px-5 sm:py-5">
                 <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
                     <FormField
                       control={form.control}
                       name="type"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Type</FormLabel>
+                          <FormLabel className="text-xs">Type</FormLabel>
                           <Select onValueChange={field.onChange} defaultValue={field.value}>
                             <FormControl>
-                              <SelectTrigger>
+                              <SelectTrigger className="h-9 rounded-md border-border text-sm">
                                 <SelectValue placeholder="Select feedback type" />
                               </SelectTrigger>
                             </FormControl>
@@ -653,13 +767,13 @@ export default function FeedbackPage() {
                               <SelectItem value="bug">
                                 <div className="flex items-center gap-2">
                                   <Bug className="h-4 w-4" />
-                                  Bug Report
+                                  Bug report
                                 </div>
                               </SelectItem>
                               <SelectItem value="feature">
                                 <div className="flex items-center gap-2">
                                   <Sparkles className="h-4 w-4" />
-                                  Feature Request
+                                  Feature request
                                 </div>
                               </SelectItem>
                               <SelectItem value="other">
@@ -670,8 +784,8 @@ export default function FeedbackPage() {
                               </SelectItem>
                             </SelectContent>
                           </Select>
-                          <FormDescription>
-                            Select the type of feedback you're submitting
+                          <FormDescription className="text-[11px]">
+                            What kind of feedback is this?
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -683,12 +797,16 @@ export default function FeedbackPage() {
                       name="subject"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Subject</FormLabel>
+                          <FormLabel className="text-xs">Subject</FormLabel>
                           <FormControl>
-                            <Input placeholder="Brief description of your feedback" {...field} />
+                            <Input
+                              placeholder="Brief summary"
+                              className="h-9 rounded-md border-border text-sm"
+                              {...field}
+                            />
                           </FormControl>
-                          <FormDescription>
-                            A short summary of your feedback (3-200 characters)
+                          <FormDescription className="text-[11px]">
+                            3–200 characters
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -700,221 +818,108 @@ export default function FeedbackPage() {
                       name="message"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Message</FormLabel>
+                          <FormLabel className="text-xs">Message</FormLabel>
                           <FormControl>
                             <Textarea
-                              placeholder="Describe the problem or feature request in detail..."
-                              className="min-h-[150px]"
+                              placeholder="Describe the problem or idea in detail…"
+                              className="min-h-[140px] rounded-md border-border text-sm"
                               {...field}
                             />
                           </FormControl>
-                          <FormDescription>
-                            Provide as much detail as possible (10-5000 characters)
+                          <FormDescription className="text-[11px]">
+                            10–5000 characters
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
 
-                    <Button type="submit" disabled={isSubmitting}>
-                      {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Submit Feedback
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="h-8 rounded-md text-xs"
+                    >
+                      {isSubmitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                      Submit feedback
                     </Button>
                   </form>
                 </Form>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </TabsContent>
 
-          <TabsContent value="history" className="mt-6">
-            {isLoadingFeedback ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <Card key={i}>
-                  <CardHeader>
-                    <Skeleton className="h-6 w-1/3" />
-                    <Skeleton className="h-4 w-1/4 mt-2" />
-                  </CardHeader>
-                  <CardContent>
-                    <Skeleton className="h-20 w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : displayFeedback.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">
-                  You haven't submitted any feedback yet.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {displayFeedback.map((feedback) => {
-                const isReceivedMessage = !isAdmin && feedback.recipientId === user?.id;
-                const typeInfo = feedbackTypeLabels[feedback.type];
-                const statusInfo = statusLabels[feedback.status];
-                const TypeIcon = typeInfo.icon;
-                const StatusIcon = statusInfo.icon;
-
-                return (
-                  <Card key={feedback.id}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <TypeIcon className="h-5 w-5" />
-                            <CardTitle className="text-lg">{feedback.subject}</CardTitle>
-                            {isReceivedMessage && (
-                              <Badge variant="secondary">Message from admin</Badge>
-                            )}
-                            {!isReceivedMessage && (
-                              <>
-                                <Badge variant={feedback.type === 'bug' ? 'destructive' : 'default'}>
-                                  {typeInfo.label}
-                                </Badge>
-                                <Badge variant={feedback.status === 'resolved' ? 'default' : 'secondary'}>
-                                  <StatusIcon className="h-3 w-3 mr-1" />
-                                  {statusInfo.label}
-                                </Badge>
-                              </>
-                            )}
-                          </div>
-                          <CardDescription>
-                            {isReceivedMessage
-                              ? `Received on ${format(new Date(feedback.createdAt), 'PPP p')}`
-                              : `Submitted on ${format(new Date(feedback.createdAt), 'PPP p')}`}
-                          </CardDescription>
-                        </div>
-                        {isAdmin && !feedback.recipientId && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openResponseDialog(feedback)}
-                          >
-                            {feedback.adminResponse ? 'Edit Response' : 'Respond'}
-                          </Button>
-                        )}
-                        {isAdmin && feedback.recipientId && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openResponseDialog(feedback)}
-                          >
-                            {feedback.adminResponse ? 'Edit follow-up' : 'Add follow-up'}
-                          </Button>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div>
-                        <p className="text-sm whitespace-pre-wrap">{feedback.message}</p>
-                      </div>
-
-                      {feedback.adminResponse && (
-                        <>
-                          <Separator />
-                          <div className={`rounded-lg p-4 ${!feedback.adminResponseReadAt && !isAdmin ? 'bg-primary/10 border border-primary/20' : 'bg-muted/50'}`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold">Admin Response</span>
-                                {!feedback.adminResponseReadAt && !isAdmin && (
-                                  <Badge variant="default" className="text-xs">New</Badge>
-                                )}
-                                {feedback.adminResponseAt && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {format(new Date(feedback.adminResponseAt), 'PPP p')}
-                                  </span>
-                                )}
-                              </div>
-                              {!feedback.adminResponseReadAt && !isAdmin && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleMarkAsRead(feedback.id)}
-                                  disabled={isMarkingAsRead === feedback.id}
-                                >
-                                  {isMarkingAsRead === feedback.id ? (
-                                    <>
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                      Marking...
-                                    </>
-                                  ) : (
-                                    'Mark as Read'
-                                  )}
-                                </Button>
-                              )}
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap">{feedback.adminResponse}</p>
-                          </div>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+          <TabsContent value="history" className="mt-0">
+            {renderFeedbackList()}
           </TabsContent>
         </Tabs>
       )}
 
-      {/* Admin: New message to user dialog */}
       {isAdmin && (
         <Dialog open={isNewMessageDialogOpen} onOpenChange={setIsNewMessageDialogOpen}>
-          <DialogContent className="max-w-md rounded-xl">
+          <DialogContent className="max-w-md rounded-md">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Send className="h-5 w-5" />
+              <DialogTitle className="flex items-center gap-2 text-base font-medium">
+                <Send className="h-4 w-4" />
                 Send message to user
               </DialogTitle>
               <DialogDescription>
-                The user will see this under Feedback → My Feedback.
+                The user will see this under Feedback → My feedback.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Recipient</label>
+            <div className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Recipient</label>
                 <Select value={messageToUserId} onValueChange={setMessageToUserId}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="h-9 w-full rounded-md border-border text-sm">
                     <SelectValue placeholder="Select a user" />
                   </SelectTrigger>
                   <SelectContent>
                     {usersList.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
-                        {[u.first_name, u.last_name].filter(Boolean).join(' ').trim() || u.username || 'Unknown'}{u.email ? ` (${u.email})` : ''}
+                        {[u.first_name, u.last_name].filter(Boolean).join(' ').trim() ||
+                          u.username ||
+                          'Unknown'}
+                        {u.email ? ` (${u.email})` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Subject</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Subject</label>
                 <Input
                   placeholder="Message subject"
                   value={messageToUserSubject}
                   onChange={(e) => setMessageToUserSubject(e.target.value)}
                   maxLength={200}
+                  className="h-9 rounded-md border-border text-sm"
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Message</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Message</label>
                 <Textarea
-                  placeholder="Write your message to the user..."
-                  className="min-h-[120px]"
+                  placeholder="Write your message…"
+                  className="min-h-[120px] rounded-md border-border text-sm"
                   value={messageToUserMessage}
                   onChange={(e) => setMessageToUserMessage(e.target.value)}
                   maxLength={5000}
                 />
               </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={() => setIsNewMessageDialogOpen(false)} disabled={isSendingMessage}>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  className="h-8 rounded-md text-xs"
+                  onClick={() => setIsNewMessageDialogOpen(false)}
+                  disabled={isSendingMessage}
+                >
                   Cancel
                 </Button>
-                <Button onClick={sendMessageToUser} disabled={isSendingMessage}>
-                  {isSendingMessage && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Button
+                  className="h-8 rounded-md text-xs"
+                  onClick={sendMessageToUser}
+                  disabled={isSendingMessage}
+                >
+                  {isSendingMessage && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                   Send message
                 </Button>
               </div>
@@ -923,56 +928,70 @@ export default function FeedbackPage() {
         </Dialog>
       )}
 
-      {/* Admin Response Dialog */}
       {isAdmin && (
         <Dialog open={isResponseDialogOpen} onOpenChange={setIsResponseDialogOpen}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl rounded-md">
             <DialogHeader>
-              <DialogTitle>Respond to Feedback</DialogTitle>
+              <DialogTitle className="text-base font-medium">Respond to feedback</DialogTitle>
               <DialogDescription className="space-y-1">
                 <span className="block">{selectedFeedback?.subject}</span>
                 <span className="block text-muted-foreground">
-                  Submitted by: {selectedFeedback?.submitter
-                    ? [selectedFeedback.submitter.first_name, selectedFeedback.submitter.last_name].filter(Boolean).join(' ').trim() || selectedFeedback.submitter.username || 'Unknown'
-                    : 'Unknown user'}{selectedFeedback?.submitter?.email ? ` (${selectedFeedback.submitter.email})` : selectedFeedback?.userId ? ` (user ID: ${selectedFeedback.userId.slice(0, 8)}…)` : ''}
+                  Submitted by:{' '}
+                  {selectedFeedback?.submitter
+                    ? [selectedFeedback.submitter.first_name, selectedFeedback.submitter.last_name]
+                        .filter(Boolean)
+                        .join(' ')
+                        .trim() ||
+                      selectedFeedback.submitter.username ||
+                      'Unknown'
+                    : 'Unknown user'}
+                  {selectedFeedback?.submitter?.email
+                    ? ` (${selectedFeedback.submitter.email})`
+                    : selectedFeedback?.userId
+                      ? ` (${selectedFeedback.userId.slice(0, 8)}…)`
+                      : ''}
                 </span>
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Status</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Status</label>
                 <Select
                   value={selectedFeedback?.status || 'open'}
                   onValueChange={(value) => {
                     if (selectedFeedback) {
-                      setSelectedFeedback({ ...selectedFeedback, status: value as FeedbackStatus });
+                      setSelectedFeedback({
+                        ...selectedFeedback,
+                        status: value as FeedbackStatus,
+                      });
                     }
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9 rounded-md border-border text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="in_progress">In progress</SelectItem>
                     <SelectItem value="resolved">Resolved</SelectItem>
                     <SelectItem value="closed">Closed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Response</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Response</label>
                 <Textarea
                   value={adminResponse}
                   onChange={(e) => setAdminResponse(e.target.value)}
-                  placeholder="Enter your response to the user..."
-                  className="min-h-[150px]"
+                  placeholder="Enter your response…"
+                  className="min-h-[150px] rounded-md border-border text-sm"
                 />
               </div>
             </div>
             <DialogFooter>
               <Button
                 variant="outline"
+                className="h-8 rounded-md text-xs"
                 onClick={() => {
                   setIsResponseDialogOpen(false);
                   setSelectedFeedback(null);
@@ -982,6 +1001,7 @@ export default function FeedbackPage() {
                 Cancel
               </Button>
               <Button
+                className="h-8 rounded-md text-xs"
                 onClick={() => {
                   if (selectedFeedback) {
                     handleUpdateFeedback(selectedFeedback.id, {
@@ -992,17 +1012,19 @@ export default function FeedbackPage() {
                 }}
                 disabled={isUpdatingFeedback}
               >
-                {isUpdatingFeedback && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save Response
+                {isUpdatingFeedback && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                Save response
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
 
-      {/* Admin: delete confirmation */}
-      <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
-        <AlertDialogContent>
+      <AlertDialog
+        open={!!deleteConfirmId}
+        onOpenChange={(open) => !open && setDeleteConfirmId(null)}
+      >
+        <AlertDialogContent className="rounded-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete feedback?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1010,23 +1032,16 @@ export default function FeedbackPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingFeedback}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="h-8 rounded-md text-xs" disabled={isDeletingFeedback}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                handleDeleteFeedback();
-              }}
+              className="h-8 rounded-md text-xs"
+              onClick={handleDeleteFeedback}
               disabled={isDeletingFeedback}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeletingFeedback ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                'Delete'
-              )}
+              {isDeletingFeedback && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,32 +1,38 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useUser, useSupabase } from '@/supabase';
-import { useDoc } from '@/supabase/database';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { 
-  Users, 
-  Ship, 
-  AlertCircle,
-  Loader2,
-  Search,
-  UserX,
-  CheckCircle2,
-  XCircle,
-  Calendar,
-  Mail
-} from 'lucide-react';
-import type { UserProfile, VesselAssignment, Vessel } from '@/lib/types';
-import { format, parse, isAfter, isBefore, startOfDay } from 'date-fns';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCollection } from '@/supabase/database';
+import { format, parse, isAfter, startOfDay } from 'date-fns';
+import {
+  AlertCircle,
+  ArrowUpRight,
+  Calendar,
+  CheckCircle2,
+  Loader2,
+  Mail,
+  Search,
+  Ship,
+  Users,
+  XCircle,
+} from 'lucide-react';
+
+import { useUser, useSupabase } from '@/supabase';
+import { useDoc, useCollection } from '@/supabase/database';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
 import { StatePill } from '@/components/state-pill';
 import { excludeTestingAccounts } from '@/supabase/database/subscription-helpers';
+import type { UserProfile, VesselAssignment, Vessel } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 interface CrewWithoutVessel {
   id: string;
@@ -46,52 +52,43 @@ interface CrewWithoutVessel {
   stateLastChanged: string | null;
 }
 
+type AssignmentFilter = 'all' | 'assigned' | 'unassigned';
+
 export default function CrewAnalyticsPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
   const router = useRouter();
-  const [allCrewMembers, setAllCrewMembers] = useState<CrewWithoutVessel[]>([]);
+  const [allCrewMembers, setAllCrewMembers] = useState<CrewWithoutVessel[]>(
+    [],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // Fetch all vessels to get vessel names
+  const [assignmentFilter, setAssignmentFilter] =
+    useState<AssignmentFilter>('all');
+
   const { data: allVessels } = useCollection<Vessel>('vessels');
 
-  // Fetch user profile to check if admin
-  const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
-  
+  const { data: userProfileRaw, isLoading: isLoadingProfile } =
+    useDoc<UserProfile>('users', user?.id);
+
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
-    // Handle both snake_case and camelCase role fields
-    const role = (userProfileRaw as any).role || (userProfileRaw as any).role || userProfileRaw.role || 'crew';
+    const role =
+      (userProfileRaw as any).role || userProfileRaw.role || 'crew';
     return {
       ...userProfileRaw,
-      role: role,
+      role,
     } as UserProfile;
   }, [userProfileRaw]);
 
   const isAdmin = userProfile?.role === 'admin';
-  
-  // Debug logging
-  useEffect(() => {
-    if (userProfileRaw) {
-      console.log('[CREW ANALYTICS] User profile:', {
-        role: userProfile?.role,
-        isAdmin,
-        rawRole: (userProfileRaw as any).role,
-        hasUserProfile: !!userProfile,
-      });
-    }
-  }, [userProfileRaw, userProfile, isAdmin]);
 
-  // Redirect if not admin (only after profile has loaded)
   useEffect(() => {
     if (!isLoadingProfile && userProfile && !isAdmin) {
       router.push('/dashboard');
     }
   }, [isAdmin, isLoadingProfile, userProfile, router]);
 
-  // Fetch crew without active vessels
   useEffect(() => {
     if (!isAdmin || !user?.id) {
       setIsLoading(false);
@@ -101,10 +98,11 @@ export default function CrewAnalyticsPage() {
     const fetchCrewAnalytics = async () => {
       setIsLoading(true);
       try {
-        // Fetch all crew users (excluding vessel accounts, admins, and testing accounts)
         const { data: allCrewRaw, error: crewError } = await supabase
           .from('users')
-          .select('id, first_name, last_name, username, email, role, created_at, active_vessel_id, is_testing')
+          .select(
+            'id, first_name, last_name, username, email, role, created_at, active_vessel_id, is_testing',
+          )
           .in('role', ['crew', 'captain'])
           .order('created_at', { ascending: false });
 
@@ -116,22 +114,23 @@ export default function CrewAnalyticsPage() {
         }
 
         const allCrew = excludeTestingAccounts(allCrewRaw);
+        const crewUserIds = (allCrew || []).map((c) => c.id);
 
-        // Fetch all vessel assignments at once (more efficient and works better with RLS)
-        const crewUserIds = (allCrew || []).map(c => c.id);
-        
         let allAssignments: VesselAssignment[] = [];
         if (crewUserIds.length > 0) {
-          const { data: assignmentsData, error: assignmentsError } = await supabase
-            .from('vessel_assignments')
-            .select('*')
-            .in('user_id', crewUserIds)
-            .order('start_date', { ascending: false });
+          const { data: assignmentsData, error: assignmentsError } =
+            await supabase
+              .from('vessel_assignments')
+              .select('*')
+              .in('user_id', crewUserIds)
+              .order('start_date', { ascending: false });
 
           if (assignmentsError) {
-            console.error('[CREW ANALYTICS] Error fetching assignments:', assignmentsError);
+            console.error(
+              '[CREW ANALYTICS] Error fetching assignments:',
+              assignmentsError,
+            );
           } else {
-            // Map the raw data to VesselAssignment format
             allAssignments = (assignmentsData || []).map((assignment: any) => ({
               id: assignment.id,
               userId: assignment.user_id,
@@ -140,28 +139,24 @@ export default function CrewAnalyticsPage() {
               endDate: assignment.end_date || null,
               position: assignment.position || null,
               onboard: assignment.onboard || false,
-              createdAt: assignment.created_at ? new Date(assignment.created_at).toISOString() : new Date().toISOString(),
-              updatedAt: assignment.updated_at ? new Date(assignment.updated_at).toISOString() : new Date().toISOString(),
+              createdAt: assignment.created_at
+                ? new Date(assignment.created_at).toISOString()
+                : new Date().toISOString(),
+              updatedAt: assignment.updated_at
+                ? new Date(assignment.updated_at).toISOString()
+                : new Date().toISOString(),
             }));
-            
-            console.log('[CREW ANALYTICS] Fetched assignments:', {
-              totalAssignments: allAssignments.length,
-              activeAssignments: allAssignments.filter(a => !a.endDate).length,
-              sample: allAssignments.slice(0, 3),
-            });
           }
         }
 
-        // Group assignments by user ID
         const assignmentsByUser = new Map<string, VesselAssignment[]>();
-        allAssignments.forEach(assignment => {
+        allAssignments.forEach((assignment) => {
           if (!assignmentsByUser.has(assignment.userId)) {
             assignmentsByUser.set(assignment.userId, []);
           }
           assignmentsByUser.get(assignment.userId)!.push(assignment);
         });
 
-        // Most recent state per user (any date) – admin RLS allows SELECT on daily_state_logs
         const stateLabels: Record<string, string> = {
           underway: 'Underway',
           'at-anchor': 'At anchor',
@@ -179,7 +174,6 @@ export default function CrewAnalyticsPage() {
             .in('user_id', crewUserIds)
             .order('date', { ascending: false })
             .limit(Math.max(2000, crewUserIds.length * 30));
-          // Rows are newest first; take first occurrence per user = their most recent log
           (allLogs || []).forEach((log: any) => {
             if (!latestStateByUser.has(log.user_id)) {
               const label = stateLabels[log.state] || log.state || '—';
@@ -187,138 +181,127 @@ export default function CrewAnalyticsPage() {
               if (log.state) latestStateKeyByUser.set(log.user_id, log.state);
               const lastChanged = log.updated_at || log.created_at;
               if (lastChanged) {
-                stateLastChangedByUser.set(log.user_id, format(new Date(lastChanged), 'MMM d, yyyy'));
+                stateLastChangedByUser.set(
+                  log.user_id,
+                  format(new Date(lastChanged), 'd MMM yyyy'),
+                );
               }
             }
           });
         }
 
-        // Process each crew member
-        const crewData: CrewWithoutVessel[] = (allCrew || []).map(crewMember => {
-          const userAssignments = assignmentsByUser.get(crewMember.id) || [];
-          
-          // Find active assignments (end_date is null, undefined, or empty string)
-          // Also check if end_date is in the future (assignment hasn't ended yet)
-          const today = startOfDay(new Date());
-          const activeAssignments = userAssignments.filter(a => {
-            const endDate = a.endDate;
-            // Assignment is active if end_date is null/undefined/empty
-            if (endDate === null || endDate === undefined || endDate === '') {
-              return true;
-            }
-            // Or if end_date is in the future (assignment hasn't ended yet)
-            try {
-              const parsedEndDate = parse(endDate, 'yyyy-MM-dd', new Date());
-              return isAfter(parsedEndDate, today) || parsedEndDate.getTime() === today.getTime();
-            } catch (e) {
-              // If parsing fails, treat as inactive
-              return false;
-            }
-          });
-          const hasActiveAssignment = activeAssignments.length > 0;
-          
-          // Get the active vessel info - prefer the most recent active assignment
-          const activeAssignment = activeAssignments.length > 0 
-            ? activeAssignments.sort((a, b) => {
-                // Sort by start date, most recent first
-                const dateA = parse(a.startDate, 'yyyy-MM-dd', new Date());
-                const dateB = parse(b.startDate, 'yyyy-MM-dd', new Date());
-                return dateB.getTime() - dateA.getTime();
-              })[0]
-            : null;
-          const activeVesselId = activeAssignment?.vesselId || null;
-          
-          // Look up vessel name - try multiple ways
-          let activeVesselName: string | null = null;
-          if (activeVesselId && allVessels) {
-            const vessel = allVessels.find(v => v.id === activeVesselId);
-            activeVesselName = vessel?.name || null;
-            
-            // Log if vessel not found for debugging
-            if (!activeVesselName) {
-              console.warn('[CREW ANALYTICS] Vessel not found:', {
-                crewId: crewMember.id,
-                crewName: `${crewMember.first_name || ''} ${crewMember.last_name || ''}`,
-                vesselId: activeVesselId,
-                availableVessels: allVessels.length,
-                vesselIds: allVessels.map(v => v.id).slice(0, 5),
-              });
-            }
-          }
+        const crewData: CrewWithoutVessel[] = (allCrew || []).map(
+          (crewMember) => {
+            const userAssignments =
+              assignmentsByUser.get(crewMember.id) || [];
 
-          // Find the most recent assignment end date
-          const assignmentsWithEndDate = userAssignments
-            .filter(a => a.endDate)
-            .sort((a, b) => {
-              const dateA = parse(a.endDate!, 'yyyy-MM-dd', new Date());
-              const dateB = parse(b.endDate!, 'yyyy-MM-dd', new Date());
-              return dateB.getTime() - dateA.getTime();
+            const today = startOfDay(new Date());
+            const activeAssignments = userAssignments.filter((a) => {
+              const endDate = a.endDate;
+              if (
+                endDate === null ||
+                endDate === undefined ||
+                endDate === ''
+              ) {
+                return true;
+              }
+              try {
+                const parsedEndDate = parse(endDate, 'yyyy-MM-dd', new Date());
+                return (
+                  isAfter(parsedEndDate, today) ||
+                  parsedEndDate.getTime() === today.getTime()
+                );
+              } catch {
+                return false;
+              }
             });
+            const hasActiveAssignment = activeAssignments.length > 0;
 
-          const lastAssignmentEndDate = assignmentsWithEndDate.length > 0 
-            ? assignmentsWithEndDate[0].endDate 
-            : null;
+            const activeAssignment =
+              activeAssignments.length > 0
+                ? activeAssignments.sort((a, b) => {
+                    const dateA = parse(a.startDate, 'yyyy-MM-dd', new Date());
+                    const dateB = parse(b.startDate, 'yyyy-MM-dd', new Date());
+                    return dateB.getTime() - dateA.getTime();
+                  })[0]
+                : null;
+            const activeVesselId = activeAssignment?.vesselId || null;
 
-          // Calculate days since last assignment ended
-          let daysSinceLastAssignment: number | null = null;
-          if (lastAssignmentEndDate) {
-            const endDate = parse(lastAssignmentEndDate, 'yyyy-MM-dd', new Date());
-            const today = startOfDay(new Date());
-            const daysDiff = Math.floor((today.getTime() - endDate.getTime()) / (1000 * 60 * 60 * 24));
-            daysSinceLastAssignment = daysDiff;
-          } else if (userAssignments.length === 0) {
-            // No assignments at all - calculate days since account creation
-            const createdAt = new Date(crewMember.created_at);
-            const today = startOfDay(new Date());
-            const daysDiff = Math.floor((today.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
-            daysSinceLastAssignment = daysDiff;
-          }
+            let activeVesselName: string | null = null;
+            if (activeVesselId && allVessels) {
+              const vessel = allVessels.find((v) => v.id === activeVesselId);
+              activeVesselName = vessel?.name || null;
+            }
 
-          return {
-            id: crewMember.id,
-            firstName: crewMember.first_name || '',
-            lastName: crewMember.last_name || '',
-            username: crewMember.username || '',
-            email: crewMember.email || '',
-            role: crewMember.role || 'crew',
-            createdAt: crewMember.created_at,
-            lastAssignmentEndDate,
-            daysSinceLastAssignment,
-            hasActiveAssignment,
-            activeVesselId,
-            activeVesselName,
-            todayState: latestStateByUser.get(crewMember.id) ?? null,
-            todayStateKey: latestStateKeyByUser.get(crewMember.id) ?? null,
-            stateLastChanged: stateLastChangedByUser.get(crewMember.id) ?? null,
-          };
-        });
+            const assignmentsWithEndDate = userAssignments
+              .filter((a) => a.endDate)
+              .sort((a, b) => {
+                const dateA = parse(a.endDate!, 'yyyy-MM-dd', new Date());
+                const dateB = parse(b.endDate!, 'yyyy-MM-dd', new Date());
+                return dateB.getTime() - dateA.getTime();
+              });
 
-        console.log('[CREW ANALYTICS] All crew data:', {
-          totalCrew: crewData.length,
-          withActiveVessels: crewData.filter(c => c.hasActiveAssignment).length,
-          withoutActiveVessels: crewData.filter(c => !c.hasActiveAssignment).length,
-          usersWithActiveVessels: crewData.filter(c => c.hasActiveAssignment).map(c => ({
-            id: c.id,
-            name: `${c.firstName} ${c.lastName}`,
-            vesselId: c.activeVesselId,
-            vessel: c.activeVesselName,
-            hasActiveAssignment: c.hasActiveAssignment,
-          })),
-        });
-        
-        // Sort: show crew with active vessels first, then by days since last assignment
+            const lastAssignmentEndDate =
+              assignmentsWithEndDate.length > 0
+                ? assignmentsWithEndDate[0].endDate
+                : null;
+
+            let daysSinceLastAssignment: number | null = null;
+            if (lastAssignmentEndDate) {
+              const endDate = parse(
+                lastAssignmentEndDate,
+                'yyyy-MM-dd',
+                new Date(),
+              );
+              const todayDate = startOfDay(new Date());
+              daysSinceLastAssignment = Math.floor(
+                (todayDate.getTime() - endDate.getTime()) /
+                  (1000 * 60 * 60 * 24),
+              );
+            } else if (userAssignments.length === 0) {
+              const createdAt = new Date(crewMember.created_at);
+              const todayDate = startOfDay(new Date());
+              daysSinceLastAssignment = Math.floor(
+                (todayDate.getTime() - createdAt.getTime()) /
+                  (1000 * 60 * 60 * 24),
+              );
+            }
+
+            return {
+              id: crewMember.id,
+              firstName: crewMember.first_name || '',
+              lastName: crewMember.last_name || '',
+              username: crewMember.username || '',
+              email: crewMember.email || '',
+              role: crewMember.role || 'crew',
+              createdAt: crewMember.created_at,
+              lastAssignmentEndDate,
+              daysSinceLastAssignment,
+              hasActiveAssignment,
+              activeVesselId,
+              activeVesselName,
+              todayState: latestStateByUser.get(crewMember.id) ?? null,
+              todayStateKey: latestStateKeyByUser.get(crewMember.id) ?? null,
+              stateLastChanged:
+                stateLastChangedByUser.get(crewMember.id) ?? null,
+            };
+          },
+        );
+
         crewData.sort((a, b) => {
-          // First sort: active assignments first
           if (a.hasActiveAssignment && !b.hasActiveAssignment) return -1;
           if (!a.hasActiveAssignment && b.hasActiveAssignment) return 1;
-          
-          // Then sort by days since last assignment (most recent first)
-          if (a.daysSinceLastAssignment !== null && b.daysSinceLastAssignment !== null) {
+          if (
+            a.daysSinceLastAssignment !== null &&
+            b.daysSinceLastAssignment !== null
+          ) {
             return b.daysSinceLastAssignment - a.daysSinceLastAssignment;
           }
           if (a.daysSinceLastAssignment !== null) return -1;
           if (b.daysSinceLastAssignment !== null) return 1;
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          return (
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
         });
 
         setAllCrewMembers(crewData);
@@ -330,238 +313,393 @@ export default function CrewAnalyticsPage() {
       }
     };
 
-    fetchCrewAnalytics();
+    void fetchCrewAnalytics();
   }, [isAdmin, user?.id, supabase, allVessels]);
 
-  // Filter crew by search term
   const filteredCrew = useMemo(() => {
-    if (!searchTerm.trim()) return allCrewMembers;
-    
+    let list = allCrewMembers;
+
+    if (assignmentFilter === 'assigned') {
+      list = list.filter((c) => c.hasActiveAssignment);
+    } else if (assignmentFilter === 'unassigned') {
+      list = list.filter((c) => !c.hasActiveAssignment);
+    }
+
+    if (!searchTerm.trim()) return list;
+
     const search = searchTerm.toLowerCase();
-    return allCrewMembers.filter(crew => 
-      crew.firstName.toLowerCase().includes(search) ||
-      crew.lastName.toLowerCase().includes(search) ||
-      crew.username.toLowerCase().includes(search) ||
-      crew.email.toLowerCase().includes(search) ||
-      (crew.activeVesselName && crew.activeVesselName.toLowerCase().includes(search))
+    return list.filter(
+      (crew) =>
+        crew.firstName.toLowerCase().includes(search) ||
+        crew.lastName.toLowerCase().includes(search) ||
+        crew.username.toLowerCase().includes(search) ||
+        crew.email.toLowerCase().includes(search) ||
+        (crew.activeVesselName &&
+          crew.activeVesselName.toLowerCase().includes(search)),
     );
-  }, [allCrewMembers, searchTerm]);
+  }, [allCrewMembers, searchTerm, assignmentFilter]);
 
   const stats = useMemo(() => {
     const total = allCrewMembers.length;
-    const withActiveVessels = allCrewMembers.filter(c => c.hasActiveAssignment).length;
-    const noAssignments = allCrewMembers.filter(c => c.lastAssignmentEndDate === null && !c.hasActiveAssignment).length;
-    const recentEnded = allCrewMembers.filter(c => 
-      !c.hasActiveAssignment && c.daysSinceLastAssignment !== null && c.daysSinceLastAssignment <= 30
+    const withActiveVessels = allCrewMembers.filter(
+      (c) => c.hasActiveAssignment,
     ).length;
-    const longTermInactive = allCrewMembers.filter(c => 
-      !c.hasActiveAssignment && c.daysSinceLastAssignment !== null && c.daysSinceLastAssignment > 90
+    const noAssignments = allCrewMembers.filter(
+      (c) => c.lastAssignmentEndDate === null && !c.hasActiveAssignment,
+    ).length;
+    const recentEnded = allCrewMembers.filter(
+      (c) =>
+        !c.hasActiveAssignment &&
+        c.daysSinceLastAssignment !== null &&
+        c.daysSinceLastAssignment <= 30,
+    ).length;
+    const longTermInactive = allCrewMembers.filter(
+      (c) =>
+        !c.hasActiveAssignment &&
+        c.daysSinceLastAssignment !== null &&
+        c.daysSinceLastAssignment > 90,
     ).length;
 
-    return { total, withActiveVessels, noAssignments, recentEnded, longTermInactive };
+    return {
+      total,
+      withActiveVessels,
+      noAssignments,
+      recentEnded,
+      longTermInactive,
+    };
   }, [allCrewMembers]);
 
-  if (isLoadingProfile || isLoading) {
+  if (isLoadingProfile) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Crew Analytics</h1>
-          <p className="text-muted-foreground">
-            Analyze crew members who are not currently tracking an active vessel.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map(i => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-24" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
-            </Card>
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-8 w-64" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-20 rounded-md" />
           ))}
         </div>
       </div>
     );
   }
 
-  if (!isAdmin) {
-    return null;
-  }
+  if (!isAdmin) return null;
+
+  const filterTabs: Array<{
+    id: AssignmentFilter;
+    label: string;
+    count: number;
+  }> = [
+    { id: 'all', label: 'All', count: stats.total },
+    {
+      id: 'assigned',
+      label: 'Assigned',
+      count: stats.withActiveVessels,
+    },
+    {
+      id: 'unassigned',
+      label: 'Unassigned',
+      count: stats.total - stats.withActiveVessels,
+    },
+  ];
+
+  const statTiles = [
+    {
+      label: 'Total crew',
+      value: stats.total,
+      hint: 'Crew & captains (excl. testing)',
+      icon: Users,
+      tone: 'default' as const,
+    },
+    {
+      label: 'With active vessels',
+      value: stats.withActiveVessels,
+      hint: 'Currently assigned',
+      icon: CheckCircle2,
+      tone: 'emerald' as const,
+    },
+    {
+      label: 'Never assigned',
+      value: stats.noAssignments,
+      hint: 'No vessel assignment on file',
+      icon: AlertCircle,
+      tone: 'amber' as const,
+    },
+    {
+      label: 'Recently ended',
+      value: stats.recentEnded,
+      hint: 'Assignment ended in last 30 days',
+      icon: Calendar,
+      tone: 'sky' as const,
+    },
+    {
+      label: 'Long-term inactive',
+      value: stats.longTermInactive,
+      hint: 'No assignment for 90+ days',
+      icon: XCircle,
+      tone: 'destructive' as const,
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Crew Analytics</h1>
-        <p className="text-muted-foreground">
-          View all crew members and their current vessel assignments.
-          Testing accounts are excluded.
-        </p>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Crew Members</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">
-              All crew members
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">With Active Vessels</CardTitle>
-            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.withActiveVessels}</div>
-            <p className="text-xs text-muted-foreground">
-              Currently assigned to vessels
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Never Assigned</CardTitle>
-            <AlertCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.noAssignments}</div>
-            <p className="text-xs text-muted-foreground">
-              Never had a vessel assignment
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Recently Ended</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.recentEnded}</div>
-            <p className="text-xs text-muted-foreground">
-              Assignment ended in last 30 days
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Long Term Inactive</CardTitle>
-            <XCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.longTermInactive}</div>
-            <p className="text-xs text-muted-foreground">
-              No assignment for 90+ days
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Search */}
-      <Card>
-        <CardHeader>
-          <CardTitle>All Crew Members</CardTitle>
-          <CardDescription>
-            {filteredCrew.length} of {allCrewMembers.length} crew members
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4">
-            <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, username, or email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8"
-              />
-            </div>
+      {/* Page header */}
+      <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Users className="h-3.5 w-3.5" />
+            <span>Platform</span>
+            <span className="text-border">/</span>
+            <span className="text-foreground">Crew analytics</span>
           </div>
+          <h1 className="text-xl font-medium tracking-tight text-foreground">
+            Crew analytics
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Vessel assignments and latest states for crew and captains. Testing
+            accounts are excluded.
+          </p>
+        </div>
+      </div>
 
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Latest state</TableHead>
-                  <TableHead>State last changed</TableHead>
-                  <TableHead>Current Vessel</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCrew.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      {searchTerm ? 'No crew members found matching your search.' : 'No crew members found.'}
+      {/* Stats — same top section, Studio-styled */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {statTiles.map((tile) => {
+          const Icon = tile.icon;
+          return (
+            <div
+              key={tile.label}
+              className="overflow-hidden rounded-md border border-border bg-background"
+            >
+              <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {tile.label}
+                </span>
+                <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <div className="px-3 py-3">
+                {isLoading ? (
+                  <Skeleton className="h-7 w-12" />
+                ) : (
+                  <div
+                    className={cn(
+                      'font-mono text-2xl font-medium tabular-nums tracking-tight',
+                      tile.tone === 'emerald' && 'text-emerald-600',
+                      tile.tone === 'amber' && 'text-amber-600',
+                      tile.tone === 'sky' && 'text-sky-600',
+                      tile.tone === 'destructive' && 'text-destructive',
+                      tile.tone === 'default' && 'text-foreground',
+                    )}
+                  >
+                    {tile.value}
+                  </div>
+                )}
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {tile.hint}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+          {filterTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setAssignmentFilter(tab.id)}
+              className={cn(
+                'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-xs transition-colors',
+                assignmentFilter === tab.id
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {tab.label}
+              <span
+                className={cn(
+                  'rounded px-1 font-mono text-[10px] tabular-nums',
+                  assignmentFilter === tab.id
+                    ? 'bg-muted text-muted-foreground'
+                    : 'text-muted-foreground/70',
+                )}
+              >
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
+          <div className="relative w-full lg:w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search name, email, vessel…"
+              className="h-8 rounded-md border-border bg-background pl-8 text-xs shadow-none"
+            />
+          </div>
+          <p className="shrink-0 text-xs text-muted-foreground sm:text-right">
+            <span className="font-mono tabular-nums">{filteredCrew.length}</span>
+            {' of '}
+            <span className="font-mono tabular-nums">{allCrewMembers.length}</span>
+            {' shown'}
+          </p>
+        </div>
+      </div>
+
+      {/* Data table */}
+      <div className="overflow-hidden rounded-md border border-border bg-muted/40">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border hover:bg-transparent">
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Name
+              </TableHead>
+              <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground md:table-cell">
+                Email
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Role
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Latest state
+              </TableHead>
+              <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground lg:table-cell">
+                State changed
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Current vessel
+              </TableHead>
+              <TableHead
+                className="h-9 w-10 bg-muted/40 text-right text-[11px] font-normal text-muted-foreground"
+                aria-label="Open"
+              />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={7} className="h-36 bg-background">
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading crew analytics…
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : filteredCrew.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={7} className="h-36 bg-background">
+                  <div className="flex flex-col items-center justify-center gap-1 text-center">
+                    <p className="text-sm text-foreground">No crew found</p>
+                    <p className="text-xs text-muted-foreground">
+                      {searchTerm || assignmentFilter !== 'all'
+                        ? 'Try another filter or search term.'
+                        : 'No crew or captain accounts yet.'}
+                    </p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredCrew.map((crew) => {
+                const fullName =
+                  `${crew.firstName} ${crew.lastName}`.trim() ||
+                  crew.username ||
+                  '—';
+                return (
+                  <TableRow
+                    key={crew.id}
+                    className="cursor-pointer border-border bg-background hover:bg-muted/40"
+                    onClick={() => router.push(`/dashboard/users/${crew.id}`)}
+                  >
+                    <TableCell className="py-2.5 align-middle">
+                      <div className="min-w-0 max-w-[220px]">
+                        <span className="truncate text-sm text-foreground">
+                          {fullName}
+                        </span>
+                        {crew.username ? (
+                          <div className="truncate font-mono text-[11px] text-muted-foreground">
+                            @{crew.username}
+                          </div>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden py-2.5 align-middle md:table-cell">
+                      <span className="inline-flex max-w-[200px] items-center gap-1.5 truncate text-xs text-foreground">
+                        <Mail className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{crew.email || '—'}</span>
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      <span
+                        className={cn(
+                          'rounded border px-1.5 py-0.5 text-[10px] capitalize',
+                          crew.role === 'captain'
+                            ? 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400'
+                            : 'border-border bg-muted/60 text-muted-foreground',
+                        )}
+                      >
+                        {crew.role}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      {crew.todayStateKey ? (
+                        <StatePill
+                          stateKey={crew.todayStateKey}
+                          label={crew.todayState}
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden py-2.5 align-middle lg:table-cell">
+                      <span className="text-[11px] text-muted-foreground">
+                        {crew.stateLastChanged ?? '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      {crew.hasActiveAssignment && crew.activeVesselName ? (
+                        <span className="inline-flex max-w-[200px] items-center gap-1.5 truncate text-xs text-foreground">
+                          <Ship className="h-3 w-3 shrink-0 text-emerald-600" />
+                          <span className="truncate">{crew.activeVesselName}</span>
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-400">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            Active
+                          </span>
+                        </span>
+                      ) : crew.activeVesselId && !crew.activeVesselName ? (
+                        <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+                          <Ship className="h-3 w-3" />
+                          {crew.activeVesselId.slice(0, 8)}…
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+                          Not assigned
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-2.5 text-right align-middle">
+                      <Link
+                        href={`/dashboard/users/${crew.id}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Open user profile"
+                      >
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </Link>
                     </TableCell>
                   </TableRow>
-                ) : (
-                  filteredCrew.map((crew) => (
-                    <TableRow key={crew.id}>
-                      <TableCell className="font-medium">
-                        {crew.firstName} {crew.lastName}
-                      </TableCell>
-                      <TableCell>{crew.username}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-3 w-3 text-muted-foreground" />
-                          {crew.email}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={crew.role === 'captain' ? 'default' : 'secondary'}>
-                          {crew.role}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {crew.todayStateKey ? (
-                          <StatePill stateKey={crew.todayStateKey} label={crew.todayState} />
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-xs">
-                        {crew.stateLastChanged ?? '—'}
-                      </TableCell>
-                      <TableCell>
-                        {crew.hasActiveAssignment && crew.activeVesselName ? (
-                          <div className="flex items-center gap-2">
-                            <Ship className="h-3 w-3 text-green-600 dark:text-green-400" />
-                            <span className="font-medium">{crew.activeVesselName}</span>
-                            <Badge variant="default" className="text-xs bg-green-500/10 text-green-700 border-green-500/20 dark:bg-green-500/20 dark:text-green-400">Active</Badge>
-                          </div>
-                        ) : crew.activeVesselId && !crew.activeVesselName ? (
-                          <div className="flex items-center gap-2">
-                            <Ship className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-muted-foreground">Vessel ID: {crew.activeVesselId.slice(0, 8)}...</span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">Not assigned</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }
-

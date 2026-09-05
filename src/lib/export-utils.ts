@@ -249,12 +249,12 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
   /** "No" / neutral fill for indicator columns (Part of Passage, On Watch, Standby). */
   const indicatorNoArgb = 'FFFFF5F5';
   /**
-   * Base hues match calendar strips (blue-600, yellow-400, purple-600); blended toward white for softer cells.
+   * Base hues match calendar strips (blue-600, yellow-400, standby #7629BB); blended toward white for softer cells.
    * @see src/app/dashboard/calendar/page.tsx
    */
   const passageYesFill = mixArgbTowardWhite('FF2563EB', 0.34);
   const watchYesFill = mixArgbTowardWhite('FFFACC15', 0.62);
-  const standbyYesFill = mixArgbTowardWhite('FF9333EA', 0.32);
+  const standbyYesFill = mixArgbTowardWhite('FF7629BB', 0.32);
   /** State column: tinted like calendarStateWash-style chips on a white ground */
   const stateFillColorWeight = 0.38;
 

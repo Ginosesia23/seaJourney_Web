@@ -59,6 +59,7 @@ VALUES
   ('crew_rotation', true),
   ('testimonials', true),
   ('apply_tickets', true),
+  ('career_progress', true),
   ('vessel_document_generator', true),
   ('certificates', true),
   ('proof_of_service', true),

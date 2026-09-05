@@ -14,6 +14,7 @@ import { Skeleton } from '../ui/skeleton';
 import { UserProfile, Vessel } from '@/lib/types';
 import { getVesselStateLogs, getPassageLogs, getBridgeWatchLogs } from '@/supabase/database/queries';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
+import { formatSubscriptionTierLabel } from '@/lib/subscription-tier-labels';
 
 function SubscriptionSkeleton() {
     return (
@@ -220,17 +221,7 @@ export function SubscriptionCard() {
   const cancelAtPeriodEnd =
     (userProfileRaw as { cancel_at_period_end?: boolean | null })?.cancel_at_period_end === true;
 
-  // Format subscription tier for display
-  const formatTierName = (tier: string) => {
-    // Remove common prefixes
-    const cleaned = tier.replace(/^(sj_|sea_journey_)/i, '').trim();
-    // Capitalize first letter of each word
-    return cleaned.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    ).join(' ');
-  };
-
-  const displayTier = formatTierName(subscriptionTier);
+  const displayTier = formatSubscriptionTierLabel(subscriptionTier);
   const isActive = hasActiveSubscription(userProfileRaw ?? userProfile);
   const stripeSubId = (userProfileRaw as { stripe_subscription_id?: string | null } | null)
     ?.stripe_subscription_id;

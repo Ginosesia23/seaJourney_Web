@@ -1,5 +1,11 @@
 import type { DailyStatus } from '@/lib/types';
 
+/**
+ * Standby indicator (calendar bottom strip, legend, month summary).
+ * Base was Tailwind purple-600 `#9333ea`; darkened 20% (RGB × 0.8).
+ */
+export const STANDBY_INDICATOR_COLOR = '#7629BB';
+
 /** Maps each logged state to its theme chart token (HSL components only, no hsl() wrapper). */
 export const CALENDAR_STATE_CHART_VAR: Record<DailyStatus, string> = {
     underway: 'chart-blue',

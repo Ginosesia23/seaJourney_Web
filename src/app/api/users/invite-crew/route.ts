@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { findUserProfileByEmail } from '@/lib/admin/lookup-user-by-email';
 import { createVesselAssignment } from '@/supabase/database/queries';
 import { getVesselManagerCrewLimit } from '@/lib/vessel-crew-limit';
+import { approveVesselPlanCoverageForInvite } from '@/lib/vessel-plan-coverage';
+import { reconcileCrewPersonalPlanForUser } from '@/lib/crew-personal-plan-on-vessel';
 import { Resend } from 'resend';
 import { sendWelcomeEmail } from '@/lib/welcome-email';
 import { EMAIL_PRIMARY_BLUE } from '@/lib/email-colors';
@@ -88,26 +91,19 @@ export async function POST(req: NextRequest) {
 
     // Check if user already exists
     try {
-      const { data: existingUser, error: existingUserError } = await supabaseAdmin.auth.admin.getUserByEmail(email);
-      if (existingUserError) {
-        // If error is not "user not found", it's a real error
-        if (existingUserError.message && !existingUserError.message.includes('not found')) {
-          console.error('[INVITE CREW] Error checking existing user:', existingUserError);
-          return NextResponse.json(
-            { error: 'Failed to check if user exists', details: existingUserError.message },
-            { status: 500 }
-          );
-        }
-        // User doesn't exist, continue
-      } else if (existingUser?.user) {
+      const existingProfile = await findUserProfileByEmail(email);
+      if (existingProfile) {
         return NextResponse.json(
           { error: 'A user with this email already exists' },
           { status: 400 }
         );
       }
-    } catch (checkError: any) {
+    } catch (checkError: unknown) {
       console.error('[INVITE CREW] Error checking existing user:', checkError);
-      // Continue anyway - worst case we'll get an error when creating
+      return NextResponse.json(
+        { error: 'Failed to check if user exists' },
+        { status: 500 },
+      );
     }
 
     // Generate a secure random password that meets requirements (min 8 chars, uppercase, lowercase, number, special char)
@@ -258,6 +254,17 @@ export async function POST(req: NextRequest) {
           position: assignedPosition,
         }
       );
+      // Vessel initiated the invite — approve plan coverage immediately.
+      try {
+        await approveVesselPlanCoverageForInvite({
+          crewUserId: userId,
+          vesselId,
+          reviewedBy: vesselUserId || null,
+        });
+        await reconcileCrewPersonalPlanForUser(userId);
+      } catch (coverageError) {
+        console.error('[INVITE CREW] Plan coverage auto-approve failed:', coverageError);
+      }
     } catch (assignmentError: any) {
       console.error('[INVITE CREW] Error creating vessel assignment:', assignmentError);
       // Don't fail the whole operation, but log it

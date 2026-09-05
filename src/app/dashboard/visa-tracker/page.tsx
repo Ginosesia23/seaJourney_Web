@@ -23,9 +23,8 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, VisaTracker, VisaEntry } from '@/lib/types';
-import { hasActiveSubscription, hasCrewPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
-import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -106,6 +105,7 @@ export default function VisaTrackerPage() {
   // Fetch user profile
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
   const { boost: vesselBoost } = useCrewVesselFeatureBoost();
+  const { isEnabled: isFeatureEnabled, isLoading: isFlagsLoading } = useFeatureFlags();
   
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
@@ -120,34 +120,13 @@ export default function VisaTrackerPage() {
     } as UserProfile;
   }, [userProfileRaw]);
 
-  // Check if user has access (premium/pro for crew, any active tier for vessels)
-  const hasAccess = useMemo(() => {
-    if (!userProfile || !userProfileRaw) return false;
-    const tier = (userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free';
-    const role = (userProfile as any).role || userProfile.role || 'crew';
-    const entitled = hasActiveSubscription(userProfileRaw);
+  const hasAccess = isFeatureEnabled('visa_tracker');
 
-    // Vessel accounts: allow all active vessel tiers
-    if (role === 'vessel') {
-      const tierLower = tier.toLowerCase();
-      return (tierLower.startsWith('vessel_') || tierLower === 'vessel_lite' || tierLower === 'vessel_basic' || tierLower === 'vessel_pro' || tierLower === 'vessel_fleet') && entitled;
-    }
-
-    if (isVesselLinkedFeatureGranted(userProfileRaw, 'visa_tracker')) return entitled;
-
-    if (role === 'crew' || role === 'captain') {
-      return hasCrewPremiumPlusFeatures(userProfileRaw, vesselBoost);
-    }
-
-    return false;
-  }, [userProfile, userProfileRaw, vesselBoost]);
-
-  // Redirect non-premium users to dashboard
   useEffect(() => {
-    if (!isLoadingProfile && userProfile && !hasAccess) {
+    if (!isLoadingProfile && !isFlagsLoading && userProfile && !hasAccess) {
       router.push('/dashboard');
     }
-  }, [isLoadingProfile, userProfile, hasAccess, router]);
+  }, [isLoadingProfile, isFlagsLoading, userProfile, hasAccess, router]);
 
   const form = useForm<VisaFormValues>({
     resolver: zodResolver(visaSchema),

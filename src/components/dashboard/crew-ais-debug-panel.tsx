@@ -153,7 +153,7 @@ function CrewAisDebugPanelBody({ accessToken }: { accessToken: string | null }) 
       : '—';
 
   return (
-    <Card className="rounded-xl border border-amber-500/40 bg-amber-500/5 shadow-sm">
+    <Card className="rounded-md border border-amber-500/40 bg-amber-500/5 shadow-none">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">

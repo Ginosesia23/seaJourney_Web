@@ -1,19 +1,44 @@
 // lib/supabaseAdmin.ts
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+let adminClient: SupabaseClient | null = null;
 
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error(
-    'SUPABASE_SERVICE_ROLE_KEY is missing. Set it in your environment variables.',
+function getSupabaseAdminClient(): SupabaseClient {
+  if (typeof window !== 'undefined') {
+    throw new Error('supabaseAdmin is server-only and cannot run in the browser.');
+  }
+
+  if (adminClient) return adminClient;
+
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseServiceRoleKey) {
+    throw new Error(
+      'SUPABASE_SERVICE_ROLE_KEY is missing. Set it in your environment variables.',
+    );
+  }
+
+  adminClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseServiceRoleKey,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    },
   );
+
+  return adminClient;
 }
 
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey!, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
+/** Service-role Supabase client — server/API routes only. */
+export const supabaseAdmin: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, prop, receiver) {
+    const client = getSupabaseAdminClient();
+    const value = Reflect.get(client, prop, receiver);
+    if (typeof value === 'function') {
+      return (value as (...args: unknown[]) => unknown).bind(client);
+    }
+    return value;
   },
 });

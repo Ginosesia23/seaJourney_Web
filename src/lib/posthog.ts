@@ -90,16 +90,27 @@ export type PostHogAnalytics = {
     sessionsPrev: number;
     exceptions: number;
     exceptionsPrev: number;
+    avgEventsPerSession: number;
+    avgPageviewsPerUser: number;
   };
   trend: Array<{
     day: string;
     uniqueUsers: number;
     pageviews: number;
     events: number;
+    sessions: number;
+    exceptions: number;
   }>;
+  hourly: Array<{ hour: number; events: number; users: number }>;
   topPages: Array<{ path: string; views: number; users: number }>;
+  dashboardPages: Array<{ path: string; views: number; users: number }>;
   topEvents: Array<{ event: string; count: number; users: number }>;
+  customEvents: Array<{ event: string; count: number; users: number }>;
   devices: Array<{ device: string; users: number; events: number }>;
+  browsers: Array<{ browser: string; users: number; events: number }>;
+  operatingSystems: Array<{ os: string; users: number; events: number }>;
+  referrers: Array<{ referrer: string; users: number; events: number }>;
+  roles: Array<{ role: string; users: number; events: number }>;
   recentEvents: PostHogRecentEvent[];
   people: PostHogPerson[];
   exceptions: PostHogExceptionEvent[];
@@ -244,9 +255,16 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
     current,
     previous,
     trend,
+    hourly,
     topPages,
+    dashboardPages,
     topEvents,
+    customEvents,
     devices,
+    browsers,
+    operatingSystems,
+    referrers,
+    roles,
     recentEvents,
     people,
     exceptions,
@@ -263,13 +281,28 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           toDate(timestamp) AS day,
           uniq(person_id) AS unique_users,
           countIf(event = '$pageview') AS pageviews,
-          count() AS events
+          count() AS events,
+          uniq(properties.$session_id) AS sessions,
+          countIf(event = '$exception') AS exceptions
         FROM events
         WHERE timestamp >= now() - interval ${days} day
         GROUP BY day
         ORDER BY day ASC
       `,
       `seajourney-admin-trend-${days}`,
+    ),
+    runHogQLSafe(
+      `
+        SELECT
+          toHour(timestamp) AS hour,
+          count() AS events,
+          uniq(person_id) AS users
+        FROM events
+        WHERE timestamp >= now() - interval ${days} day
+        GROUP BY hour
+        ORDER BY hour ASC
+      `,
+      `seajourney-admin-hourly-${days}`,
     ),
     runHogQL(
       `
@@ -282,9 +315,25 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           AND timestamp >= now() - interval ${days} day
         GROUP BY path
         ORDER BY views DESC
-        LIMIT 15
+        LIMIT 20
       `,
       `seajourney-admin-pages-${days}`,
+    ),
+    runHogQLSafe(
+      `
+        SELECT
+          coalesce(nullIf(properties.$pathname, ''), '(unknown)') AS path,
+          count() AS views,
+          uniq(person_id) AS users
+        FROM events
+        WHERE event = '$pageview'
+          AND timestamp >= now() - interval ${days} day
+          AND startsWith(coalesce(properties.$pathname, ''), '/dashboard')
+        GROUP BY path
+        ORDER BY views DESC
+        LIMIT 20
+      `,
+      `seajourney-admin-dashboard-pages-${days}`,
     ),
     runHogQL(
       `
@@ -296,9 +345,24 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
         WHERE timestamp >= now() - interval ${days} day
         GROUP BY event
         ORDER BY count DESC
-        LIMIT 15
+        LIMIT 25
       `,
       `seajourney-admin-events-${days}`,
+    ),
+    runHogQLSafe(
+      `
+        SELECT
+          event,
+          count() AS count,
+          uniq(person_id) AS users
+        FROM events
+        WHERE timestamp >= now() - interval ${days} day
+          AND event NOT LIKE '$%'
+        GROUP BY event
+        ORDER BY count DESC
+        LIMIT 20
+      `,
+      `seajourney-admin-custom-events-${days}`,
     ),
     runHogQL(
       `
@@ -316,6 +380,67 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
     runHogQLSafe(
       `
         SELECT
+          coalesce(nullIf(toString(properties.$browser), ''), 'Unknown') AS browser,
+          uniq(person_id) AS users,
+          count() AS events
+        FROM events
+        WHERE timestamp >= now() - interval ${days} day
+        GROUP BY browser
+        ORDER BY users DESC
+        LIMIT 12
+      `,
+      `seajourney-admin-browsers-${days}`,
+    ),
+    runHogQLSafe(
+      `
+        SELECT
+          coalesce(nullIf(toString(properties.$os), ''), 'Unknown') AS os,
+          uniq(person_id) AS users,
+          count() AS events
+        FROM events
+        WHERE timestamp >= now() - interval ${days} day
+        GROUP BY os
+        ORDER BY users DESC
+        LIMIT 12
+      `,
+      `seajourney-admin-os-${days}`,
+    ),
+    runHogQLSafe(
+      `
+        SELECT
+          coalesce(
+            nullIf(toString(properties.$referring_domain), ''),
+            nullIf(toString(properties.$referrer), ''),
+            '(direct)'
+          ) AS referrer,
+          uniq(person_id) AS users,
+          count() AS events
+        FROM events
+        WHERE timestamp >= now() - interval ${days} day
+          AND event = '$pageview'
+        GROUP BY referrer
+        ORDER BY users DESC
+        LIMIT 15
+      `,
+      `seajourney-admin-referrers-${days}`,
+    ),
+    runHogQLSafe(
+      `
+        SELECT
+          coalesce(nullIf(lower(toString(person.properties.role)), ''), 'unknown') AS role,
+          uniq(person_id) AS users,
+          count() AS events
+        FROM events
+        WHERE timestamp >= now() - interval ${days} day
+        GROUP BY role
+        ORDER BY users DESC
+        LIMIT 12
+      `,
+      `seajourney-admin-roles-${days}`,
+    ),
+    runHogQLSafe(
+      `
+        SELECT
           timestamp,
           event,
           distinct_id,
@@ -328,7 +453,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
         WHERE timestamp >= now() - interval ${days} day
           AND event != '$pageleave'
         ORDER BY timestamp DESC
-        LIMIT 80
+        LIMIT 100
       `,
       `seajourney-admin-recent-${days}`,
     ),
@@ -347,7 +472,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
         WHERE timestamp >= now() - interval ${days} day
         GROUP BY distinct_id
         ORDER BY last_seen DESC
-        LIMIT 60
+        LIMIT 80
       `,
       `seajourney-admin-people-${days}`,
     ),
@@ -374,7 +499,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
         WHERE event = '$exception'
           AND timestamp >= now() - interval ${days} day
         ORDER BY timestamp DESC
-        LIMIT 50
+        LIMIT 60
       `,
       `seajourney-admin-exceptions-${days}`,
     ),
@@ -394,7 +519,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           AND timestamp >= now() - interval ${days} day
         GROUP BY exception_type, exception_message
         ORDER BY occurrences DESC
-        LIMIT 20
+        LIMIT 25
       `,
       `seajourney-admin-exception-groups-${days}`,
     ),
@@ -460,30 +585,58 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
 
   const cur = current[0] ?? {};
   const prev = previous[0] ?? {};
+  const uniqueUsers = toNumber(cur.unique_users);
+  const pageviews = toNumber(cur.pageviews);
+  const events = toNumber(cur.events);
+  const sessions = toNumber(cur.sessions);
+
+  const hourlyByHour = new Map(
+    hourly.map((row) => [toNumber(row.hour), row] as const),
+  );
+  const hourlyFilled = Array.from({ length: 24 }, (_, hour) => {
+    const row = hourlyByHour.get(hour);
+    return {
+      hour,
+      events: row ? toNumber(row.events) : 0,
+      users: row ? toNumber(row.users) : 0,
+    };
+  });
 
   return {
     range,
     days,
     generatedAt: new Date().toISOString(),
     totals: {
-      uniqueUsers: toNumber(cur.unique_users),
+      uniqueUsers,
       uniqueUsersPrev: toNumber(prev.unique_users),
-      pageviews: toNumber(cur.pageviews),
+      pageviews,
       pageviewsPrev: toNumber(prev.pageviews),
-      events: toNumber(cur.events),
+      events,
       eventsPrev: toNumber(prev.events),
-      sessions: toNumber(cur.sessions),
+      sessions,
       sessionsPrev: toNumber(prev.sessions),
       exceptions: toNumber(cur.exceptions),
       exceptionsPrev: toNumber(prev.exceptions),
+      avgEventsPerSession:
+        sessions > 0 ? Math.round((events / sessions) * 10) / 10 : 0,
+      avgPageviewsPerUser:
+        uniqueUsers > 0 ? Math.round((pageviews / uniqueUsers) * 10) / 10 : 0,
     },
     trend: trend.map((row) => ({
       day: toStringValue(row.day).slice(0, 10),
       uniqueUsers: toNumber(row.unique_users),
       pageviews: toNumber(row.pageviews),
       events: toNumber(row.events),
+      sessions: toNumber(row.sessions),
+      exceptions: toNumber(row.exceptions),
     })),
+    hourly: hourlyFilled,
     topPages: topPages.map((row) => ({
+      path: toStringValue(row.path) || '(unknown)',
+      views: toNumber(row.views),
+      users: toNumber(row.users),
+    })),
+    dashboardPages: dashboardPages.map((row) => ({
       path: toStringValue(row.path) || '(unknown)',
       views: toNumber(row.views),
       users: toNumber(row.users),
@@ -493,8 +646,33 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
       count: toNumber(row.count),
       users: toNumber(row.users),
     })),
+    customEvents: customEvents.map((row) => ({
+      event: toStringValue(row.event) || '(unknown)',
+      count: toNumber(row.count),
+      users: toNumber(row.users),
+    })),
     devices: devices.map((row) => ({
       device: toStringValue(row.device) || 'Unknown',
+      users: toNumber(row.users),
+      events: toNumber(row.events),
+    })),
+    browsers: browsers.map((row) => ({
+      browser: toStringValue(row.browser) || 'Unknown',
+      users: toNumber(row.users),
+      events: toNumber(row.events),
+    })),
+    operatingSystems: operatingSystems.map((row) => ({
+      os: toStringValue(row.os) || 'Unknown',
+      users: toNumber(row.users),
+      events: toNumber(row.events),
+    })),
+    referrers: referrers.map((row) => ({
+      referrer: toStringValue(row.referrer) || '(direct)',
+      users: toNumber(row.users),
+      events: toNumber(row.events),
+    })),
+    roles: roles.map((row) => ({
+      role: toStringValue(row.role) || 'unknown',
       users: toNumber(row.users),
       events: toNumber(row.events),
     })),

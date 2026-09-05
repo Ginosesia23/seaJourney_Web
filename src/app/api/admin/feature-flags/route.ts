@@ -10,7 +10,12 @@ import {
   addFeatureFlagNote,
   getFeatureFlagsAdminView,
   setFeatureFlagEnabled,
+  setFeatureFlagTiers,
 } from '@/lib/feature-flags/server';
+import {
+  normalizeCrewTierSlug,
+  normalizeVesselTierSlug,
+} from '@/lib/feature-flags/tier-access';
 
 async function getAuthedUserId(req: NextRequest): Promise<string | null> {
   const authHeader = req.headers.get('authorization');
@@ -76,7 +81,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * PATCH /api/admin/feature-flags
- * Body: { key: FeatureFlagKey, enabled: boolean }
+ * Body: { key, enabled?: boolean, crewTiers?: string[]|null, minVesselTier?: string|null }
  */
 export async function PATCH(req: NextRequest) {
   const gate = await requireAdmin(req);
@@ -88,6 +93,10 @@ export async function PATCH(req: NextRequest) {
     const body = (await req.json()) as {
       key?: string;
       enabled?: boolean;
+      crewTiers?: string[] | null;
+      minCrewTier?: string | null;
+      vesselTiers?: string[] | null;
+      minVesselTier?: string | null;
     };
     const key = (body.key || '').trim() as FeatureFlagKey;
     if (!(FEATURE_FLAG_KEYS as string[]).includes(key)) {
@@ -96,31 +105,98 @@ export async function PATCH(req: NextRequest) {
         { status: 400 },
       );
     }
-    if (typeof body.enabled !== 'boolean') {
+
+    const def = getFeatureDefinition(key);
+    const hasEnabled = typeof body.enabled === 'boolean';
+    const hasTierUpdate =
+      'crewTiers' in body ||
+      'minCrewTier' in body ||
+      'vesselTiers' in body ||
+      'minVesselTier' in body;
+
+    if (!hasEnabled && !hasTierUpdate) {
       return NextResponse.json(
-        { error: 'enabled (boolean) is required' },
+        { error: 'Provide enabled and/or crewTiers/vesselTiers' },
         { status: 400 },
       );
     }
 
-    const def = getFeatureDefinition(key);
-    try {
-      await setFeatureFlagEnabled({
-        key,
-        enabled: body.enabled,
-        actorId: gate.actorId,
-      });
-    } catch (error: any) {
-      return NextResponse.json(
-        {
-          error:
-            error?.message?.includes('platform_feature_flags') ||
-            error?.code === '42P01'
-              ? 'Table missing. Run sql/create-platform-feature-flags.sql in Supabase.'
-              : error?.message || 'Update failed',
-        },
-        { status: 500 },
-      );
+    if (hasEnabled) {
+      try {
+        await setFeatureFlagEnabled({
+          key,
+          enabled: body.enabled as boolean,
+          actorId: gate.actorId,
+        });
+      } catch (error: any) {
+        return NextResponse.json(
+          {
+            error:
+              error?.message?.includes('platform_feature_flags') ||
+              error?.code === '42P01'
+                ? 'Table missing. Run sql/create-platform-feature-flags.sql in Supabase.'
+                : error?.message || 'Update failed',
+          },
+          { status: 500 },
+        );
+      }
+    }
+
+    if (hasTierUpdate) {
+      if (
+        def?.audience === 'vessel' &&
+        ('crewTiers' in body || body.minCrewTier)
+      ) {
+        return NextResponse.json(
+          { error: 'This feature does not use crew tiers' },
+          { status: 400 },
+        );
+      }
+
+      try {
+        const patch: Parameters<typeof setFeatureFlagTiers>[0] = {
+          key,
+          actorId: gate.actorId,
+        };
+        if ('crewTiers' in body) {
+          if (body.crewTiers == null) {
+            patch.crewTiers = null;
+          } else if (Array.isArray(body.crewTiers)) {
+            patch.crewTiers = body.crewTiers
+              .map((t) => normalizeCrewTierSlug(t))
+              .filter((t): t is NonNullable<typeof t> => !!t);
+          } else {
+            return NextResponse.json(
+              { error: 'crewTiers must be an array or null' },
+              { status: 400 },
+            );
+          }
+        } else if ('minCrewTier' in body) {
+          patch.minCrewTier = body.minCrewTier;
+        }
+        if ('vesselTiers' in body) {
+          if (body.vesselTiers == null) {
+            patch.vesselTiers = null;
+          } else if (Array.isArray(body.vesselTiers)) {
+            patch.vesselTiers = body.vesselTiers
+              .map((t) => normalizeVesselTierSlug(t))
+              .filter((t): t is NonNullable<typeof t> => !!t);
+          } else {
+            return NextResponse.json(
+              { error: 'vesselTiers must be an array or null' },
+              { status: 400 },
+            );
+          }
+        } else if ('minVesselTier' in body) {
+          patch.minVesselTier = body.minVesselTier;
+        }
+        await setFeatureFlagTiers(patch);
+      } catch (error: any) {
+        return NextResponse.json(
+          { error: error?.message || 'Tier update failed' },
+          { status: 500 },
+        );
+      }
     }
 
     const features = await getFeatureFlagsAdminView();
@@ -128,7 +204,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       key,
-      enabled: body.enabled,
+      enabled: hasEnabled ? body.enabled : undefined,
       label: def?.label,
       features,
     });

@@ -13,7 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-access';
+import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-tier';
 import { getAisNavStatus, normalizeAisNavStatus } from '@/lib/ais/map-ais-to-state';
 import { AisDebugGate } from '@/components/dashboard/ais-debug-gate';
 
@@ -98,7 +98,7 @@ function AisDebugPanelBody({
       : '—';
 
   return (
-    <Card className="rounded-xl border border-amber-500/40 bg-amber-500/5 shadow-sm">
+    <Card className="rounded-md border border-amber-500/40 bg-amber-500/5 shadow-none">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">

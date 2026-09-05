@@ -4,13 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { CreditCard, FlaskConical, IdCard, MapPin, Phone, UserCircle2 } from 'lucide-react';
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -21,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { AuthStatusCard } from './auth-status-card';
 import { AdminAccountTypeCard } from '@/components/admin/admin-account-type-card';
+import { formatSubscriptionTierLabel } from '@/lib/subscription-tier-labels';
 
 type Props = {
   target: Record<string, any>;
@@ -176,7 +170,7 @@ export function OverviewTab({
   }, [target]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-3 lg:grid-cols-3">
       {/* Auth status — shown first so unverified users are obvious */}
       <div className="lg:col-span-3">
         <AuthStatusCard
@@ -200,55 +194,46 @@ export function OverviewTab({
       />
 
       {/* Analytics exclusion */}
-      <Card className="rounded-2xl border-dashed lg:col-span-3">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FlaskConical className="h-4 w-4" />
-            Testing account
-          </CardTitle>
-          <CardDescription>
-            Mark QA, demo, or internal accounts so platform and crew analytics
-            ignore them and you can see real user usage.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1">
-              <Label htmlFor="is-testing-toggle" className="text-sm font-medium">
-                Exclude from analytics
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                {isTesting
-                  ? 'This account is currently excluded from analytics totals.'
-                  : 'Off — this account is included in analytics.'}
-              </p>
-            </div>
-            <Switch
-              id="is-testing-toggle"
-              checked={isTesting}
-              disabled={isSavingTesting || (isSelf && !isTesting)}
-              onCheckedChange={(checked) => void setTestingFlag(checked)}
-            />
+      <Panel className="lg:col-span-3">
+        <PanelHeader
+          icon={FlaskConical}
+          title="Testing account"
+          description="Mark QA, demo, or internal accounts so analytics ignore them."
+        />
+        <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="is-testing-toggle" className="text-xs font-medium">
+              Exclude from analytics
+            </Label>
+            <p className="text-[11px] text-muted-foreground">
+              {isTesting
+                ? 'Currently excluded from analytics totals.'
+                : 'Off — included in analytics.'}
+            </p>
           </div>
-        </CardContent>
-      </Card>
+          <Switch
+            id="is-testing-toggle"
+            checked={isTesting}
+            disabled={isSavingTesting || (isSelf && !isTesting)}
+            onCheckedChange={(checked) => void setTestingFlag(checked)}
+          />
+        </div>
+      </Panel>
 
       {/* Activity summary */}
-      <Card className="rounded-2xl lg:col-span-2">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Activity</CardTitle>
-          <CardDescription>
-            Latest known state, login, and account dates.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+      <Panel className="lg:col-span-2">
+        <PanelHeader
+          title="Activity"
+          description="Latest state, login, and account dates."
+        />
+        <div className="grid gap-4 px-4 py-3 sm:grid-cols-2">
           <Field label="Latest state">
             {isLoading ? (
               <Skeleton className="h-5 w-32" />
             ) : latestState ? (
               <div className="flex flex-col gap-1">
                 <StatePill stateKey={latestState.state} />
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   {formatDate(latestState.date)}
                   {latestState.changedAt &&
                     ` · updated ${safeRelative(latestState.changedAt) ?? ''}`}
@@ -263,16 +248,18 @@ export function OverviewTab({
             {isLoading ? (
               <Skeleton className="h-5 w-16" />
             ) : (
-              <span className="font-medium">{stateLogCount ?? 0}</span>
+              <span className="font-mono text-sm tabular-nums text-foreground">
+                {stateLogCount ?? 0}
+              </span>
             )}
           </Field>
 
           <Field label="Last sign in">
             {lastSignIn ? (
               <div className="flex flex-col">
-                <span className="font-medium">{lastSignIn}</span>
+                <span className="text-sm text-foreground">{lastSignIn}</span>
                 {lastSignInRel && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[11px] text-muted-foreground">
                     {lastSignInRel}
                   </span>
                 )}
@@ -284,7 +271,7 @@ export function OverviewTab({
 
           <Field label="Account created">
             {created ? (
-              <span className="font-medium">{created}</span>
+              <span className="text-sm text-foreground">{created}</span>
             ) : (
               <Muted>—</Muted>
             )}
@@ -293,7 +280,7 @@ export function OverviewTab({
           <Field label="Active vessel">
             {vesselName ? (
               <div className="flex flex-col">
-                <span className="font-medium">{vesselName}</span>
+                <span className="text-sm text-foreground">{vesselName}</span>
                 {vesselSource === 'profile' && (
                   <span className="text-[11px] text-amber-600">
                     From profile (no active assignment row)
@@ -307,66 +294,80 @@ export function OverviewTab({
 
           <Field label="Position">
             {target.position ? (
-              <span className="font-medium capitalize">
+              <span className="text-sm capitalize text-foreground">
                 {target.position as string}
               </span>
             ) : (
               <Muted>—</Muted>
             )}
           </Field>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
       {/* Subscription */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <CreditCard className="h-4 w-4" />
-            Subscription
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <Panel>
+        <PanelHeader icon={CreditCard} title="Subscription" />
+        <div className="space-y-3 px-4 py-3">
           <Field label="Tier">
-            <span className="font-medium capitalize">
-              {target.subscription_tier || '—'}
+            <span className="text-sm text-foreground">
+              {target.subscription_tier
+                ? formatSubscriptionTierLabel(target.subscription_tier)
+                : '—'}
             </span>
           </Field>
           <Field label="Status">
             <span
               className={cn(
-                'font-medium capitalize',
-                target.subscription_status === 'active' && 'text-green-600',
+                'inline-flex items-center gap-1.5 text-sm capitalize',
+                target.subscription_status === 'active' && 'text-emerald-600',
                 target.subscription_status === 'past-due' && 'text-amber-600',
                 target.subscription_status === 'inactive' && 'text-destructive',
               )}
             >
-              {target.subscription_status || '—'}
+              {target.subscription_status ? (
+                <>
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 rounded-full',
+                      target.subscription_status === 'active' &&
+                        'bg-emerald-500',
+                      target.subscription_status === 'past-due' &&
+                        'bg-amber-500',
+                      target.subscription_status === 'inactive' &&
+                        'bg-destructive',
+                    )}
+                  />
+                  {target.subscription_status}
+                </>
+              ) : (
+                '—'
+              )}
             </span>
           </Field>
           <Field label="Stripe customer">
-            <code className="break-all text-[11px] text-muted-foreground">
+            <code className="break-all font-mono text-[11px] text-muted-foreground">
               {target.stripe_customer_id || '—'}
             </code>
           </Field>
           <Field label="Stripe subscription">
-            <code className="break-all text-[11px] text-muted-foreground">
+            <code className="break-all font-mono text-[11px] text-muted-foreground">
               {target.stripe_subscription_id || '—'}
             </code>
           </Field>
           {target.current_period_end && (
             <Field label="Current period end">
-              <span className="text-sm">
+              <span className="text-sm text-foreground">
                 {formatDate(target.current_period_end as string)}
               </span>
             </Field>
           )}
           {target.cancel_at_period_end && (
             <Field label="Cancel at period end">
-              <span className="text-sm font-medium text-amber-600">Yes</span>
+              <span className="text-sm text-amber-600">Yes</span>
             </Field>
           )}
           <Field label="Ads enabled">
-            <span className="font-medium">
+            <span className="text-sm text-foreground">
               {target.ads === true
                 ? 'Yes'
                 : target.ads === false
@@ -374,18 +375,13 @@ export function OverviewTab({
                   : '—'}
             </span>
           </Field>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
       {/* Identity */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <UserCircle2 className="h-4 w-4" />
-            Identity
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <Panel>
+        <PanelHeader icon={UserCircle2} title="Identity" />
+        <div className="space-y-3 px-4 py-3">
           <Field label="First name">
             <Plain v={target.first_name} />
           </Field>
@@ -410,23 +406,18 @@ export function OverviewTab({
           <Field label="Nationality">
             <Plain v={target.nationality} />
           </Field>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
       {/* Documents */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <IdCard className="h-4 w-4" />
-            Documents
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <Panel>
+        <PanelHeader icon={IdCard} title="Documents" />
+        <div className="space-y-3 px-4 py-3">
           <Field label="Discharge book number">
             <Plain v={target.discharge_book_number} />
           </Field>
           <Field label="Signature on file">
-            <span className="font-medium">
+            <span className="text-sm text-foreground">
               {target.signature ? 'Yes' : 'No'}
             </span>
           </Field>
@@ -434,22 +425,17 @@ export function OverviewTab({
             <Plain v={target.username} />
           </Field>
           <Field label="Account ID">
-            <code className="break-all text-[11px] text-muted-foreground">
+            <code className="break-all font-mono text-[11px] text-muted-foreground">
               {target.id}
             </code>
           </Field>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
       {/* Contact */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Phone className="h-4 w-4" />
-            Contact
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <Panel>
+        <PanelHeader icon={Phone} title="Contact" />
+        <div className="space-y-3 px-4 py-3">
           <Field label="Email">
             <Plain v={target.email} />
           </Field>
@@ -459,25 +445,61 @@ export function OverviewTab({
           <Field label="Mobile">
             <Plain v={target.mobile} />
           </Field>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
       {/* Address */}
-      <Card className="rounded-2xl lg:col-span-2">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <MapPin className="h-4 w-4" />
-            Address
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      <Panel className="lg:col-span-2">
+        <PanelHeader icon={MapPin} title="Address" />
+        <div className="px-4 py-3">
           {fullAddress ? (
-            <p className="text-sm">{fullAddress}</p>
+            <p className="text-sm text-foreground">{fullAddress}</p>
           ) : (
             <Muted>No address on file.</Muted>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function Panel({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-md border border-border bg-background',
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function PanelHeader({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon?: React.ComponentType<{ className?: string }>;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+        {Icon ? <Icon className="h-3.5 w-3.5 text-muted-foreground" /> : null}
+        {title}
+      </div>
+      {description ? (
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>
+      ) : null}
     </div>
   );
 }
@@ -501,7 +523,7 @@ function Field({
 
 function Plain({ v }: { v: any }) {
   if (v == null || v === '') return <Muted>—</Muted>;
-  return <span className="font-medium">{String(v)}</span>;
+  return <span className="text-sm text-foreground">{String(v)}</span>;
 }
 
 function Muted({ children }: { children: React.ReactNode }) {

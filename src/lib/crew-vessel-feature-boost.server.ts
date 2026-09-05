@@ -6,13 +6,14 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
   canonicalizeVesselTier,
   hasActiveSubscription,
-  VESSEL_PREMIUM_PLUS_TIERS,
 } from '@/supabase/database/subscription-helpers';
 import {
   vesselTierToCrewFeatureBoost,
   type CrewVesselFeatureBoost,
   type CrewVesselFeatureBoostState,
 } from '@/lib/crew-vessel-feature-boost';
+import { VESSEL_PLANS_THAT_PAUSE_CREW_BILLING } from '@/lib/vessel-crew-plan-constants';
+import { hasApprovedVesselPlanCoverage } from '@/lib/vessel-plan-coverage';
 
 type ManagerRow = {
   id: string;
@@ -24,8 +25,18 @@ type ManagerRow = {
 };
 
 function boostRank(boost: CrewVesselFeatureBoost | null): number {
-  if (boost === 'professional') return 2;
-  if (boost === 'premium') return 1;
+  if (boost === 'professional') return 3;
+  if (boost === 'premium') return 2;
+  if (boost === 'standard') return 1;
+  return 0;
+}
+
+function assignmentVesselTierRank(tier: string | null | undefined): number {
+  const t = canonicalizeVesselTier(tier);
+  if (t === 'vessel_fleet') return 4;
+  if (t === 'vessel_pro') return 3;
+  if (t === 'vessel_basic') return 2;
+  if (t === 'vessel_lite') return 1;
   return 0;
 }
 
@@ -63,9 +74,7 @@ export async function managerForVessel(vesselId: string): Promise<ManagerRow | n
 
 function managerGrantsCrewFeatureBoost(manager: ManagerRow | null): CrewVesselFeatureBoost | null {
   if (!manager || !hasActiveSubscription(manager)) return null;
-  const tier = canonicalizeVesselTier(manager.subscription_tier);
-  if (!VESSEL_PREMIUM_PLUS_TIERS.has(tier)) return null;
-  return vesselTierToCrewFeatureBoost(tier);
+  return vesselTierToCrewFeatureBoost(manager.subscription_tier);
 }
 
 async function bestBoostFromAssignments(
@@ -75,15 +84,27 @@ async function bestBoostFromAssignments(
   let best: CrewVesselFeatureBoost | null = null;
   let bestVesselId: string | null = null;
   let bestManagerTier: string | null = null;
+  let bestAssignmentTierRank = -1;
 
   for (const vesselId of assignmentVesselIds) {
     const manager = await managerForVessel(vesselId);
     if (manager?.id === crewUserId) continue;
+    const managerTierCanon = canonicalizeVesselTier(manager?.subscription_tier);
+    if (VESSEL_PLANS_THAT_PAUSE_CREW_BILLING.has(managerTierCanon)) {
+      const approved = await hasApprovedVesselPlanCoverage(crewUserId, vesselId);
+      if (!approved) continue;
+    }
+
+    const assignmentRank = assignmentVesselTierRank(manager?.subscription_tier);
+    if (assignmentRank > bestAssignmentTierRank) {
+      bestAssignmentTierRank = assignmentRank;
+      bestManagerTier = manager?.subscription_tier ?? null;
+    }
+
     const boost = managerGrantsCrewFeatureBoost(manager);
     if (boostRank(boost) > boostRank(best)) {
       best = boost;
       bestVesselId = vesselId;
-      bestManagerTier = manager?.subscription_tier ?? null;
     }
   }
 

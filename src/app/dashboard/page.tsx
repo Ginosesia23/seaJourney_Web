@@ -1760,7 +1760,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Standby</p>
-                <p className="font-semibold tabular-nums">{vesselStats.totalStandbyDays}</p>
+                <p className="font-semibold tabular-nums text-[#7629BB]">{vesselStats.totalStandbyDays}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total</p>
@@ -2323,8 +2323,8 @@ export default function DashboardPage() {
         className="order-2"
         items={[
           { label: 'Total days', value: totalDays, hint: 'On board, excluding leave' },
-          { label: 'At sea', value: atSeaDays, hint: `${thisMonthStats.atSeaDays} this month` },
-          { label: 'Standby', value: standbyDays, hint: 'Moored or at anchor' },
+          { label: 'At sea', value: atSeaDays, hint: `${thisMonthStats.atSeaDays} this month`, tone: 'sky' },
+          { label: 'Standby', value: standbyDays, hint: 'Moored or at anchor', tone: 'purple' },
           { label: 'Vessels', value: userVesselCount, hint: 'Career assignments' },
         ]}
       />

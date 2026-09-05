@@ -19,11 +19,13 @@ CREATE TABLE IF NOT EXISTS public.certificates (
   -- Additional details
   notes TEXT NULL, -- Optional notes about the certificate
   document_url TEXT NULL, -- URL to uploaded certificate document if available
-  
+  -- Catalog preset used when adding (edh, gmdss, stcw-bst, …)
+  preset_id TEXT NULL,
+
   -- Metadata
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  
+
   -- Validation
   CONSTRAINT expiry_after_issue CHECK (expiry_date IS NULL OR expiry_date >= issue_date)
 );
@@ -32,6 +34,9 @@ CREATE TABLE IF NOT EXISTS public.certificates (
 CREATE INDEX IF NOT EXISTS idx_certificates_user_id ON public.certificates(user_id);
 CREATE INDEX IF NOT EXISTS idx_certificates_expiry_date ON public.certificates(expiry_date);
 CREATE INDEX IF NOT EXISTS idx_certificates_certificate_type ON public.certificates(certificate_type);
+CREATE INDEX IF NOT EXISTS idx_certificates_preset_id
+  ON public.certificates (preset_id)
+  WHERE preset_id IS NOT NULL;
 
 -- updated_at trigger
 DROP TRIGGER IF EXISTS trg_certificates_updated_at ON public.certificates;

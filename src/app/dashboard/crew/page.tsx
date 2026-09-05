@@ -79,7 +79,6 @@ import {
 import {
   DashboardHeader,
   DashboardPanel,
-  DashboardStatRow,
 } from '@/components/dashboard/dashboard-home-ui';
 import type { CrewRotation } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
@@ -5677,6 +5676,39 @@ export default function CrewPage() {
         const base = currentUserProfile?.role === 'vessel' ? orderedCrewMembers : crewMembers;
         return base.filter(member => member.assignment.onboard === true).length;
     }, [currentUserProfile?.role, orderedCrewMembers, crewMembers]);
+
+    const adminCrewStats = useMemo(() => {
+        const base = crewMembers;
+        let paid = 0;
+        let captains = 0;
+        let assigned = 0;
+        for (const member of base) {
+            const tier = (
+                (member.profile as { subscription_tier?: string }).subscription_tier ||
+                member.profile.subscriptionTier ||
+                ''
+            ).toLowerCase();
+            if (tier && tier !== 'free' && hasActiveSubscription(member.profile)) {
+                paid += 1;
+            }
+            if ((member.profile.role || '').toLowerCase() === 'captain') {
+                captains += 1;
+            }
+            if (
+                member.assignment.vesselId &&
+                !member.assignment.id.startsWith('placeholder-')
+            ) {
+                assigned += 1;
+            }
+        }
+        return {
+            total: base.length,
+            paid,
+            captains,
+            assigned,
+            unassigned: Math.max(0, base.length - assigned),
+        };
+    }, [crewMembers]);
     
     console.log('[CREW PAGE] Render state:', {
         isLoading,
@@ -7769,7 +7801,7 @@ export default function CrewPage() {
                                     </div>
                                     <div className="rounded-lg border bg-muted/40 p-3">
                                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Standby</div>
-                                        <div className="text-lg font-semibold text-purple-600 dark:text-purple-400">{viewDocumentBreakdown.standby_days}</div>
+                                        <div className="text-lg font-semibold text-[#7629BB] dark:text-purple-400">{viewDocumentBreakdown.standby_days}</div>
                                     </div>
                                     <div className="rounded-lg border bg-muted/40 p-3">
                                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">In yard</div>
@@ -8112,12 +8144,125 @@ export default function CrewPage() {
 
     return (
         <div className="flex flex-col gap-6">
+            {currentUserProfile?.role === 'admin' ? (
+                <>
+                    <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 space-y-1">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Users className="h-3.5 w-3.5" />
+                                <span>Platform</span>
+                                <span className="text-border">/</span>
+                                <span className="text-foreground">Crew</span>
+                            </div>
+                            <h1 className="text-xl font-medium tracking-tight text-foreground">
+                                Crew
+                            </h1>
+                            <p className="max-w-2xl text-sm text-muted-foreground">
+                                View and manage crew members across all vessels.
+                            </p>
+                        </div>
+                        <div className="hidden items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
+                            <span className="inline-flex items-center gap-1.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                {adminCrewStats.paid} paid
+                            </span>
+                            <span className="h-3 w-px bg-border" />
+                            <span className="inline-flex items-center gap-1.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                                {adminCrewStats.assigned} assigned
+                            </span>
+                            <span className="h-3 w-px bg-border" />
+                            <span className="inline-flex items-center gap-1.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+                                {adminCrewStats.unassigned} unassigned
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Stats — top section, Studio-styled */}
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {[
+                            {
+                                label: 'Total crew',
+                                value: adminCrewStats.total,
+                                hint: 'Crew & captains',
+                                tone: 'default' as const,
+                            },
+                            {
+                                label: 'Paid plans',
+                                value: adminCrewStats.paid,
+                                hint: 'Active paid subscription',
+                                tone: 'emerald' as const,
+                            },
+                            {
+                                label: 'Assigned',
+                                value: adminCrewStats.assigned,
+                                hint: 'Active vessel assignment',
+                                tone: 'sky' as const,
+                            },
+                            {
+                                label: 'Captains',
+                                value: adminCrewStats.captains,
+                                hint: 'Captain role accounts',
+                                tone: 'amber' as const,
+                            },
+                        ].map((tile) => (
+                            <div
+                                key={tile.label}
+                                className="overflow-hidden rounded-md border border-border bg-background"
+                            >
+                                <div className="border-b border-border bg-muted/40 px-3 py-2">
+                                    <span className="text-[11px] font-medium text-muted-foreground">
+                                        {tile.label}
+                                    </span>
+                                </div>
+                                <div className="px-3 py-3">
+                                    <div
+                                        className={cn(
+                                            'font-mono text-2xl font-medium tabular-nums tracking-tight',
+                                            tile.tone === 'emerald' && 'text-emerald-600',
+                                            tile.tone === 'sky' && 'text-sky-600',
+                                            tile.tone === 'amber' && 'text-amber-600',
+                                            tile.tone === 'default' && 'text-foreground',
+                                        )}
+                                    >
+                                        {isLoading ? '…' : tile.value}
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-muted-foreground">
+                                        {tile.hint}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="relative w-full sm:max-w-sm">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                placeholder="Search crew…"
+                                className="h-8 rounded-md border-border bg-background pl-8 text-xs shadow-none"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            <span className="font-mono tabular-nums">
+                                {filteredCrewMembers.length}
+                            </span>
+                            {' of '}
+                            <span className="font-mono tabular-nums">
+                                {crewMembers.length}
+                            </span>
+                            {' shown'}
+                        </p>
+                    </div>
+                </>
+            ) : (
             <DashboardHeader
                 title="Crew"
                 description={
-                    currentUserProfile?.role === 'admin'
-                        ? 'View and manage all crew members across all vessels.'
-                        : currentUserProfile?.activeVesselId
+                    currentUserProfile?.activeVesselId
                             ? currentUserProfile?.role === 'vessel' && crewLimit !== Infinity
                                 ? `Active assignments on your vessel · plan allows up to ${crewLimit} crew`
                                 : 'View and manage crew with active assignments on your vessel.'
@@ -8475,28 +8620,58 @@ export default function CrewPage() {
                     </div>
                 }
             />
+            )}
 
             {/* Summary for vessel managers */}
             {currentUserProfile?.role === 'vessel' && !isLoading && crewMembers.length > 0 && (
-                <DashboardStatRow
-                    items={[
+                <div className="grid gap-3 sm:grid-cols-3">
+                    {[
                         {
                             label: 'Total crew',
                             value: totalCrew,
                             hint: crewLimit !== Infinity ? `Limit ${crewLimit}` : 'Active assignments',
+                            tone: 'default' as const,
                         },
                         {
                             label: 'Onboard',
                             value: totalOnboard,
                             hint: 'Currently on the vessel',
+                            tone: 'emerald' as const,
                         },
                         {
                             label: 'Past members',
                             value: pastCrewMembers.length,
                             hint: 'Ended assignments',
+                            tone: 'amber' as const,
                         },
-                    ]}
-                />
+                    ].map((tile) => (
+                        <div
+                            key={tile.label}
+                            className="overflow-hidden rounded-md border border-border bg-background"
+                        >
+                            <div className="border-b border-border bg-muted/40 px-3 py-2">
+                                <span className="text-[11px] font-medium text-muted-foreground">
+                                    {tile.label}
+                                </span>
+                            </div>
+                            <div className="px-3 py-3">
+                                <div
+                                    className={cn(
+                                        'font-mono text-2xl font-medium tabular-nums tracking-tight',
+                                        tile.tone === 'emerald' && 'text-emerald-600',
+                                        tile.tone === 'amber' && 'text-amber-600',
+                                        tile.tone === 'default' && 'text-foreground',
+                                    )}
+                                >
+                                    {tile.value}
+                                </div>
+                                <p className="mt-1 text-[11px] text-muted-foreground">
+                                    {tile.hint}
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             )}
 
             {/* Tier Limit Warning */}
@@ -8542,13 +8717,120 @@ export default function CrewPage() {
                 </div>
             )}
 
+            {currentUserProfile?.role === 'admin' ? (
+                <div className="overflow-hidden rounded-md border border-border bg-muted/40">
+                    <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+                        <p className="text-xs font-medium text-foreground">Active crew</p>
+                        <p className="text-[11px] text-muted-foreground">
+                            Crew across all vessels · click a row to expand vessels
+                        </p>
+                    </div>
+                    <div className="overflow-x-auto bg-background">
+                        <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
+                        >
+                        <Table>
+                        <TableHeader>
+                            <TableRow className="border-border hover:bg-transparent">
+                                <TableHead className="h-9 bg-muted/40 px-2 text-[11px] font-normal text-muted-foreground">
+                                    Member
+                                </TableHead>
+                                <TableHead className="h-9 bg-muted/40 px-2 text-[11px] font-normal text-muted-foreground">
+                                    Position
+                                </TableHead>
+                                <TableHead className="h-9 bg-muted/40 px-2 text-[11px] font-normal text-muted-foreground">
+                                    Plan
+                                </TableHead>
+                                <TableHead className="h-9 w-10 bg-muted/40 px-1 text-[11px] font-normal text-muted-foreground" />
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {isLoading ? (
+                                <TableRow className="hover:bg-transparent">
+                                    <TableCell colSpan={4} className="h-36 text-center">
+                                        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                            Loading crew…
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
+                            ) : filteredCrewMembers && filteredCrewMembers.length > 0 ? (
+                                    <SortableContext
+                                        items={filteredCrewMembers.map(m => m.assignment.id || m.profile.id)}
+                                        strategy={verticalListSortingStrategy}
+                                    >
+                                        {filteredCrewMembers.map((member, index) => (
+                                        <React.Fragment key={member.assignment.id || member.profile.id}>
+                                            <SortableRow
+                                                member={member}
+                                                index={index}
+                                                currentUserProfile={currentUserProfile}
+                                                allVessels={allVessels || undefined}
+                                                expandedRows={expandedRows}
+                                                requestingAccess={requestingAccess}
+                                                loadingSeaTime={loadingSeaTime}
+                                                rotation={effectiveRotationFor(member.profile.id)}
+                                                isTogglingOnboard={togglingOnboardIds.has(member.assignment.id)}
+                                                onToggleOnboard={undefined}
+                                                onToggleRowExpansion={toggleRowExpansion}
+                                                onRequestAccess={handleRequestAccess}
+                                                onOpenLeavePeriodsDialog={(member) => handleSelectCrewMember(member.profile.id, member.assignment.id)}
+                                                onEditStartDate={undefined}
+                                                onSetEndDate={undefined}
+                                            />
+                                            {expandedRows.has(member.profile.id) && member.allVesselsForUser && member.allVesselsForUser.length > 0 && (
+                                                <TableRow className="border-border bg-muted/20 hover:bg-muted/20">
+                                                    <TableCell colSpan={4} className="px-4 py-3">
+                                                        <div className="mb-2 text-[11px] font-medium text-muted-foreground">
+                                                            Vessels ({member.allVesselsForUser.length}) — active & past
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {member.allVesselsForUser.map((v, i) => {
+                                                                const isActive = !v.endDate || new Date(v.endDate) >= new Date();
+                                                                return (
+                                                                    <div key={i} className="flex min-w-[200px] items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+                                                                        <span className="text-xs text-foreground">{v.vesselName}</span>
+                                                                        <span className="text-[11px] text-muted-foreground">
+                                                                            {format(new Date(v.startDate), 'dd MMM yyyy')}
+                                                                            {v.endDate ? ` – ${format(new Date(v.endDate), 'dd MMM yyyy')}` : ' – present'}
+                                                                        </span>
+                                                                        {isActive ? (
+                                                                            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-400">
+                                                                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                                                                Active
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-[10px] text-muted-foreground">Past</span>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </React.Fragment>
+                                    ))}
+                                    </SortableContext>
+                            ) : (
+                                <TableRow className="hover:bg-transparent">
+                                    <TableCell colSpan={4} className="h-36 text-center text-xs text-muted-foreground">
+                                        No crew members found across all vessels.
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                        </Table>
+                        </DndContext>
+                    </div>
+                </div>
+            ) : (
             <DashboardPanel
                 title="Active crew"
-                description={
-                    currentUserProfile?.role === 'admin'
-                        ? 'Crew across all vessels'
-                        : 'Drag to reorder · click a row for details'
-                }
+                description="Drag to reorder · click a row for details"
             >
                     <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
                         <DndContext
@@ -8565,16 +8847,12 @@ export default function CrewPage() {
                                 )}
                                 <TableHead className="h-8 px-2 text-xs font-medium">Member</TableHead>
                                 <TableHead className="h-8 px-2 text-xs font-medium">Position</TableHead>
-                                {currentUserProfile?.role === 'admin' ? (
-                                    <TableHead className="h-8 px-2 text-xs font-medium">Plan</TableHead>
-                                ) : (
-                                    <>
+                                <>
                                         <TableHead className="h-8 px-2 text-xs font-medium">Onboard</TableHead>
                                         <TableHead className="h-8 px-2 text-xs font-medium">Time on board</TableHead>
                                         <TableHead className="h-8 px-2 text-xs font-medium">Sea service</TableHead>
                                         <TableHead className="h-8 px-2 text-xs font-medium">Access</TableHead>
                                     </>
-                                )}
                                 <TableHead className="h-8 w-10 px-1" />
                             </TableRow>
                         </TableHeader>
@@ -8585,7 +8863,7 @@ export default function CrewPage() {
                                         <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                                     </TableCell>
                                 </TableRow>
-                            ) : !currentUserProfile?.activeVesselId && currentUserProfile?.role !== 'admin' ? (
+                            ) : !currentUserProfile?.activeVesselId ? (
                                 <TableRow>
                                     <TableCell colSpan={currentUserProfile?.role === 'vessel' ? 8 : 4} className="h-24 text-center text-muted-foreground">
                                         No active vessel found. Please select an active vessel to view crew members.
@@ -8619,43 +8897,13 @@ export default function CrewPage() {
                                                 onEditStartDate={currentUserProfile?.role === 'vessel' ? openEditStartDate : undefined}
                                                 onSetEndDate={currentUserProfile?.role === 'vessel' ? openSetEndDate : undefined}
                                             />
-                                            {currentUserProfile?.role === 'admin' && expandedRows.has(member.profile.id) && member.allVesselsForUser && member.allVesselsForUser.length > 0 && (
-                                                <TableRow className="bg-muted/30 hover:bg-muted/30">
-                                                    <TableCell colSpan={4} className="px-4 py-3">
-                                                        <div className="mb-2 text-xs font-medium text-muted-foreground">
-                                                            Vessels ({member.allVesselsForUser.length}) — active & past
-                                                        </div>
-                                                        <div className="flex flex-wrap gap-3">
-                                                            {member.allVesselsForUser.map((v, i) => {
-                                                                const isActive = !v.endDate || new Date(v.endDate) >= new Date();
-                                                                return (
-                                                                    <div key={i} className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2 min-w-[200px]">
-                                                                        <span className="font-medium text-foreground">{v.vesselName}</span>
-                                                                        <span className="text-muted-foreground">
-                                                                            {format(new Date(v.startDate), 'dd MMM yyyy')}
-                                                                            {v.endDate ? ` – ${format(new Date(v.endDate), 'dd MMM yyyy')}` : ' – present'}
-                                                                        </span>
-                                                                        {isActive ? (
-                                                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">Active</Badge>
-                                                                        ) : (
-                                                                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">Past</Badge>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            )}
                                         </React.Fragment>
                                     ))}
                                     </SortableContext>
                             ) : (
                                 <TableRow>
                                     <TableCell colSpan={currentUserProfile?.role === 'vessel' ? 8 : 4} className="h-24 text-center">
-                                        {currentUserProfile?.role === 'admin'
-                                            ? 'No crew members found across all vessels.'
-                                            : currentUserProfile?.activeVesselId 
+                                        {currentUserProfile?.activeVesselId 
                                                 ? 'No active crew members on this vessel.'
                                                 : "No users found."}
                                     </TableCell>
@@ -8666,6 +8914,7 @@ export default function CrewPage() {
                         </DndContext>
                     </div>
             </DashboardPanel>
+            )}
 
             {/* Past members (vessel only) — same table language as Active crew */}
             {currentUserProfile?.role === 'vessel' && (

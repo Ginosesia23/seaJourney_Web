@@ -1206,7 +1206,7 @@ export function AIScannerTab({
                 {[
                   { label: 'Total', value: seaTime.totalDays },
                   { label: 'At Sea', value: seaTime.atSeaDays, color: 'text-blue-600 dark:text-blue-400' },
-                  { label: 'Standby', value: seaTime.standbyDays, color: 'text-purple-600 dark:text-purple-400' },
+                  { label: 'Standby', value: seaTime.standbyDays, color: 'text-[#7629BB] dark:text-purple-400' },
                   { label: 'Yard', value: seaTime.yardDays },
                   { label: 'Leave', value: seaTime.leaveDays },
                 ].map(({ label, value, color }) => (

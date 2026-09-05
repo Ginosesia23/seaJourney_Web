@@ -29,7 +29,7 @@ import { addDays, eachDayOfInterval, differenceInDays, format, isToday, isWeeken
 
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { hasVesselPremiumPlusFeatures } from '@/supabase/database/subscription-helpers';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 import {
   isLinkedVesselWatchViewer,
@@ -127,6 +127,7 @@ export default function WatchSchedulePage() {
     (profileRaw?.active_vessel_name as string) ||
     'Vessel';
   const readOnly = isLinkedViewer;
+  const { isEnabled: isFeatureEnabled } = useFeatureFlags();
 
   // ---- Auth guard ----
   useEffect(() => {
@@ -137,10 +138,7 @@ export default function WatchSchedulePage() {
     }
   }, [isUserLoading, isProfileLoading, user, profileRaw, role, isLinkedViewer, router]);
 
-  const hasPremiumPlusTier = useMemo(
-    () => hasVesselPremiumPlusFeatures(profileRaw),
-    [profileRaw],
-  );
+  const hasPremiumPlusTier = isFeatureEnabled('watch_schedule');
 
   // ---- State ----
   const [crewPool, setCrewPool] = useState<SchedulableCrew[]>([]);

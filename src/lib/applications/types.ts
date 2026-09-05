@@ -12,7 +12,8 @@ export type ApplicationRequirementType =
   | 'proof_of_service'
   | 'sea_time_min'
   | 'manual_checklist'
-  | 'external_link';
+  | 'external_link'
+  | 'prior_milestone';
 
 export type SeaTimeMetric = 'atSeaDays' | 'totalDays' | 'standbyDays';
 export type SeaTimeSource = 'testimonials' | 'tracked';
@@ -38,6 +39,13 @@ export type RequirementConfig = {
   hint?: string;
   url?: string;
   label?: string;
+  /** certificate — minimum months since issue_date */
+  minMonthsHeld?: number;
+  /** prior_milestone — another career milestone that must be complete */
+  milestoneId?: string;
+  levelKey?: string;
+  /** prior_milestone — months since prerequisite was first fully met */
+  minMonths?: number;
 };
 
 export type ApplicationRequirement = {
@@ -134,6 +142,7 @@ export const REQUIREMENT_TYPE_LABELS: Record<ApplicationRequirementType, string>
   sea_time_min: 'Minimum sea time',
   manual_checklist: 'Manual checklist item',
   external_link: 'External link',
+  prior_milestone: 'Prior milestone',
 };
 
 export const PROFILE_FIELD_OPTIONS = [

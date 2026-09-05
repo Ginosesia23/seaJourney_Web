@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       flags: state.map,
+      tierAccess: state.tierAccess,
       fetchedAt: new Date(state.at).toISOString(),
     });
   } catch (error: any) {

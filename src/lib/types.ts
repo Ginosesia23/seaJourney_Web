@@ -475,6 +475,8 @@ export interface Certificate {
     userId: string;                     // uuid FK → auth.users.id
     certificateName: string;            // e.g., "STCW Basic Safety", "Medical Certificate"
     certificateType: string;            // e.g., "STCW", "Medical", "MCA", "Other"
+    /** Catalog preset id (edh, gmdss, stcw-bst, …) when added via preset picker */
+    presetId?: string | null;
     certificateNumber?: string | null;  // Certificate number/reference if available
     issuingAuthority?: string | null;   // e.g., "MCA", "USCG", "Transport Canada"
     issueDate: string;                  // Date in YYYY-MM-DD format

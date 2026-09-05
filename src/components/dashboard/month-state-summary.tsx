@@ -20,7 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { calendarStateSolid } from '@/lib/calendar-state-colors';
+import { calendarStateSolid, STANDBY_INDICATOR_COLOR } from '@/lib/calendar-state-colors';
 import type { DailyStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -101,7 +101,7 @@ export function buildMonthSummaryItems(opts: {
       label: 'Standby days',
       shortLabel: 'Standby',
       count: opts.counts.standby || 0,
-      color: '#9333ea',
+      color: STANDBY_INDICATOR_COLOR,
       Icon: Clock,
     });
   }

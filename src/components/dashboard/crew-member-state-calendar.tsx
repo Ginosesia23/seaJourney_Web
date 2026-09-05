@@ -800,7 +800,7 @@ export function CrewMemberStateCalendar({
             ))}
             <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs">
               <span className="relative h-2.5 w-2.5 overflow-hidden rounded-[3px] bg-muted">
-                <span className="absolute bottom-0 left-0 right-0 h-[40%] bg-purple-600" />
+                <span className="absolute bottom-0 left-0 right-0 h-[40%] bg-[#7629BB]" />
               </span>
               <span className="text-muted-foreground">Standby</span>
               <span className="font-semibold">{yearStats.standby}</span>

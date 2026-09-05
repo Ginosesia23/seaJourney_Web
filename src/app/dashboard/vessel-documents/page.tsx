@@ -11,7 +11,10 @@ import { VesselDocumentsArchive } from '@/components/career-documents/vessel-doc
 export default function VesselDocumentsPage() {
   const { user } = useUser();
   const router = useRouter();
-  const { data: userProfileRaw, isLoading } = useDoc<UserProfile>('users', user?.id);
+  const { data: userProfileRaw, isLoading } = useDoc<UserProfile>(
+    'users',
+    user?.id,
+  );
   const role = ((userProfileRaw as any)?.role as string) || 'crew';
 
   useEffect(() => {
@@ -24,8 +27,14 @@ export default function VesselDocumentsPage() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-6">
-        <Skeleton className="h-36 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-8 w-64" />
+        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <Skeleton key={i} className="h-20 rounded-md" />
+          ))}
+        </div>
+        <Skeleton className="h-64 w-full rounded-md" />
       </div>
     );
   }

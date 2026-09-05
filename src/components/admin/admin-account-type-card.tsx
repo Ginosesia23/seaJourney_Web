@@ -10,7 +10,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
@@ -40,33 +39,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useSupabase } from '@/supabase';
 import { toast } from '@/hooks/use-toast';
-
-const MANUAL_CREW_TIERS = [
-  { value: 'free', label: 'Free' },
-  { value: 'crew_limited', label: 'Crew limited' },
-  { value: 'standard', label: 'Standard' },
-  { value: 'premium', label: 'Premium' },
-] as const;
-
-const MANUAL_VESSEL_TIERS = [
-  { value: 'free', label: 'Free' },
-  { value: 'vessel_lite', label: 'Vessel Standard' },
-  { value: 'vessel_basic', label: 'Vessel Premium' },
-  { value: 'vessel_pro', label: 'Vessel Professional' },
-  { value: 'vessel_fleet', label: 'Vessel Fleet' },
-] as const;
-
-const MANUAL_ROLES = [
-  { value: 'crew', label: 'Crew' },
-  { value: 'captain', label: 'Captain' },
-  { value: 'vessel', label: 'Vessel manager' },
-] as const;
-
-const MANUAL_STATUSES = [
-  { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
-  { value: 'past-due', label: 'Past due' },
-] as const;
+import {
+  MANUAL_CREW_TIERS,
+  MANUAL_ROLES,
+  MANUAL_STATUSES,
+  MANUAL_VESSEL_TIERS,
+  defaultTierForAdminRole,
+  normalizeAdminRole,
+  normalizeAdminStatus,
+} from '@/lib/admin/manual-subscription';
+import { formatSubscriptionTierLabel } from '@/lib/subscription-tier-labels';
 
 type TargetAccount = {
   id: string;
@@ -84,21 +66,15 @@ type Props = {
 };
 
 function normalizeRole(role: string | null | undefined): string {
-  const r = (role || 'crew').toLowerCase();
-  if (r === 'crew' || r === 'captain' || r === 'vessel') return r;
-  return 'crew';
+  return normalizeAdminRole(role);
 }
 
 function normalizeStatus(status: string | null | undefined): string {
-  const s = (status || 'inactive').toLowerCase().replace(/_/g, '-');
-  return MANUAL_STATUSES.some((item) => item.value === s) ? s : 'inactive';
+  return normalizeAdminStatus(status);
 }
 
 function defaultTierForRole(role: string, currentTier: string): string {
-  const tier = currentTier.toLowerCase();
-  const options = role === 'vessel' ? MANUAL_VESSEL_TIERS : MANUAL_CREW_TIERS;
-  if (options.some((item) => item.value === tier)) return tier;
-  return role === 'vessel' ? 'vessel_lite' : 'free';
+  return defaultTierForAdminRole(role, currentTier);
 }
 
 export function AdminAccountTypeCard({ target, isSelf = false, onUpdated }: Props) {
@@ -226,41 +202,43 @@ export function AdminAccountTypeCard({ target, isSelf = false, onUpdated }: Prop
 
   return (
     <>
-      <Card className="rounded-2xl border-dashed lg:col-span-3">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <UserRound className="h-4 w-4" />
+      <Card className="rounded-md border-border shadow-none lg:col-span-3">
+        <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
+          <CardTitle className="flex items-center gap-1.5 text-xs font-medium">
+            <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
             Account type
           </CardTitle>
-          <CardDescription>
-            Switch between crew/captain and vessel manager accounts. Tier and status are saved
-            together with the role change.
+          <CardDescription className="text-[11px]">
+            Switch between crew/captain and vessel manager. Tier and status save with the
+            role change.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardContent className="flex flex-col gap-4 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="capitalize">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] capitalize text-muted-foreground">
                 {currentRole}
-              </Badge>
-              <Badge variant="secondary" className="capitalize">
-                {(target.subscription_tier || 'free').toString().replace(/_/g, ' ')}
-              </Badge>
-              <Badge variant="outline" className="capitalize">
-                {(target.subscription_status || 'inactive').toString().replace(/_/g, ' ')}
-              </Badge>
+              </span>
+              <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground">
+                {formatSubscriptionTierLabel(target.subscription_tier || 'free')}
+              </span>
+              <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] capitalize text-muted-foreground">
+                {(target.subscription_status || 'inactive')
+                  .toString()
+                  .replace(/_/g, ' ')}
+              </span>
             </div>
             {locked ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {isSelf
                   ? 'You cannot change your own admin account here.'
                   : 'Admin accounts cannot be changed from this page.'}
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {currentRole === 'vessel'
-                  ? 'Convert back to crew or captain if this should be a personal crew account again.'
-                  : 'Convert to vessel manager if this user should manage a yacht account.'}
+                  ? 'Convert back to crew or captain for a personal crew account.'
+                  : 'Convert to vessel manager to manage a yacht account.'}
               </p>
             )}
           </div>
@@ -271,6 +249,7 @@ export function AdminAccountTypeCard({ target, isSelf = false, onUpdated }: Prop
                 type="button"
                 variant="outline"
                 size="sm"
+                className="h-8 rounded-md border-border text-xs"
                 onClick={() => {
                   setNextRole('vessel');
                   setNextTier(defaultTierForRole('vessel', nextTier));
@@ -287,6 +266,7 @@ export function AdminAccountTypeCard({ target, isSelf = false, onUpdated }: Prop
                 type="button"
                 variant="outline"
                 size="sm"
+                className="h-8 rounded-md border-border text-xs"
                 onClick={() => {
                   setNextRole('crew');
                   setNextTier(defaultTierForRole('crew', nextTier));
@@ -299,7 +279,12 @@ export function AdminAccountTypeCard({ target, isSelf = false, onUpdated }: Prop
               </Button>
             )}
             {!locked && (
-              <Button type="button" size="sm" onClick={openDialog}>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-md text-xs"
+                onClick={openDialog}
+              >
                 Change account type…
               </Button>
             )}

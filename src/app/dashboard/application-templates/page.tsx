@@ -35,7 +35,8 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { CERTIFICATE_PRESETS } from '@/lib/certificates/presets';
+import { CERTIFICATE_PRESETS, type CertificatePreset } from '@/lib/certificates/presets';
+import { useCertificateCatalog } from '@/hooks/use-certificate-catalog';
 import {
   CAREER_TRACK_LABELS,
   TARGETABLE_LEVELS,
@@ -175,6 +176,9 @@ export default function ApplicationTemplatesAdminPage() {
     useDoc<UserProfile>('users', user?.id);
 
   const isAdmin = userProfileRaw?.role === 'admin';
+  const { presets: certificatePresets } = useCertificateCatalog({
+    includeOther: false,
+  });
 
   const [list, setList] = useState<ApplicationTemplate[]>([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -789,6 +793,7 @@ export default function ApplicationTemplatesAdminPage() {
                       key={req.localId}
                       index={index}
                       requirement={req}
+                      certificatePresets={certificatePresets}
                       onChange={(next) => {
                         const requirements = [...draft.requirements];
                         requirements[index] = next;
@@ -925,14 +930,19 @@ function RequirementEditor({
   requirement,
   onChange,
   onRemove,
+  certificatePresets = CERTIFICATE_PRESETS,
 }: {
   index: number;
   requirement: DraftRequirement;
   onChange: (next: DraftRequirement) => void;
   onRemove: () => void;
+  certificatePresets?: CertificatePreset[];
 }) {
   const type = requirement.requirement_type;
   const config = requirement.config;
+  const presets = certificatePresets.length
+    ? certificatePresets
+    : CERTIFICATE_PRESETS;
 
   return (
     <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
@@ -1065,7 +1075,7 @@ function RequirementEditor({
                   });
                   return;
                 }
-                const preset = CERTIFICATE_PRESETS.find((p) => p.id === value);
+                const preset = presets.find((p) => p.id === value);
                 if (!preset || preset.id === 'other') {
                   onChange({
                     ...requirement,
@@ -1085,7 +1095,10 @@ function RequirementEditor({
                     ...config,
                     presetId: preset.id,
                     certificateType: preset.type,
-                    nameContains: preset.name.split('(')[0].trim().slice(0, 40),
+                    nameContains: (
+                      preset.name.match(/\(([^)]+)\)/)?.[1]?.split(/[/,]/)[0]?.trim() ||
+                      preset.name.split('(')[0].trim()
+                    ).slice(0, 40),
                     mustNotExpired: true,
                     minCount: config.minCount ?? 1,
                   },
@@ -1097,7 +1110,7 @@ function RequirementEditor({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="_custom">Custom filter</SelectItem>
-                {CERTIFICATE_PRESETS.filter((p) => p.id !== 'other').map(
+                {presets.filter((p) => p.id !== 'other').map(
                   (preset) => (
                     <SelectItem key={preset.id} value={preset.id}>
                       {preset.name}

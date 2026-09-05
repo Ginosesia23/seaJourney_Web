@@ -5,11 +5,10 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, differenceInHours, differenceInCalendarDays, parse, startOfDay, endOfDay, isAfter, isBefore, eachDayOfInterval, parseISO, addYears } from 'date-fns';
-import { PlusCircle, Loader2, Ship, MapPin, Calendar, ArrowRight, Edit, Trash2, Navigation, Wind, Waves, Route, TrendingUp, Download, AlertTriangle, Map as MapIcon, BookPlus, Link2, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
+import { PlusCircle, Loader2, Ship, MapPin, Calendar, ArrowRight, Edit, Trash2, Wind, Waves, Route, Download, AlertTriangle, Map as MapIcon, BookPlus, Link2, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,6 +26,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  PassageLogbookPageHeader,
+  PassageLogbookSection,
+  PassageLogbookStatTiles,
+} from '@/components/dashboard/passage-logbook-page-ui';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
@@ -42,7 +46,6 @@ import {
 } from '@/supabase/database/queries';
 import type { Vessel, UserProfile, PassageLog, StateLog, VesselAssignment } from '@/lib/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { hasActiveSubscription, hasCrewPremiumPlusFeatures, hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { isVesselLinkedFeatureGranted, vesselLinkedOwnedVesselId } from '@/lib/vessel-linked-features';
 import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import {
@@ -597,42 +600,9 @@ export default function PassageLogbookPage() {
     },
   });
 
-  // Premium+ crew (not crew_limited), all active vessel tiers, admin
-  const hasAccess = useMemo(() => {
-    if (!userProfile || !userProfileRaw) return false;
-    const tier = ((userProfile as any).subscription_tier || userProfile.subscriptionTier || 'free').toLowerCase();
-    const role = (userProfile as any).role || userProfile.role || 'crew';
+  const hasAccess = passageLogFeatureOn;
 
-    if (role === 'admin') return true;
-
-    if (role === 'vessel') {
-      return (
-        (tier.startsWith('vessel_') ||
-          tier === 'vessel_lite' ||
-          tier === 'vessel_basic' ||
-          tier === 'vessel_pro' ||
-          tier === 'vessel_fleet') &&
-        hasActiveSubscription(userProfileRaw)
-      );
-    }
-
-    if (isVesselLinkedFeatureGranted(userProfileRaw, 'passage_logbook')) {
-      return hasActiveSubscription(userProfileRaw);
-    }
-    if (tier === 'vessel_linked') return false;
-
-    return hasCrewPremiumPlusFeatures(userProfileRaw, vesselBoost);
-  }, [userProfile, userProfileRaw, vesselBoost]);
-
-  const canMatchAis = useMemo(
-    () =>
-      Boolean(
-        userProfileRaw &&
-          hasPassagesMapAccess(userProfileRaw, vesselBoost) &&
-          isFeatureEnabled('passages_map'),
-      ),
-    [userProfileRaw, vesselBoost, isFeatureEnabled],
-  );
+  const canMatchAis = isFeatureEnabled('passages_map');
 
   const refreshMapMissingCount = useCallback(async () => {
     if (!canMatchAis) {
@@ -1297,75 +1267,54 @@ export default function PassageLogbookPage() {
   const hasEnrichableMatches = (mapEnrichableCount ?? 0) > 0;
   const aisMonthsLoaded = (mapCachedMonthCount ?? 0) > 0;
   const toolbarBtn =
-    'h-8 rounded-lg px-3 text-xs font-medium shadow-none';
+    'h-7 rounded-[5px] px-2.5 text-xs font-medium shadow-none';
 
   if (isLoading || isLoadingPassages) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex flex-col gap-6">
+        <PassageLogbookPageHeader
+          title="Passage log"
+          description={
+            canMatchAis
+              ? 'AIS tracks on Passage Tracks are the source of truth for geometry. This log holds notes, weather, and documentary details.'
+              : 'Record voyages between ports with notes, weather, and distance for your records.'
+          }
+        />
+        <div className="flex min-h-[220px] items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading passage log…
+        </div>
       </div>
     );
   }
 
-  // Disabled features are redirected by dashboard layout; keep a quiet guard.
-  if (!passageLogFeatureOn) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (!hasAccess) {
-    const role = (userProfile as any)?.role || userProfile?.role || 'crew';
-    const message =
-      role === 'vessel'
-        ? 'The Passage Log Book requires an active vessel subscription. Please subscribe to a plan to access this feature.'
-        : 'The Passage Log Book is available on Crew Premium and Professional plans. Upgrade your plan to access this feature.';
-    const buttonText = role === 'vessel' ? 'View Plans' : 'View plans';
-    
+  if (!passageLogFeatureOn || isFlagsLoading) {
     return (
       <div className="flex flex-col gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Passage Log Book</CardTitle>
-            <CardDescription>Subscription Required</CardDescription>
-          </CardHeader>
-          <CardContent className="text-center py-12">
-            <MapPin className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-xl font-semibold mb-2">Subscription Required</h3>
-            <p className="text-muted-foreground mb-6">
-              {message}
-            </p>
-            <Button className="rounded-xl" asChild>
-              <a href="/offers">{buttonText}</a>
-            </Button>
-          </CardContent>
-        </Card>
+        <PassageLogbookPageHeader title="Passage log" />
+        <div className="flex min-h-[220px] items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading passage log…
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header Section */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Passage Log Book</h1>
-            <p className="text-muted-foreground">
-            {canMatchAis
-              ? 'AIS tracks on Passage Tracks are the source of truth for geometry. This log holds notes, weather, and documentary details.'
-              : 'Record voyages between ports with notes, weather, and distance for your records.'}
-          </p>
-          </div>
-        </div>
-      </div>
+      <PassageLogbookPageHeader
+        title="Passage log"
+        description={
+          canMatchAis
+            ? 'AIS tracks on Passage Tracks are the source of truth for geometry. This log holds notes, weather, and documentary details.'
+            : 'Record voyages between ports with notes, weather, and distance for your records.'
+        }
+      />
 
       {/* Calendar sync conflicts */}
       {passageConflicts.length > 0 && (
         <Collapsible open={calendarConflictsOpen} onOpenChange={setCalendarConflictsOpen}>
-          <Alert variant="destructive" className="rounded-xl border-amber-500/50 bg-amber-500/5">
+          <Alert variant="destructive" className="rounded-md border-amber-500/50 bg-amber-500/5">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle className="flex flex-wrap items-center gap-2 pr-0">
               <span>Calendar conflict</span>
@@ -1393,7 +1342,7 @@ export default function PassageLogbookPage() {
               <CollapsibleContent>
                 <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto border-t border-amber-500/20 pt-3 text-sm">
                   {passageConflicts.map(({ passage, datesNotUnderway }) => (
-                    <li key={passage.id} className="rounded-lg bg-amber-500/10 px-3 py-2">
+                    <li key={passage.id} className="rounded-md bg-amber-500/10 px-3 py-2">
                       <div className="font-medium text-foreground">
                         {passage.departure_port || '—'} → {passage.arrival_port || '—'}
                         <span className="ml-1.5 font-normal text-muted-foreground">
@@ -1417,7 +1366,7 @@ export default function PassageLogbookPage() {
       {/* Underway days with no passage (vice versa) */}
       {underwayDaysWithoutPassage.length > 0 && (
         <Collapsible open={underwayWithoutPassageOpen} onOpenChange={setUnderwayWithoutPassageOpen}>
-          <Alert className="rounded-xl border-blue-500/30 bg-blue-500/5">
+          <Alert className="rounded-md border-blue-500/30 bg-blue-500/5">
             <Waves className="h-4 w-4" />
             <AlertTitle className="flex flex-wrap items-center gap-2 pr-0">
               <span>Underway with no passage</span>
@@ -1445,7 +1394,7 @@ export default function PassageLogbookPage() {
               <CollapsibleContent>
                 <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto border-t border-blue-500/20 pt-3 text-sm">
                   {underwayWithoutPassageByVessel.map(({ vesselId, dates }) => (
-                    <li key={vesselId} className="rounded-lg bg-blue-500/10 px-3 py-2">
+                    <li key={vesselId} className="rounded-md bg-blue-500/10 px-3 py-2">
                       <div className="font-medium text-foreground">
                         {getVesselName(vesselId)}
                         <span className="ml-1.5 font-normal text-muted-foreground">
@@ -1465,14 +1414,14 @@ export default function PassageLogbookPage() {
       )}
 
       {canMatchAis && mapCachedMonthCount === 0 && (
-        <Alert className="rounded-xl border-amber-500/30 bg-amber-500/5">
+        <Alert className="rounded-md border-amber-500/30 bg-amber-500/5">
           <MapIcon className="h-4 w-4" />
           <AlertTitle>No AIS months loaded yet</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>
               Load months on Passage Tracks first so Import and Match can see your AIS voyages.
             </span>
-            <Button type="button" size="sm" className="shrink-0 rounded-xl" asChild>
+            <Button type="button" size="sm" className="h-8 shrink-0 rounded-md text-xs" asChild>
               <Link href="/dashboard/passages-map">
                 <MapIcon className="h-4 w-4 mr-2" />
                 Open Passage Tracks
@@ -1482,62 +1431,40 @@ export default function PassageLogbookPage() {
         </Alert>
       )}
 
-      {/* Summary Cards */}
       {passages.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Distance</CardTitle>
-              <Route className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summaryStats.totalDistance.toFixed(1)}</div>
-              <p className="text-xs text-muted-foreground">Nautical Miles</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Passages</CardTitle>
-              <Ship className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summaryStats.totalPassages}</div>
-              <p className="text-xs text-muted-foreground">Passages Logged</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Longest Passage</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summaryStats.longestDistance.toFixed(1)}</div>
-              <p className="text-xs text-muted-foreground">
-                {summaryStats.longestPassage 
-                  ? `${summaryStats.longestPassage.departure_port || '—'} → ${summaryStats.longestPassage.arrival_port || '—'}`
-                  : 'N/A'}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Distance</CardTitle>
-              <Navigation className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{summaryStats.averageDistance.toFixed(1)}</div>
-              <p className="text-xs text-muted-foreground">NM per Passage</p>
-            </CardContent>
-          </Card>
-        </div>
+        <PassageLogbookStatTiles
+          items={[
+            {
+              label: 'Total distance',
+              value: summaryStats.totalDistance.toFixed(1),
+              hint: 'Nautical miles',
+              tone: 'sky',
+            },
+            {
+              label: 'Total passages',
+              value: summaryStats.totalPassages,
+              hint: 'Passages logged',
+            },
+            {
+              label: 'Longest passage',
+              value: summaryStats.longestDistance.toFixed(1),
+              hint: summaryStats.longestPassage
+                ? `${summaryStats.longestPassage.departure_port || '—'} → ${summaryStats.longestPassage.arrival_port || '—'}`
+                : 'N/A',
+              tone: 'emerald',
+            },
+            {
+              label: 'Avg distance',
+              value: summaryStats.averageDistance.toFixed(1),
+              hint: 'NM per passage',
+            },
+          ]}
+        />
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {(canMatchAis || passages.length > 0) && (
-        <div className="inline-flex w-fit flex-wrap items-center gap-0.5 rounded-xl border bg-muted/30 p-1">
+        <div className="inline-flex w-fit flex-wrap items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5">
           {canMatchAis && (
             <Button
               type="button"
@@ -1595,7 +1522,7 @@ export default function PassageLogbookPage() {
                   {mapEnrichableCount}
                 </span>
               </Button>
-              <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+              <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col rounded-md">
                 <DialogHeader>
                   <DialogTitle>Match existing entries with AIS</DialogTitle>
                   <DialogDescription>
@@ -1613,19 +1540,19 @@ export default function PassageLogbookPage() {
                   <div className="space-y-4 overflow-y-auto flex-1 min-h-0 py-2">
                     {enrichSummary && (
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-sm">
-                        <div className="rounded-lg border p-2">
+                        <div className="rounded-md border p-2">
                           <div className="font-semibold text-sky-700">{enrichSummary.enrichable}</div>
                           <div className="text-xs text-muted-foreground">Can fill</div>
                         </div>
-                        <div className="rounded-lg border p-2">
+                        <div className="rounded-md border p-2">
                           <div className="font-semibold">{enrichSummary.matchedComplete}</div>
                           <div className="text-xs text-muted-foreground">Already complete</div>
                         </div>
-                        <div className="rounded-lg border p-2">
+                        <div className="rounded-md border p-2">
                           <div className="font-semibold text-muted-foreground">{enrichSummary.noMatch}</div>
                           <div className="text-xs text-muted-foreground">No AIS match</div>
                         </div>
-                        <div className="rounded-lg border p-2">
+                        <div className="rounded-md border p-2">
                           <div className="font-semibold">{enrichAisCount}</div>
                           <div className="text-xs text-muted-foreground">AIS passages</div>
                         </div>
@@ -1639,7 +1566,7 @@ export default function PassageLogbookPage() {
                           <span>
                             Open Passage Tracks and load months for your vessels first, then run Match again.
                           </span>
-                          <Button type="button" size="sm" variant="outline" className="w-fit rounded-xl" asChild>
+                          <Button type="button" size="sm" variant="outline" className="h-8 w-fit rounded-md text-xs" asChild>
                             <Link href="/dashboard/passages-map">Open Passage Tracks</Link>
                           </Button>
                         </AlertDescription>
@@ -1660,7 +1587,7 @@ export default function PassageLogbookPage() {
                           return (
                             <li
                               key={p.passageId}
-                              className="rounded-lg border p-3 text-sm space-y-2"
+                              className="rounded-md border p-3 text-sm space-y-2"
                             >
                               <div className="flex items-start gap-3">
                                 <Checkbox
@@ -1742,6 +1669,7 @@ export default function PassageLogbookPage() {
                   <Button
                     type="button"
                     variant="outline"
+                    className="rounded-md"
                     onClick={() => void scanAisMatches()}
                     disabled={isScanningAis || isApplyingEnrich}
                   >
@@ -1749,6 +1677,7 @@ export default function PassageLogbookPage() {
                   </Button>
                   <Button
                     type="button"
+                    className="rounded-md"
                     onClick={() => void applyAisEnrichment()}
                     disabled={
                       isScanningAis ||
@@ -1777,7 +1706,7 @@ export default function PassageLogbookPage() {
                 Export
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md rounded-md">
               <DialogHeader>
                 <DialogTitle>Export Passage Log</DialogTitle>
                 <DialogDescription>
@@ -1899,14 +1828,14 @@ export default function PassageLogbookPage() {
               <DialogFooter>
                 <Button
                   variant="outline"
-                  className="rounded-xl"
+                  className="rounded-md"
                   onClick={() => setIsExportDialogOpen(false)}
                   disabled={isExporting}
                 >
                   Cancel
                 </Button>
                 <Button
-                  className="rounded-xl"
+                  className="rounded-md"
                   onClick={handleExport}
                   disabled={isExporting || (exportFilter === 'vessel' && (userProfile?.role as string) !== 'vessel' && !exportVesselId)}
                 >
@@ -1939,12 +1868,12 @@ export default function PassageLogbookPage() {
           }
         }}>
           <DialogTrigger asChild>
-          <Button size="sm" className="h-8 rounded-xl px-3">
+          <Button size="sm" className="h-8 rounded-md px-3 text-xs">
               <PlusCircle className="h-3.5 w-3.5 mr-1.5" />
               Add
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-md">
             <DialogHeader>
               <DialogTitle>{editingPassage ? 'Edit Passage' : 'Log New Passage'}</DialogTitle>
               <DialogDescription>
@@ -2300,7 +2229,7 @@ export default function PassageLogbookPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    className="rounded-xl"
+                    className="rounded-md"
                     onClick={() => {
                       setIsFormOpen(false);
                       setEditingPassage(null);
@@ -2309,7 +2238,7 @@ export default function PassageLogbookPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={isSaving} className="rounded-xl">
+                  <Button type="submit" disabled={isSaving} className="rounded-md">
                     {isSaving ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -2327,19 +2256,21 @@ export default function PassageLogbookPage() {
       </div>
 
       {passages.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <MapPin className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-semibold mb-2">No passages logged yet</h3>
-            <p className="text-muted-foreground mb-4">
+        <PassageLogbookSection title="Passage history">
+          <div className="flex flex-col items-center justify-center px-2 py-10 text-center">
+            <MapPin className="h-5 w-5 text-muted-foreground" />
+            <h3 className="mt-3 text-sm font-medium text-foreground">No passages logged yet</h3>
+            <p className="mt-1 max-w-md text-xs text-muted-foreground">
               {canMatchAis
                 ? 'Import voyages from Passage Tracks, or add a manual passage with notes and weather.'
                 : 'Start tracking your voyages by logging your first passage.'}
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               {canMatchAis && hasMissingImports && (
                 <Button
                   type="button"
+                  size="sm"
+                  className="h-8 rounded-md text-xs"
                   disabled={isImportingFromMap}
                   onClick={() => void importFromPassagesMap()}
                 >
@@ -2352,46 +2283,46 @@ export default function PassageLogbookPage() {
                 </Button>
               )}
               {canMatchAis && (
-                <Button variant="outline" asChild>
+                <Button variant="outline" size="sm" className="h-8 rounded-md text-xs" asChild>
                   <Link href="/dashboard/passages-map">
                     <MapIcon className="h-4 w-4 mr-2" />
                     Open Passage Tracks
                   </Link>
                 </Button>
               )}
-              <Button variant={hasMissingImports ? 'outline' : 'default'} onClick={() => setIsFormOpen(true)}>
+              <Button
+                variant={hasMissingImports ? 'outline' : 'default'}
+                size="sm"
+                className="h-8 rounded-md text-xs"
+                onClick={() => setIsFormOpen(true)}
+              >
                 <PlusCircle className="h-4 w-4 mr-2" />
                 {canMatchAis ? 'Add manual passage' : 'Log First Passage'}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </PassageLogbookSection>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Passage History</CardTitle>
-            <CardDescription>
-              {passages.length} {passages.length === 1 ? 'passage' : 'passages'} recorded
-              {' · '}
-              click a month to expand or collapse
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <PassageLogbookSection
+          title="Passage history"
+          description={`${passages.length} ${passages.length === 1 ? 'passage' : 'passages'} recorded · click a month to expand or collapse`}
+          flush
+        >
             <Table>
               <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="h-8 w-7 px-2 py-1.5" />
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="h-9 w-7 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground" />
                   {!isVesselAccount && (
-                    <TableHead className="h-8 px-2 py-1.5 text-xs">Vessel</TableHead>
+                    <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Vessel</TableHead>
                   )}
-                  <TableHead className="h-8 px-2 py-1.5 text-xs">Route</TableHead>
-                  <TableHead className="h-8 px-2 py-1.5 text-xs">Dates</TableHead>
-                  <TableHead className="h-8 px-2 py-1.5 text-xs">Duration</TableHead>
-                  <TableHead className="h-8 px-2 py-1.5 text-xs">Distance</TableHead>
-                  <TableHead className="h-8 px-2 py-1.5 text-xs">Source</TableHead>
-                  <TableHead className="h-8 px-2 py-1.5 text-xs">Status</TableHead>
-                  <TableHead className="h-8 px-2 py-1.5 text-xs">Calendar</TableHead>
-                  <TableHead className="h-8 px-2 py-1.5 text-right text-xs">Actions</TableHead>
+                  <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Route</TableHead>
+                  <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Dates</TableHead>
+                  <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Duration</TableHead>
+                  <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Distance</TableHead>
+                  <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Source</TableHead>
+                  <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Status</TableHead>
+                  <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Calendar</TableHead>
+                  <TableHead className="h-9 bg-muted/40 px-3 text-right text-[11px] font-normal text-muted-foreground">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2400,13 +2331,13 @@ export default function PassageLogbookPage() {
                   return (
                     <Fragment key={monthKey}>
                       <TableRow
-                        className="cursor-pointer hover:bg-muted/50"
+                        className="cursor-pointer border-border bg-background hover:bg-muted/40"
                         onClick={() => toggleHistoryMonth(monthKey)}
                         aria-expanded={monthOpen}
                       >
                         <TableCell
                           colSpan={isVesselAccount ? 9 : 10}
-                          className="bg-muted/60 px-3 py-2 text-left"
+                          className="bg-muted/40 px-3 py-2 text-left"
                         >
                           <div className="flex items-center gap-2">
                             {monthOpen ? (
@@ -2414,7 +2345,7 @@ export default function PassageLogbookPage() {
                             ) : (
                               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             )}
-                            <span className="text-xs font-semibold tracking-wide text-foreground">
+                            <span className="text-xs font-medium tracking-wide text-foreground">
                               {format(labelDate, 'MMMM yyyy')}
                             </span>
                             {stats && (
@@ -2476,8 +2407,8 @@ export default function PassageLogbookPage() {
                     <Fragment key={passage.id}>
                     <TableRow
                       className={cn(
-                        'cursor-pointer transition-colors',
-                        isExpanded ? 'bg-muted/40' : 'hover:bg-muted/30',
+                        'cursor-pointer border-border bg-background transition-colors',
+                        isExpanded ? 'bg-muted/40' : 'hover:bg-muted/40',
                       )}
                       onClick={() =>
                         setExpandedPassageId((prev) =>
@@ -2486,7 +2417,7 @@ export default function PassageLogbookPage() {
                       }
                       aria-expanded={isExpanded}
                     >
-                      <TableCell className="w-7 px-2 py-1.5 pr-0">
+                      <TableCell className="w-7 px-3 py-2 pr-0">
                         {isExpanded ? (
                           <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                         ) : (
@@ -2494,27 +2425,27 @@ export default function PassageLogbookPage() {
                         )}
                       </TableCell>
                       {!isVesselAccount && (
-                        <TableCell className="whitespace-nowrap px-2 py-1.5 font-medium">
+                        <TableCell className="whitespace-nowrap px-3 py-2 font-medium">
                           <div className="flex items-center gap-1.5">
                             <Ship className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             {getVesselName(passage.vessel_id)}
                           </div>
                         </TableCell>
                       )}
-                      <TableCell className="max-w-[220px] px-2 py-1.5">
+                      <TableCell className="max-w-[220px] px-3 py-2">
                         <div className="flex min-w-0 items-center gap-1.5">
                           <span className="truncate font-medium">{depLabel}</span>
                           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
                           <span className="truncate font-medium">{arrLabel}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-2 py-1.5 text-xs text-muted-foreground tabular-nums">
+                      <TableCell className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground tabular-nums">
                         {formatCompactPassageDates(passage.start_time, passage.end_time)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-2 py-1.5">
+                      <TableCell className="whitespace-nowrap px-3 py-2">
                         {duration}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-2 py-1.5">
+                      <TableCell className="whitespace-nowrap px-3 py-2">
                         {passage.distance_nm ? (
                           <span>
                             {passage.distance_nm.toFixed(1)} NM
@@ -2529,7 +2460,7 @@ export default function PassageLogbookPage() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="px-2 py-1.5">
+                      <TableCell className="px-3 py-2">
                         <Badge
                           variant="outline"
                           className={cn(
@@ -2549,7 +2480,7 @@ export default function PassageLogbookPage() {
                           {passageSourceLabel(passage.source)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="px-2 py-1.5">
+                      <TableCell className="px-3 py-2">
                         <Badge
                           variant={
                             status === 'completed'
@@ -2574,7 +2505,7 @@ export default function PassageLogbookPage() {
                               : 'Planned'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="px-2 py-1.5">
+                      <TableCell className="px-3 py-2">
                         {conflict ? (
                           <div className="flex items-center gap-1.5 whitespace-nowrap">
                             <Badge
@@ -2617,7 +2548,7 @@ export default function PassageLogbookPage() {
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="px-2 py-1.5 text-right">
+                      <TableCell className="px-3 py-2 text-right">
                         <div
                           className="flex items-center justify-end gap-0.5"
                           onClick={(e) => e.stopPropagation()}
@@ -2655,7 +2586,7 @@ export default function PassageLogbookPage() {
                       </TableCell>
                     </TableRow>
                     {isExpanded && (
-                      <TableRow className="hover:bg-transparent">
+                      <TableRow className="border-border hover:bg-transparent">
                         <TableCell
                           colSpan={colSpan}
                           className="bg-muted/20 border-b p-0"
@@ -2756,8 +2687,7 @@ export default function PassageLogbookPage() {
                 })}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
+        </PassageLogbookSection>
       )}
     </div>
   );

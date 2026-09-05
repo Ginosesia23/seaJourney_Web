@@ -119,6 +119,37 @@ export async function syncCrewStateFromAis(
   try {
     const logDate = logDateForLiveAisSync(options?.logDate);
 
+    // If the crew already logged On Leave for today, do not fetch AIS or
+    // overwrite their daily state. Tracking stays enabled — sync resumes
+    // automatically once they log back on board.
+    {
+      const { data: todayLog } = await supabaseAdmin
+        .from('daily_state_logs')
+        .select('state')
+        .eq('user_id', userId)
+        .eq('vessel_id', vesselId)
+        .eq('date', logDate)
+        .maybeSingle();
+
+      if ((todayLog?.state as string | undefined) === 'on-leave') {
+        await supabaseAdmin
+          .from('users')
+          .update({
+            ais_live_last_sync_at: new Date().toISOString(),
+            ais_live_last_sync_error: null,
+          })
+          .eq('id', userId);
+
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'Daily state is On Leave — AIS sync paused until back on board.',
+          userId,
+          vesselId,
+        };
+      }
+    }
+
     // Onboard Tracker signed this crew off (leave period or active override).
     // Keep their daily log as on-leave — no AIS fetch needed while on leave.
     if (await shouldForceOnLeaveFromOnboardTracker(userId, vesselId, logDate)) {

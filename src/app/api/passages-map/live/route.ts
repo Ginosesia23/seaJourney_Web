@@ -20,8 +20,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
+import { isFeatureAccessibleServer } from '@/lib/feature-flags/server';
 import { todayDateKey } from '@/lib/vessel-assignment-dates';
 import {
   buildActiveLiveTrack,
@@ -148,21 +148,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
     const vesselBoost = await getCrewVesselFeatureBoost(user.id);
-    if (!hasPassagesMapAccess(profile, vesselBoost)) {
+    const role = String(profile.role || '').toLowerCase();
+    const mapOn = await isFeatureAccessibleServer('passages_map', {
+      isAdmin: role === 'admin',
+      profile,
+      vesselBoost,
+    });
+    if (!mapOn) {
       return NextResponse.json(
-        {
-          error:
-            'The Passages Map requires Crew Professional or Vessel Premium and above.',
-        },
-        { status: 402 },
+        { error: 'Passages Map is not available for your plan.' },
+        { status: 403 },
       );
     }
 
     const refreshLive = new URL(req.url).searchParams.get('refresh') === '1';
 
-    const role = ((profile as { role?: string }).role || '')
-      .toString()
-      .toLowerCase();
     const linkedScope = await resolveLinkedVesselScope(
       supabaseAdmin,
       profile,

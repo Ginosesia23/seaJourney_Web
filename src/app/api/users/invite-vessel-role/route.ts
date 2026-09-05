@@ -31,7 +31,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { findUserProfileByEmail } from '@/lib/admin/lookup-user-by-email';
 import { createVesselAssignment, updateVesselAssignment } from '@/supabase/database/queries';
+import { approveVesselPlanCoverageForInvite } from '@/lib/vessel-plan-coverage';
+import { reconcileCrewPersonalPlanForUser } from '@/lib/crew-personal-plan-on-vessel';
 import { hasActiveSubscription, VESSEL_PREMIUM_PLUS_TIERS } from '@/supabase/database/subscription-helpers';
 import { Resend } from 'resend';
 import { sendWelcomeEmail } from '@/lib/welcome-email';
@@ -274,16 +277,8 @@ export async function POST(req: NextRequest) {
 
     // Check the email isn't already in use anywhere on the platform.
     try {
-      const { data: existingUser, error: existingUserError } =
-        await supabaseAdmin.auth.admin.getUserByEmail(email);
-      if (existingUserError && existingUserError.message && !existingUserError.message.includes('not found')) {
-        console.error('[INVITE VESSEL ROLE] Error checking existing user:', existingUserError);
-        return NextResponse.json(
-          { error: 'Failed to check if user exists', details: existingUserError.message },
-          { status: 500 },
-        );
-      }
-      if (existingUser?.user) {
+      const existingProfile = await findUserProfileByEmail(email);
+      if (existingProfile) {
         return NextResponse.json(
           { error: 'A user with this email already exists. Linked accounts must use a fresh email address — try a vessel-specific alias like captain@your-vessel.com.' },
           { status: 400 },
@@ -291,6 +286,10 @@ export async function POST(req: NextRequest) {
       }
     } catch (checkError) {
       console.error('[INVITE VESSEL ROLE] Error checking existing user:', checkError);
+      return NextResponse.json(
+        { error: 'Failed to check if user exists' },
+        { status: 500 },
+      );
     }
 
     const config = ROLE_CONFIG[role];
@@ -411,6 +410,17 @@ export async function POST(req: NextRequest) {
       await updateVesselAssignment(supabaseAdmin as never, assignment.id, {
         assignmentRole: config.assignmentRole,
       });
+      try {
+        await approveVesselPlanCoverageForInvite({
+          crewUserId: userId,
+          vesselId,
+          reviewedBy: vesselUserId || null,
+          notes: 'Auto-approved when vessel invited a team role account',
+        });
+        await reconcileCrewPersonalPlanForUser(userId);
+      } catch (coverageErr) {
+        console.error('[INVITE VESSEL ROLE] Plan coverage auto-approve failed:', coverageErr);
+      }
     } catch (assignErr) {
       console.error('[INVITE VESSEL ROLE] Failed to create vessel assignment:', assignErr);
       // Non-fatal — the account exists; the vessel manager can re-create the

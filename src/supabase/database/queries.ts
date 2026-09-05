@@ -7,7 +7,11 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { timestampToISO } from './helpers';
 import type { StateLog, PassageLog, BridgeWatchLog, VesselAssignment, DailyStatus } from '@/lib/types';
 
-function scheduleCrewPlanReconcile(supabase: SupabaseClient, userId: string) {
+function scheduleCrewPlanReconcile(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId?: string | null,
+) {
   void (async () => {
     try {
       if (typeof window === 'undefined') {
@@ -23,6 +27,24 @@ function scheduleCrewPlanReconcile(supabase: SupabaseClient, userId: string) {
         'Content-Type': 'application/json',
       };
       if (token) headers.Authorization = `Bearer ${token}`;
+
+      // Coverage request first so the vessel inbox updates even if pause reconcile is a no-op.
+      if (vesselId && token) {
+        const coverageRes = await fetch('/api/vessel-plan-coverage', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ vesselId }),
+        });
+        if (!coverageRes.ok) {
+          const body = await coverageRes.json().catch(() => ({}));
+          console.error(
+            '[crew-plan] Coverage request failed',
+            coverageRes.status,
+            body,
+          );
+        }
+      }
+
       await fetch('/api/crew/reconcile-vessel-plan', {
         method: 'POST',
         headers,
@@ -815,7 +837,7 @@ export async function createVesselAssignment(
 
   if (error) throw error;
 
-  scheduleCrewPlanReconcile(supabase, assignmentData.userId);
+  scheduleCrewPlanReconcile(supabase, assignmentData.userId, assignmentData.vesselId);
 
   return {
     id: data.id,

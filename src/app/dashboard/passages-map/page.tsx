@@ -60,11 +60,9 @@ import {
 
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
-import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -560,11 +558,7 @@ export default function PassagesMapPage() {
     useFeatureFlags();
   const { boost: vesselBoost } = useCrewVesselFeatureBoost();
 
-  const eligible = React.useMemo(
-    () => hasPassagesMapAccess(userProfile, vesselBoost),
-    [userProfile, vesselBoost],
-  );
-  const featureOn = isFeatureEnabled('passages_map');
+  const canAccess = isFeatureEnabled('passages_map');
   const isVesselAccount = React.useMemo(() => {
     const role = (
       (userProfile as { role?: string } | null)?.role ||
@@ -781,7 +775,7 @@ export default function PassagesMapPage() {
   }, []);
 
   React.useEffect(() => {
-    if (!eligible || !session?.access_token || !user?.id) return;
+    if (!canAccess || !session?.access_token || !user?.id) return;
     if (!tracks?.vessels?.length) return;
 
     let cancelled = false;
@@ -835,10 +829,10 @@ export default function PassagesMapPage() {
     return () => {
       cancelled = true;
     };
-  }, [eligible, session?.access_token, user?.id, tracks?.vessels]);
+  }, [canAccess, session?.access_token, user?.id, tracks?.vessels]);
 
   React.useEffect(() => {
-    if (!eligible || !session?.access_token || !user?.id) return;
+    if (!canAccess || !session?.access_token || !user?.id) return;
     // Hydrate from server once so places unlocked on another device show up.
     let cancelled = false;
     void (async () => {
@@ -863,7 +857,7 @@ export default function PassagesMapPage() {
     return () => {
       cancelled = true;
     };
-  }, [eligible, session?.access_token, user?.id]);
+  }, [canAccess, session?.access_token, user?.id]);
 
   const fetchTracks = React.useCallback(
     async (
@@ -916,9 +910,9 @@ export default function PassagesMapPage() {
   }, [session?.access_token]);
 
   React.useEffect(() => {
-    if (!eligible || !session?.access_token) return;
+    if (!canAccess || !session?.access_token) return;
     void fetchLogbookLinks();
-  }, [eligible, session?.access_token, fetchLogbookLinks]);
+  }, [canAccess, session?.access_token, fetchLogbookLinks]);
 
   const promotePassageToLogbook = React.useCallback(
     async (opts: {
@@ -1032,9 +1026,9 @@ export default function PassagesMapPage() {
   // clicks prev/next/all). We intentionally DON'T watch `tracks` here —
   // the fetch is fully driven by `view` and `session.access_token`.
   React.useEffect(() => {
-    if (!eligible || !session?.access_token) return;
+    if (!canAccess || !session?.access_token) return;
     void fetchTracks(view);
-  }, [eligible, session?.access_token, view, fetchTracks]);
+  }, [canAccess, session?.access_token, view, fetchTracks]);
 
   // Remember which vessels were underway on the previous live poll so
   // we can promote their active track into the past-passage layer the
@@ -1148,7 +1142,7 @@ export default function PassagesMapPage() {
   }, [session?.access_token]);
 
   React.useEffect(() => {
-    if (!eligible || !session?.access_token) return;
+    if (!canAccess || !session?.access_token) return;
     void fetchLive({ refresh: true });
     const id = window.setInterval(() => {
       if (document.visibilityState === 'visible') void fetchLive();
@@ -1161,7 +1155,7 @@ export default function PassagesMapPage() {
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [eligible, session?.access_token, fetchLive]);
+  }, [canAccess, session?.access_token, fetchLive]);
 
   // ── Month navigation (lifted from the overlay so keyboard shortcuts
   //    below can drive it too) ──────────────────────────────────────
@@ -1212,7 +1206,7 @@ export default function PassagesMapPage() {
   // ← / → browse months, A = all time, C = current month. Ignored when
   // the user is typing in a form control so we never hijack real input.
   React.useEffect(() => {
-    if (!eligible) return;
+    if (!canAccess) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
@@ -1277,7 +1271,7 @@ export default function PassagesMapPage() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [eligible, view.mode, goPrev, goNext, goAll, goCurrent]);
+  }, [canAccess, view.mode, goPrev, goNext, goAll, goCurrent]);
 
   // Drop focus if the focused vessel disappears from the roster.
   React.useEffect(() => {
@@ -1288,44 +1282,10 @@ export default function PassagesMapPage() {
     if (!stillThere) setFocusedVesselId(null);
   }, [tracks?.vessels, focusedVesselId]);
 
-  if (isUserLoading || isProfileLoading || isFlagsLoading) {
+  if (isUserLoading || isProfileLoading || isFlagsLoading || !canAccess) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  // Disabled features are redirected by dashboard layout; keep a quiet guard.
-  if (!featureOn) {
-    return (
-      <div className="flex h-full w-full items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (!eligible) {
-    return (
-      <div className="mx-auto max-w-3xl px-8 py-8">
-        <VesselPremiumFeatureGate
-          title={
-            isVesselAccount
-              ? 'Available on Vessel Premium and above'
-              : 'Available on Crew Professional'
-          }
-          featureLabel="The Passages Map"
-          plansLabel={
-            isVesselAccount
-              ? 'Vessel Premium, Vessel Professional, and Fleet'
-              : 'Crew Professional'
-          }
-          description={
-            isVesselAccount
-              ? 'Plot your vessel’s AIS passage history on an interactive world map.'
-              : "Plot every passage you've done across all your vessels on an interactive world map, powered by AIS history."
-          }
-        />
       </div>
     );
   }

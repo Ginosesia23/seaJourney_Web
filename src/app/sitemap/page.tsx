@@ -93,7 +93,7 @@ const SITEMAP_SECTIONS: SitemapSection[] = [
     icon: LayoutDashboard,
     links: [
       { href: '/dashboard', label: 'Home', description: 'Signed-in dashboard summary', signedIn: true },
-      { href: '/dashboard/inbox', label: 'Inbox', description: 'Requests, claims, and notifications', signedIn: true },
+      { href: '/dashboard/inbox', label: 'Inbox', description: 'Incoming requests and sent items awaiting response', signedIn: true },
       { href: '/dashboard/profile', label: 'Profile', description: 'Account and vessel profile settings', signedIn: true },
       { href: '/dashboard/subscription', label: 'Subscription', description: 'Plan and billing status', signedIn: true },
       { href: '/dashboard/feedback', label: 'Feedback', description: 'Send feedback to SeaJourney', signedIn: true },
@@ -148,7 +148,6 @@ const SITEMAP_SECTIONS: SitemapSection[] = [
     links: [
       { href: '/dashboard/vessels', label: 'My vessels', description: 'Vessels you manage or belong to', signedIn: true },
       { href: '/dashboard/crew', label: 'Manage crew', description: 'Active and past crew on your vessel', signedIn: true },
-      { href: '/dashboard/pending-requests', label: 'Pending requests', description: 'Testimonials and sea-time access still waiting', signedIn: true },
       { href: '/dashboard/watch-schedule', label: 'Nav Watch', description: 'Build and publish watch schedules', signedIn: true },
       { href: '/dashboard/crew-rotation', label: 'Onboard crew', description: 'Who is onboard and rotation status', signedIn: true },
       { href: '/dashboard/documents', label: 'Document generator', description: 'Vessel form builder / docs', signedIn: true },

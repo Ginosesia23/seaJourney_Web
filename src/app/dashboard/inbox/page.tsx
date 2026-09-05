@@ -1,14 +1,21 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc, useCollection } from '@/supabase/database';
 import { notifyCrewOfTestimonialDecision } from '@/lib/testimonial-signoff';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  InboxEmptyState,
+  InboxLoadingState,
+  InboxPageHeader,
+  InboxSection,
+  InboxStatTiles,
+  InboxViewTabs,
+} from '@/components/dashboard/inbox-page-ui';
+import { VesselSentRequestsPanel } from '@/components/dashboard/vessel-sent-requests-panel';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, CheckCircle2, XCircle, Ship, Calendar, User, Mail, AlertCircle, Clock, FileText, Eye, ChevronDown, ChevronUp } from 'lucide-react';
@@ -22,10 +29,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { DateComparisonView } from './date-comparison-view';
+import { cn } from '@/lib/utils';
 import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest, VesselSeaTimeAccessRequest, VesselSeaTimeOffer } from '@/lib/types';
 
 export default function InboxPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inboxView = searchParams.get('view') === 'sent' ? 'sent' : 'incoming';
   const { user } = useUser();
   const { supabase, session } = useSupabase();
   const { toast } = useToast();
@@ -34,6 +44,25 @@ export default function InboxPage() {
   const [captaincyRequests, setCaptaincyRequests] = useState<(VesselClaimRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } })[]>([]);
   const [captainRoleApplications, setCaptainRoleApplications] = useState<any[]>([]);
   const [seaTimeRequests, setSeaTimeRequests] = useState<(SeaTimeRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } })[]>([]);
+  const [planCoverageRequests, setPlanCoverageRequests] = useState<
+    Array<{
+      id: string;
+      crew_user_id: string;
+      vessel_id: string;
+      vessel_name: string;
+      status: string;
+      created_at: string;
+      crew?: {
+        email?: string | null;
+        first_name?: string | null;
+        last_name?: string | null;
+        username?: string | null;
+      } | null;
+    }>
+  >([]);
+  const [selectedPlanCoverageRequest, setSelectedPlanCoverageRequest] = useState<(typeof planCoverageRequests)[number] | null>(null);
+  const [isPlanCoverageDialogOpen, setIsPlanCoverageDialogOpen] = useState(false);
+  const [vesselSentPendingCount, setVesselSentPendingCount] = useState(0);
   const [selectedSeaTimeRequest, setSelectedSeaTimeRequest] = useState<(SeaTimeRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } }) | null>(null);
   const [vesselSeaTimeAccessRequests, setVesselSeaTimeAccessRequests] = useState<(VesselSeaTimeAccessRequest & { vessel_user?: { email: string; first_name?: string; last_name?: string; username?: string; active_vessel_id?: string }, vessel?: { id: string; name: string } })[]>([]);
   const [selectedVesselAccessRequest, setSelectedVesselAccessRequest] = useState<(VesselSeaTimeAccessRequest & { vessel_user?: { email: string; first_name?: string; last_name?: string; username?: string; active_vessel_id?: string }, vessel?: { id: string; name: string } }) | null>(null);
@@ -125,6 +154,15 @@ export default function InboxPage() {
   // Check if user is admin
   const isAdmin = useMemo(() => {
     return userProfile?.role?.toLowerCase() === 'admin';
+  }, [userProfile]);
+
+  const isVesselAccount = useMemo(() => {
+    if (!userProfile) return false;
+    const role = userProfile.role?.toLowerCase() || '';
+    const activeVesselId =
+      (userProfile as { active_vessel_id?: string; activeVesselId?: string }).active_vessel_id ||
+      userProfile.activeVesselId;
+    return role === 'vessel' && !!activeVesselId;
   }, [userProfile]);
 
   // Debug: Log when captaincyRequests changes
@@ -383,6 +421,69 @@ export default function InboxPage() {
               console.log('[INBOX] No sea time requests found (empty result)');
               setSeaTimeRequests([]);
             }
+
+            // Plan coverage requests (RLS returns all pending for vessels this account manages)
+            try {
+              const { data: coverageRows, error: coverageError } = await supabase
+                .from('vessel_plan_coverage_requests')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false });
+
+              if (coverageError) {
+                console.error('[INBOX] Error fetching plan coverage requests:', coverageError);
+                setPlanCoverageRequests([]);
+              } else {
+                const crewIds = [
+                  ...new Set((coverageRows || []).map((r) => r.crew_user_id as string)),
+                ];
+                let crewById: Record<string, (typeof planCoverageRequests)[number]['crew']> = {};
+                if (crewIds.length) {
+                  const { data: crewRows } = await supabase
+                    .from('users')
+                    .select('id, email, first_name, last_name, username')
+                    .in('id', crewIds);
+                  for (const row of crewRows || []) {
+                    crewById[row.id as string] = row;
+                  }
+                }
+                setPlanCoverageRequests(
+                  (coverageRows || []).map((r) => ({
+                    ...r,
+                    crew: crewById[r.crew_user_id as string] || null,
+                  })) as typeof planCoverageRequests,
+                );
+              }
+
+              let sentTestimonialQuery = supabase
+                .from('testimonials')
+                .select('id', { count: 'exact', head: true })
+                .eq('status', 'pending_captain');
+              if (activeVesselId) {
+                sentTestimonialQuery = sentTestimonialQuery.or(
+                  `vessel_id.eq.${activeVesselId},generated_by_user_id.eq.${user.id}`,
+                );
+              } else {
+                sentTestimonialQuery = sentTestimonialQuery.eq(
+                  'generated_by_user_id',
+                  user.id,
+                );
+              }
+              const [sentTestimonials, sentAccess] = await Promise.all([
+                sentTestimonialQuery,
+                supabase
+                  .from('vessel_sea_time_access_requests')
+                  .select('id', { count: 'exact', head: true })
+                  .eq('vessel_user_id', user.id)
+                  .eq('status', 'pending'),
+              ]);
+              setVesselSentPendingCount(
+                (sentTestimonials.count || 0) + (sentAccess.count || 0),
+              );
+            } catch (coverageErr) {
+              console.error('[INBOX] Error fetching plan coverage requests:', coverageErr);
+              setPlanCoverageRequests([]);
+            }
           } else {
             console.log('[INBOX] Skipping sea time requests fetch:', {
               isVesselAccount,
@@ -390,6 +491,7 @@ export default function InboxPage() {
               hasActiveVesselId: !!activeVesselId
             });
             setSeaTimeRequests([]);
+            setPlanCoverageRequests([]);
           }
 
           // Set testimonials to empty for admins/vessel accounts
@@ -397,6 +499,7 @@ export default function InboxPage() {
         } else {
           // Captains/vessel managers see testimonials addressed to them
           // Build base query filter for captain matching
+          setPlanCoverageRequests([]);
           const captainFilter = user?.id && user?.email
             ? `captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`
             : user?.id
@@ -497,6 +600,7 @@ export default function InboxPage() {
           // Set captaincy requests to empty for non-admins (captains)
           setCaptaincyRequests([]);
           setSeaTimeRequests([]);
+          setPlanCoverageRequests([]);
         }
 
         // Fetch vessel sea time access requests for ALL users (crew members need this)
@@ -568,7 +672,62 @@ export default function InboxPage() {
     };
 
     fetchPendingData();
-  }, [user?.id, user?.email, isCaptain, userProfile, supabase, toast]);
+  }, [user?.id, user?.email, isCaptain, userProfile, supabase, toast, session?.access_token]);
+
+  const handleDecidePlanCoverage = async () => {
+    if (!selectedPlanCoverageRequest || !action || !session?.access_token) return;
+    if (action === 'reject' && !rejectionReason.trim()) {
+      toast({
+        title: 'Reason required',
+        description: 'Please provide a short reason for declining this request.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const res = await fetch('/api/vessel-plan-coverage', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          requestId: selectedPlanCoverageRequest.id,
+          action,
+          rejectionReason: action === 'reject' ? rejectionReason.trim() : undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to update request');
+      }
+
+      setPlanCoverageRequests((prev) =>
+        prev.filter((r) => r.id !== selectedPlanCoverageRequest.id),
+      );
+      setIsPlanCoverageDialogOpen(false);
+      setSelectedPlanCoverageRequest(null);
+      setAction(null);
+      setRejectionReason('');
+      toast({
+        title: action === 'approve' ? 'Coverage approved' : 'Coverage declined',
+        description:
+          action === 'approve'
+            ? 'Their personal plan can now pause under your vessel subscription.'
+            : 'They will keep their personal plan active.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update plan coverage request.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const getVesselName = (vesselId: string) => {
     return vessels?.find(v => v.id === vesselId)?.name || 'Unknown Vessel';
@@ -1951,6 +2110,151 @@ export default function InboxPage() {
     }
   };
 
+  const vesselIncomingCount =
+    seaTimeRequests.length + planCoverageRequests.length + captaincyRequests.length;
+
+  const totalPendingCount = useMemo(() => {
+    if (isAdmin) {
+      return captaincyRequests.length + captainRoleApplications.length;
+    }
+    if (isVesselAccount) {
+      return vesselIncomingCount + vesselSentPendingCount;
+    }
+    return (
+      testimonials.length +
+      vesselSeaTimeAccessRequests.length +
+      vesselSeaTimeOffers.length
+    );
+  }, [
+    isAdmin,
+    isVesselAccount,
+    captaincyRequests.length,
+    captainRoleApplications.length,
+    vesselIncomingCount,
+    vesselSentPendingCount,
+    testimonials.length,
+    vesselSeaTimeAccessRequests.length,
+    vesselSeaTimeOffers.length,
+  ]);
+
+  const inboxDescription = isAdmin
+    ? 'Review and approve captaincy requests for vessels.'
+    : isVesselAccount
+      ? 'Incoming requests to action, and sent testimonials or sea-time access waiting on others.'
+      : isCaptain
+        ? 'Review and respond to testimonial sign-off requests from crew members.'
+        : 'Review and respond to vessel sea time access requests and offers.';
+
+  const inboxStatItems = useMemo(() => {
+    if (isAdmin) {
+      return [
+        {
+          label: 'Captaincy',
+          value: captaincyRequests.length,
+          hint: 'Vessel claim requests',
+          tone: 'amber' as const,
+        },
+        {
+          label: 'Captain role',
+          value: captainRoleApplications.length,
+          hint: 'Role applications',
+          tone: 'sky' as const,
+        },
+        {
+          label: 'Total pending',
+          value: totalPendingCount,
+          hint: 'Needs admin action',
+          tone: 'default' as const,
+        },
+      ];
+    }
+    if (isVesselAccount) {
+      return [
+        {
+          label: 'Incoming',
+          value: vesselIncomingCount,
+          hint: 'Needs your action',
+          tone: 'amber' as const,
+        },
+        {
+          label: 'Sent pending',
+          value: vesselSentPendingCount,
+          hint: 'Waiting on others',
+          tone: 'sky' as const,
+        },
+        {
+          label: 'Sea time',
+          value: seaTimeRequests.length,
+          hint: 'Copy log requests',
+          tone: 'default' as const,
+        },
+        {
+          label: 'Plan coverage',
+          value: planCoverageRequests.length,
+          hint: 'Subscription pause',
+          tone: 'emerald' as const,
+        },
+      ];
+    }
+    if (isCaptain) {
+      return [
+        {
+          label: 'Testimonials',
+          value: testimonials.length,
+          hint: 'Awaiting sign-off',
+          tone: 'amber' as const,
+        },
+        {
+          label: 'Approved',
+          value: approvedTestimonials.length,
+          hint: 'Recently signed',
+          tone: 'emerald' as const,
+        },
+        {
+          label: 'Total pending',
+          value: totalPendingCount,
+          hint: 'Needs your action',
+          tone: 'default' as const,
+        },
+      ];
+    }
+    return [
+      {
+        label: 'Access requests',
+        value: vesselSeaTimeAccessRequests.length,
+        hint: 'From vessel managers',
+        tone: 'amber' as const,
+      },
+      {
+        label: 'Sea time offers',
+        value: vesselSeaTimeOffers.length,
+        hint: 'From your vessel',
+        tone: 'sky' as const,
+      },
+      {
+        label: 'Total pending',
+        value: totalPendingCount,
+        hint: 'Needs your action',
+        tone: 'default' as const,
+      },
+    ];
+  }, [
+    isAdmin,
+    isVesselAccount,
+    isCaptain,
+    captaincyRequests.length,
+    captainRoleApplications.length,
+    vesselIncomingCount,
+    vesselSentPendingCount,
+    seaTimeRequests.length,
+    planCoverageRequests.length,
+    testimonials.length,
+    approvedTestimonials.length,
+    totalPendingCount,
+    vesselSeaTimeAccessRequests.length,
+    vesselSeaTimeOffers.length,
+  ]);
+
   // Allow access if user is captain/admin/vessel OR if they have pending vessel sea time access requests OR vessel sea time offers
   // Also allow access while loading so crew members can see the page while data loads
   const hasAccess = isCaptain || hasVesselAccessRequests || vesselSeaTimeOffers.length > 0 || isLoading;
@@ -1958,55 +2262,56 @@ export default function InboxPage() {
   if (!hasAccess && !isLoading) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Inbox</h1>
-          <p className="text-muted-foreground">View and respond to requests</p>
-          <Separator />
-        </div>
-        <Card className="rounded-xl border">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Pending Requests</h3>
-            <p className="text-sm text-muted-foreground max-w-md">
-              You don't have any pending requests at this time. This page is accessible when you have requests to review.
-            </p>
-          </CardContent>
-        </Card>
+        <InboxPageHeader
+          description="View and respond to requests."
+        />
+        <InboxEmptyState
+          icon={AlertCircle}
+          title="No pending requests"
+          description="You don't have any pending requests at this time. This page is accessible when you have requests to review."
+        />
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header Section */}
-      <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Inbox</h1>
-            <p className="text-muted-foreground">
-              {isAdmin 
-                ? 'Review and approve captaincy requests for vessels'
-                : isCaptain
-                  ? 'Review and respond to testimonial sign-off requests from crew members'
-                  : 'Review and respond to vessel sea time access requests'}
-            </p>
-          </div>
-          {(testimonials.length > 0 || captaincyRequests.length > 0 || captainRoleApplications.length > 0 || (userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0) || vesselSeaTimeAccessRequests.length > 0 || vesselSeaTimeOffers.length > 0) && (
-            <Badge variant="secondary" className="text-sm">
-              {testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0) + vesselSeaTimeAccessRequests.length + vesselSeaTimeOffers.length} pending request{(testimonials.length + captaincyRequests.length + captainRoleApplications.length + (userProfile?.role?.toLowerCase() === 'vessel' ? seaTimeRequests.length : 0) + vesselSeaTimeAccessRequests.length + vesselSeaTimeOffers.length) !== 1 ? 's' : ''}
-            </Badge>
-          )}
-        </div>
-        <Separator />
-      </div>
+      <InboxPageHeader
+        description={inboxDescription}
+        pendingCount={totalPendingCount}
+      />
+
+      {isVesselAccount ? (
+        <InboxViewTabs
+          activeView={inboxView}
+          onViewChange={(view) =>
+            router.push(view === 'sent' ? '/dashboard/inbox?view=sent' : '/dashboard/inbox')
+          }
+          tabs={[
+            { id: 'incoming', label: 'Incoming', count: vesselIncomingCount },
+            { id: 'sent', label: 'Sent', count: vesselSentPendingCount },
+          ]}
+        />
+      ) : null}
+
+      {!isLoading && inboxStatItems.length > 0 ? (
+        <InboxStatTiles items={inboxStatItems} />
+      ) : null}
 
       {/* Content */}
-      {isLoading ? (
-        <Card className="rounded-xl border">
-          <CardContent className="flex items-center justify-center py-16">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </CardContent>
-        </Card>
+      {isVesselAccount && inboxView === 'sent' ? (
+        <InboxSection
+          title="Sent requests"
+          description="Testimonials sent to captains and sea-time access sent to crew."
+          flush
+        >
+          <VesselSentRequestsPanel
+            embedded
+            onPendingCountChange={setVesselSentPendingCount}
+          />
+        </InboxSection>
+      ) : isLoading ? (
+        <InboxLoadingState />
       ) : (() => {
         const userRole = userProfile?.role?.toLowerCase() || '';
         const isVesselRole = userRole === 'vessel';
@@ -2015,54 +2320,49 @@ export default function InboxPage() {
           (!isAdmin && (
             testimonials.length > 0 || 
             approvedTestimonials.length > 0 || 
-            (isVesselRole && (seaTimeRequests.length > 0 || captaincyRequests.length > 0)) ||
+            (isVesselRole && (seaTimeRequests.length > 0 || planCoverageRequests.length > 0 || captaincyRequests.length > 0)) ||
             vesselSeaTimeAccessRequests.length > 0 ||
             vesselSeaTimeOffers.length > 0
           ));
         
         return !hasAnyRequests;
       })() ? (
-        <Card className="rounded-xl border">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Mail className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Requests</h3>
-            <p className="text-sm text-muted-foreground max-w-md">
-              {(() => {
-                const userRole = userProfile?.role?.toLowerCase() || '';
-                if (userRole === 'admin') {
-                  return 'You don\'t have any pending captaincy requests at this time.';
-                } else if (userRole === 'vessel') {
-                  return 'You don\'t have any pending requests at this time.';
-                } else {
-                  return 'You don\'t have any testimonial sign-off requests at this time.';
-                }
-              })()}
-            </p>
-          </CardContent>
-        </Card>
+        <InboxEmptyState
+          icon={Mail}
+          title="No requests"
+          description={(() => {
+            const userRole = userProfile?.role?.toLowerCase() || '';
+            if (userRole === 'admin') {
+              return "You don't have any pending captaincy requests at this time.";
+            }
+            if (userRole === 'vessel') {
+              return "You don't have any pending requests at this time.";
+            }
+            return "You don't have any testimonial sign-off requests at this time.";
+          })()}
+        />
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-4">
           {/* Captain Role Applications Section (Admin only) */}
           {isAdmin && captainRoleApplications.length > 0 && (
-            <Card className="rounded-xl border shadow-sm">
-              <CardHeader>
-                <CardTitle>Captain Role Applications</CardTitle>
-                <CardDescription>Review and approve applications from users requesting the captain role</CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
+            <InboxSection
+              title="Captain role applications"
+              description="Review and approve applications from users requesting the captain role."
+              flush
+            >
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Applicant</TableHead>
-                        <TableHead>Position</TableHead>
-                        <TableHead>Submitted</TableHead>
-                        <TableHead>Actions</TableHead>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Applicant</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Position</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Submitted</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {captainRoleApplications.map((application) => (
-                        <TableRow key={application.id}>
+                        <TableRow key={application.id} className="border-border bg-background hover:bg-muted/40">
                           <TableCell>
                               <div>
                                 <div>{getUserName(application)}</div>
@@ -2087,7 +2387,7 @@ export default function InboxPage() {
                               <Button
                                 onClick={() => openCaptainRoleActionDialog(application, 'approve')}
                                 size="sm"
-                                className="rounded-lg bg-green-600 hover:bg-green-700"
+                                className="h-8 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-700"
                               >
                                 <CheckCircle2 className="h-4 w-4 mr-2" />
                                 Approve
@@ -2096,7 +2396,7 @@ export default function InboxPage() {
                                 onClick={() => openCaptainRoleActionDialog(application, 'reject')}
                                 size="sm"
                                 variant="destructive"
-                                className="rounded-lg"
+                                className="h-8 rounded-md text-xs"
                               >
                                 <XCircle className="h-4 w-4 mr-2" />
                                 Reject
@@ -2108,8 +2408,7 @@ export default function InboxPage() {
                     </TableBody>
                   </Table>
                 </div>
-              </CardContent>
-            </Card>
+            </InboxSection>
           )}
 
           {/* Captaincy Requests Section (Admin and Vessel accounts) */}
@@ -2124,31 +2423,30 @@ export default function InboxPage() {
             
             return shouldShow;
           })() ? (
-            <Card className="rounded-xl border shadow-sm">
-              <CardHeader>
-                <CardTitle>Vessel Captaincy Requests</CardTitle>
-                <CardDescription>
-                  {isAdmin 
-                    ? 'Review and approve captaincy requests. Both vessel and admin approval required.'
-                    : 'Review and approve captaincy requests for your vessel. Admin approval is also required.'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
+            <InboxSection
+              title="Vessel captaincy requests"
+              description={
+                isAdmin
+                  ? 'Review and approve captaincy requests. Both vessel and admin approval required.'
+                  : 'Review and approve captaincy requests for your vessel. Admin approval is also required.'
+              }
+              flush
+            >
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Requested By</TableHead>
-                        <TableHead>Vessel</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Requested</TableHead>
-                        <TableHead>Actions</TableHead>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested By</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Vessel</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Role</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Status</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {captaincyRequests.length === 0 ? (
-                        <TableRow>
+                        <TableRow className="border-border bg-background hover:bg-muted/40">
                           <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                             No requests found
                           </TableCell>
@@ -2164,7 +2462,7 @@ export default function InboxPage() {
                             : !vesselApproved;
                           
                           return (
-                          <TableRow key={request.id}>
+                          <TableRow key={request.id} className="border-border bg-background hover:bg-muted/40">
                             <TableCell>
                                 <div>
                                   <div>{getUserName(request as any)}</div>
@@ -2211,7 +2509,7 @@ export default function InboxPage() {
                                 <Button
                                   onClick={() => openCaptaincyActionDialog(request, 'approve')}
                                   size="sm"
-                                  className="rounded-lg bg-green-600 hover:bg-green-700"
+                                  className="h-8 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-700"
                                   disabled={!canApprove}
                                 >
                                   <CheckCircle2 className="h-4 w-4 mr-2" />
@@ -2221,7 +2519,7 @@ export default function InboxPage() {
                                   onClick={() => openCaptaincyActionDialog(request, 'reject')}
                                   size="sm"
                                   variant="destructive"
-                                  className="rounded-lg"
+                                  className="h-8 rounded-md text-xs"
                                 >
                                   <XCircle className="h-4 w-4 mr-2" />
                                   Reject
@@ -2235,32 +2533,30 @@ export default function InboxPage() {
                     </TableBody>
                   </Table>
                 </div>
-              </CardContent>
-            </Card>
+            </InboxSection>
           ) : null}
 
           {/* Sea Time Requests Section (Vessel accounts only) */}
           {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0 && (
-            <Card className="rounded-xl border shadow-sm">
-              <CardHeader>
-                <CardTitle>Sea Time Requests</CardTitle>
-                <CardDescription>Review and approve requests from crew members to copy vessel sea time logs</CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
+            <InboxSection
+              title="Sea time requests"
+              description="Review and approve requests from crew members to copy vessel sea time logs."
+              flush
+            >
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Requested By</TableHead>
-                        <TableHead>Date Range</TableHead>
-                        <TableHead>Days</TableHead>
-                        <TableHead>Requested</TableHead>
-                        <TableHead>Actions</TableHead>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested By</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Date Range</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Days</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {seaTimeRequests.map((request) => (
-                        <TableRow key={request.id}>
+                        <TableRow key={request.id} className="border-border bg-background hover:bg-muted/40">
                           <TableCell>
                             <div>
                               <div className="font-medium">{getUserName(request as any)}</div>
@@ -2320,7 +2616,7 @@ export default function InboxPage() {
                                   setIsSeaTimeDialogOpen(true);
                                 }}
                                 size="sm"
-                                className="rounded-lg bg-green-600 hover:bg-green-700"
+                                className="h-8 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-700"
                               >
                                 <CheckCircle2 className="h-4 w-4 mr-2" />
                                 Approve
@@ -2333,7 +2629,7 @@ export default function InboxPage() {
                                 }}
                                 size="sm"
                                 variant="destructive"
-                                className="rounded-lg"
+                                className="h-8 rounded-md text-xs"
                               >
                                 <XCircle className="h-4 w-4 mr-2" />
                                 Reject
@@ -2345,37 +2641,118 @@ export default function InboxPage() {
                     </TableBody>
                   </Table>
                 </div>
-              </CardContent>
-            </Card>
+            </InboxSection>
+          )}
+
+          {/* Plan coverage: crew wants to fall under vessel subscription */}
+          {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && planCoverageRequests.length > 0 && (
+            <InboxSection
+              title="Plan coverage requests"
+              description="Crew members asking to pause their personal SeaJourney plan while using your vessel subscription. Approve only people who are actually on your vessel."
+              flush
+            >
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Crew</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Vessel</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {planCoverageRequests.map((request) => {
+                        const crew = request.crew;
+                        const name =
+                          [crew?.first_name, crew?.last_name].filter(Boolean).join(' ').trim() ||
+                          crew?.username ||
+                          crew?.email ||
+                          'Crew member';
+                        return (
+                          <TableRow key={request.id} className="border-border bg-background hover:bg-muted/40">
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{name}</div>
+                                {crew?.email && (
+                                  <div className="text-xs text-muted-foreground">{crew.email}</div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>{request.vessel_name || '—'}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Clock className="h-4 w-4" />
+                                {request.created_at
+                                  ? format(new Date(request.created_at), 'MMM d, yyyy')
+                                  : '—'}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  onClick={() => {
+                                    setSelectedPlanCoverageRequest(request);
+                                    setAction('approve');
+                                    setRejectionReason('');
+                                    setIsPlanCoverageDialogOpen(true);
+                                  }}
+                                  size="sm"
+                                  className="h-8 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-700"
+                                >
+                                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                                  Approve
+                                </Button>
+                                <Button
+                                  onClick={() => {
+                                    setSelectedPlanCoverageRequest(request);
+                                    setAction('reject');
+                                    setRejectionReason('');
+                                    setIsPlanCoverageDialogOpen(true);
+                                  }}
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-8 rounded-md text-xs"
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Decline
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+            </InboxSection>
           )}
 
           {/* Sea time offers from vessel (Crew only: vessel offering to send sea time records) - show section even when empty */}
           {!isAdmin && userProfile?.role?.toLowerCase() !== 'vessel' && (
-            <Card className="rounded-xl border shadow-sm">
-              <CardHeader>
-                <CardTitle>Sea Time Offers from Vessel</CardTitle>
-                <CardDescription>
-                  {vesselSeaTimeOffers.length > 0
-                    ? 'Your vessel has offered to send you sea time records. Accept to copy them to your account, or decline.'
-                    : 'When your vessel offers to send you sea time (e.g. after changing your start date on the crew page), offers will appear here. You can accept to copy records to your account or decline.'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+            <InboxSection
+              title="Sea time offers from vessel"
+              description={
+                vesselSeaTimeOffers.length > 0
+                  ? 'Your vessel has offered to send you sea time records. Accept to copy them to your account, or decline.'
+                  : 'When your vessel offers to send you sea time (e.g. after changing your start date on the crew page), offers will appear here. You can accept to copy records to your account or decline.'
+              }
+            >
                 {vesselSeaTimeOffers.length > 0 ? (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Vessel</TableHead>
-                        <TableHead>Offered By</TableHead>
-                        <TableHead>Date Range</TableHead>
-                        <TableHead>Offered</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Vessel</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Offered By</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Date Range</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Offered</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-right text-[11px] font-normal text-muted-foreground">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {vesselSeaTimeOffers.map((offer) => (
-                        <TableRow key={offer.id} className="hover:bg-muted/50">
+                        <TableRow key={offer.id} className="border-border bg-background hover:bg-muted/40">
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
@@ -2409,7 +2786,7 @@ export default function InboxPage() {
                             <div className="flex justify-end gap-2">
                               <Button
                                 size="sm"
-                                className="rounded-xl bg-green-600 hover:bg-green-700 text-white"
+                                className="h-8 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-700"
                                 onClick={() => {
                                   setSelectedSeaTimeOffer(offer);
                                   setAction('approve');
@@ -2423,7 +2800,7 @@ export default function InboxPage() {
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                className="rounded-xl"
+                                className="h-8 rounded-md text-xs"
                                 onClick={() => {
                                   setSelectedSeaTimeOffer(offer);
                                   setAction('reject');
@@ -2441,35 +2818,30 @@ export default function InboxPage() {
                   </Table>
                 </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground py-4">No pending sea time offers. When a vessel manager offers to send you sea time (from the Crew page when they change your start date), it will appear here.</p>
+                  <p className="text-sm text-muted-foreground py-2">No pending sea time offers. When a vessel manager offers to send you sea time (from the Crew page when they change your start date), it will appear here.</p>
                 )}
-              </CardContent>
-            </Card>
+            </InboxSection>
           )}
 
           {/* Vessel Sea Time Access Requests Section (Crew members only) */}
           {vesselSeaTimeAccessRequests.length > 0 && !isAdmin && userProfile?.role?.toLowerCase() !== 'vessel' && (
-            <Card className="rounded-xl border shadow-sm">
-              <CardHeader>
-                <CardTitle>Vessel Sea Time Access Requests</CardTitle>
-                <CardDescription>
-                  Vessel managers are requesting permission to view your sea time data
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+            <InboxSection
+              title="Vessel sea time access requests"
+              description="Vessel managers are requesting permission to view your sea time data."
+            >
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Vessel</TableHead>
-                        <TableHead>Vessel Manager</TableHead>
-                        <TableHead>Requested</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Vessel</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Vessel Manager</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-right text-[11px] font-normal text-muted-foreground">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {vesselSeaTimeAccessRequests.map((request) => (
-                        <TableRow key={request.id} className="hover:bg-muted/50">
+                        <TableRow key={request.id} className="border-border bg-background hover:bg-muted/40">
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
@@ -2532,7 +2904,7 @@ export default function InboxPage() {
                                   setIsVesselAccessDialogOpen(true);
                                 }}
                                 size="sm"
-                                className="rounded-lg bg-green-600 hover:bg-green-700 text-white"
+                                className="h-8 rounded-md bg-emerald-600 text-xs text-white hover:bg-emerald-700"
                               >
                                 <CheckCircle2 className="h-4 w-4 mr-2" />
                                 Approve
@@ -2545,7 +2917,7 @@ export default function InboxPage() {
                                 }}
                                 size="sm"
                                 variant="destructive"
-                                className="rounded-lg"
+                                className="h-8 rounded-md text-xs"
                               >
                                 <XCircle className="h-4 w-4 mr-2" />
                                 Reject
@@ -2557,50 +2929,52 @@ export default function InboxPage() {
                     </TableBody>
                   </Table>
                 </div>
-              </CardContent>
-            </Card>
+            </InboxSection>
           )}
 
           {/* Testimonials Section - Only show tabs for captains (not admins) */}
           {!isAdmin && (testimonials.length > 0 || approvedTestimonials.length > 0) && (
-            <Card className="rounded-xl border shadow-sm">
-              <CardHeader>
-                <CardTitle>Testimonial Sign-off Requests</CardTitle>
-                <CardDescription>Review and respond to testimonial sign-off requests from crew members</CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
+            <InboxSection
+              title="Testimonial sign-off requests"
+              description="Review and respond to testimonial sign-off requests from crew members."
+              flush
+            >
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'pending' | 'approved')} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 m-4 mb-0">
-                    <TabsTrigger value="pending">
+                  <div className="border-b border-border px-4 py-2.5 sm:px-5">
+                    <TabsList className="inline-flex h-7 w-auto gap-0.5 rounded-md border border-border bg-muted/40 p-0.5">
+                    <TabsTrigger
+                      value="pending"
+                      className="h-6 rounded-[5px] px-2.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                    >
                       Pending
-                      {testimonials.length > 0 && (
-                        <Badge variant="secondary" className="ml-2">
-                          {testimonials.length}
-                        </Badge>
-                      )}
+                      <span className="ml-1.5 rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+                        {testimonials.length}
+                      </span>
                     </TabsTrigger>
-                    <TabsTrigger value="approved">
+                    <TabsTrigger
+                      value="approved"
+                      className="h-6 rounded-[5px] px-2.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                    >
                       Approved
-                      {approvedTestimonials.length > 0 && (
-                        <Badge variant="secondary" className="ml-2">
-                          {approvedTestimonials.length}
-                        </Badge>
-                      )}
+                      <span className="ml-1.5 rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+                        {approvedTestimonials.length}
+                      </span>
                     </TabsTrigger>
                   </TabsList>
+                  </div>
                   
                   <TabsContent value="pending" className="mt-0">
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Requested By</TableHead>
-                        <TableHead>Vessel</TableHead>
-                        <TableHead>Date Range</TableHead>
-                        <TableHead>Days</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Requested</TableHead>
-                        <TableHead>Actions</TableHead>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested By</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Vessel</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Date Range</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Days</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Source</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested</TableHead>
+                        <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -2712,7 +3086,7 @@ export default function InboxPage() {
                           onClick={() => openActionDialog(testimonial, 'approve')}
                           size="sm"
                           variant="outline"
-                          className="rounded-lg"
+                          className="h-8 rounded-md border-border text-xs"
                         >
                           <Eye className="h-4 w-4 mr-2" />
                           View
@@ -2732,7 +3106,7 @@ export default function InboxPage() {
                     {approvedTestimonials.length === 0 ? (
                       <div className="p-8 text-center">
                         <CheckCircle2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                        <h3 className="text-lg font-semibold mb-2">No Approved Testimonials</h3>
+                        <p className="text-sm text-foreground">No approved testimonials</p>
                         <p className="text-sm text-muted-foreground">
                           You haven't approved any testimonials yet.
                         </p>
@@ -2741,19 +3115,19 @@ export default function InboxPage() {
                       <div className="overflow-x-auto">
                         <Table>
                           <TableHeader>
-                            <TableRow>
-                              <TableHead>Requested By</TableHead>
-                              <TableHead>Vessel</TableHead>
-                              <TableHead>Date Range</TableHead>
-                              <TableHead>Days</TableHead>
-                              <TableHead>Source</TableHead>
-                              <TableHead>Approved</TableHead>
-                              <TableHead>Status</TableHead>
+                            <TableRow className="border-border hover:bg-transparent">
+                              <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Requested By</TableHead>
+                              <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Vessel</TableHead>
+                              <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Date Range</TableHead>
+                              <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Days</TableHead>
+                              <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Source</TableHead>
+                              <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Approved</TableHead>
+                              <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">Status</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {approvedTestimonials.map((testimonial) => (
-                              <TableRow key={testimonial.id} className="hover:bg-muted/50 transition-colors">
+                              <TableRow key={testimonial.id} className="border-border bg-background hover:bg-muted/40 transition-colors">
                                 <TableCell className="font-medium">
                                   <div>
                                     <div className="font-semibold">{getCrewMemberName(testimonial)}</div>
@@ -2816,8 +3190,7 @@ export default function InboxPage() {
                     )}
                   </TabsContent>
                 </Tabs>
-              </CardContent>
-            </Card>
+            </InboxSection>
           )}
 
         </div>
@@ -2825,7 +3198,7 @@ export default function InboxPage() {
 
       {/* Action Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="rounded-xl max-w-7xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="rounded-md max-w-7xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {action === 'approve' ? 'Review Testimonial Request' : 'Reject Testimonial'}
@@ -3106,7 +3479,7 @@ export default function InboxPage() {
                 setPasswordError('');
               }}
               disabled={isProcessing || isVerifyingPassword}
-              className="rounded-xl"
+              className="rounded-md"
             >
               Cancel
             </Button>
@@ -3116,7 +3489,7 @@ export default function InboxPage() {
                   variant="destructive"
                   onClick={handleReject}
                   disabled={isProcessing || isVerifyingPassword || !rejectionReason.trim()}
-                  className="rounded-xl"
+                  className="rounded-md"
                 >
                   {isProcessing ? (
                     <>
@@ -3133,7 +3506,7 @@ export default function InboxPage() {
                 <Button
                   onClick={handleApprove}
                   disabled={isProcessing || isVerifyingPassword || !commentConduct.trim() || !commentAbility.trim() || !commentGeneral.trim() || !captainSignature || !signatureApproved}
-                  className="rounded-xl bg-green-600 hover:bg-green-700"
+                  className="rounded-md bg-emerald-600 hover:bg-emerald-700"
                 >
                   {isProcessing ? (
                     <>
@@ -3154,7 +3527,7 @@ export default function InboxPage() {
                 onClick={handleReject}
                 disabled={isProcessing || !rejectionReason.trim()}
                 variant="destructive"
-                className="rounded-xl"
+                className="rounded-md"
               >
                 {isProcessing ? (
                   <>
@@ -3172,7 +3545,7 @@ export default function InboxPage() {
 
       {/* Captain Role Application Action Dialog */}
       <Dialog open={isCaptainRoleDialogOpen} onOpenChange={setIsCaptainRoleDialogOpen}>
-        <DialogContent className="rounded-xl max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="rounded-md max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {action === 'approve' ? 'Approve Captain Role Application' : 'Reject Captain Role Application'}
@@ -3296,14 +3669,14 @@ export default function InboxPage() {
                 setRejectionReason('');
               }}
               disabled={isProcessing}
-              className="rounded-xl"
+              className="rounded-md"
             >
               Cancel
             </Button>
             <Button
               onClick={action === 'approve' ? handleApproveCaptainRole : handleRejectCaptainRole}
               disabled={isProcessing}
-              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+              className={action === 'approve' ? 'rounded-md bg-emerald-600 hover:bg-emerald-700' : 'rounded-md'}
             >
               {isProcessing ? (
                 <>
@@ -3320,7 +3693,7 @@ export default function InboxPage() {
 
       {/* Captaincy Action Dialog */}
       <Dialog open={isCaptaincyDialogOpen} onOpenChange={setIsCaptaincyDialogOpen}>
-        <DialogContent className="rounded-xl">
+        <DialogContent className="rounded-md">
           <DialogHeader>
             <DialogTitle>
               {action === 'approve' ? 'Approve Captaincy Request' : 'Reject Captaincy Request'}
@@ -3483,14 +3856,14 @@ export default function InboxPage() {
                       setRejectionReason('');
                     }}
                     disabled={isProcessing}
-                    className="rounded-xl"
+                    className="rounded-md"
                   >
                     Cancel
                   </Button>
                   <Button
                     onClick={action === 'approve' ? handleApproveCaptaincy : handleRejectCaptaincy}
                     disabled={isProcessing || (action === 'approve' && !canApprove)}
-                    className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+                    className={action === 'approve' ? 'rounded-md bg-emerald-600 hover:bg-emerald-700' : 'rounded-md'}
                   >
                     {isProcessing ? (
                       <>
@@ -3519,7 +3892,7 @@ export default function InboxPage() {
           setPreserveCrewLogs(true);
         }
       }}>
-        <DialogContent className="rounded-xl max-w-[40rem]">
+        <DialogContent className="rounded-md max-w-[40rem]">
           <DialogHeader>
             <DialogTitle>
               {action === 'approve' ? 'Accept Sea Time Offer' : 'Decline Sea Time Offer'}
@@ -3582,13 +3955,13 @@ export default function InboxPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setIsSeaTimeOfferDialogOpen(false); setSelectedSeaTimeOffer(null); setAction(null); }} disabled={isProcessing} className="rounded-xl">
+            <Button variant="outline" onClick={() => { setIsSeaTimeOfferDialogOpen(false); setSelectedSeaTimeOffer(null); setAction(null); }} disabled={isProcessing} className="rounded-md">
               Cancel
             </Button>
             <Button
               onClick={action === 'approve' ? handleAcceptSeaTimeOffer : handleRejectSeaTimeOffer}
               disabled={isProcessing}
-              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+              className={action === 'approve' ? 'rounded-md bg-emerald-600 hover:bg-emerald-700' : 'rounded-md'}
             >
               {isProcessing ? (
                 <>
@@ -3604,8 +3977,101 @@ export default function InboxPage() {
       </Dialog>
 
       {/* Sea Time Request Action Dialog */}
+      {/* Plan coverage approve/decline dialog */}
+      <Dialog
+        open={isPlanCoverageDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsPlanCoverageDialogOpen(false);
+            setSelectedPlanCoverageRequest(null);
+            setAction(null);
+            setRejectionReason('');
+          }
+        }}
+      >
+        <DialogContent className="rounded-md max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {action === 'approve' ? 'Approve plan coverage' : 'Decline plan coverage'}
+            </DialogTitle>
+            <DialogDescription>
+              {action === 'approve'
+                ? 'Approving lets this crew member pause their personal SeaJourney plan and use your vessel subscription while assigned.'
+                : 'Declining keeps their personal plan active. They will not fall under your vessel billing.'}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedPlanCoverageRequest && (
+            <div className="space-y-3 py-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Crew</span>
+                <span className="font-medium text-right">
+                  {[
+                    selectedPlanCoverageRequest.crew?.first_name,
+                    selectedPlanCoverageRequest.crew?.last_name,
+                  ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .trim() ||
+                    selectedPlanCoverageRequest.crew?.email ||
+                    'Crew member'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Vessel</span>
+                <span className="font-medium text-right">
+                  {selectedPlanCoverageRequest.vessel_name}
+                </span>
+              </div>
+              {action === 'reject' && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="plan-coverage-reason">Reason</Label>
+                  <Textarea
+                    id="plan-coverage-reason"
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    placeholder="Why are you declining this request?"
+                    rows={3}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsPlanCoverageDialogOpen(false);
+                setSelectedPlanCoverageRequest(null);
+                setAction(null);
+                setRejectionReason('');
+              }}
+              disabled={isProcessing}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleDecidePlanCoverage()}
+              disabled={isProcessing}
+              variant={action === 'reject' ? 'destructive' : 'default'}
+              className={action === 'approve' ? 'bg-green-600 hover:bg-green-700' : undefined}
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : action === 'approve' ? (
+                'Approve'
+              ) : (
+                'Decline'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isSeaTimeDialogOpen} onOpenChange={setIsSeaTimeDialogOpen}>
-        <DialogContent className="rounded-xl">
+        <DialogContent className="rounded-md">
           <DialogHeader>
             <DialogTitle>
               {action === 'approve' ? 'Approve Sea Time Request' : 'Reject Sea Time Request'}
@@ -3716,14 +4182,14 @@ export default function InboxPage() {
                 setPreserveCrewLogs(true);
               }}
               disabled={isProcessing}
-              className="rounded-xl"
+              className="rounded-md"
             >
               Cancel
             </Button>
             <Button
               onClick={action === 'approve' ? handleApproveSeaTimeRequest : handleRejectSeaTimeRequest}
               disabled={isProcessing}
-              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+              className={action === 'approve' ? 'rounded-md bg-emerald-600 hover:bg-emerald-700' : 'rounded-md'}
             >
               {isProcessing ? (
                 <>
@@ -3747,7 +4213,7 @@ export default function InboxPage() {
           setRejectionReason('');
         }
       }}>
-        <DialogContent className="rounded-xl max-w-2xl">
+        <DialogContent className="rounded-md max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {action === 'approve' ? 'Approve Sea Time Access Request' : 'Reject Sea Time Access Request'}
@@ -3833,14 +4299,14 @@ export default function InboxPage() {
                 setRejectionReason('');
               }}
               disabled={isProcessing}
-              className="rounded-xl"
+              className="rounded-md"
             >
               Cancel
             </Button>
             <Button
               onClick={action === 'approve' ? handleApproveVesselAccessRequest : handleRejectVesselAccessRequest}
               disabled={isProcessing || (action === 'reject' && !rejectionReason.trim())}
-              className={action === 'approve' ? 'rounded-xl bg-green-600 hover:bg-green-700' : 'rounded-xl'}
+              className={action === 'approve' ? 'rounded-md bg-emerald-600 hover:bg-emerald-700' : 'rounded-md'}
             >
               {isProcessing ? (
                 <>
@@ -3857,7 +4323,7 @@ export default function InboxPage() {
 
       {/* Password Verification Dialog */}
       <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
-        <DialogContent className="rounded-xl max-w-md">
+        <DialogContent className="rounded-md max-w-md">
           <DialogHeader>
             <DialogTitle>Verify Your Identity</DialogTitle>
             <DialogDescription>

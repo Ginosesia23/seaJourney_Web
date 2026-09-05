@@ -17,6 +17,7 @@ import {
   FileText,
   X,
   ExternalLink,
+  Target,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -52,16 +53,19 @@ import { useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Certificate } from '@/lib/types';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
-import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
+import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { cn } from '@/lib/utils';
 import { bearerHeaders, downloadWithAuth } from '@/lib/applications/client';
 import {
-  CERTIFICATE_PRESETS,
   CERTIFICATE_PRESET_CATEGORIES,
-  getPresetById,
   type CertificatePreset,
 } from '@/lib/certificates/presets';
+import { useCertificateCatalog } from '@/hooks/use-certificate-catalog';
 import { isCertificateStoragePath } from '@/lib/certificates/storage';
+import type { CareerCertificateGap } from '@/lib/applications/career-certificate-gaps';
+import { certificateMatchesGap } from '@/lib/applications/career-certificate-gaps';
+import { CareerCertificateGapsPanel } from '@/components/dashboard/career-certificate-gaps-panel';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -125,6 +129,7 @@ function mapCertRow(cert: Record<string, unknown>): Certificate {
     userId: cert.user_id as string,
     certificateName: cert.certificate_name as string,
     certificateType: cert.certificate_type as string,
+    presetId: (cert.preset_id as string | null) || null,
     certificateNumber: (cert.certificate_number as string | null) || null,
     issuingAuthority: (cert.issuing_authority as string | null) || null,
     issueDate: cert.issue_date as string,
@@ -157,6 +162,12 @@ export default function CertificatesPage() {
   const [presetCategory, setPresetCategory] = useState<
     CertificatePreset['category'] | 'all'
   >('all');
+  const [careerCertificateGaps, setCareerCertificateGaps] = useState<
+    CareerCertificateGap[]
+  >([]);
+  const [careerNextMilestoneLabel, setCareerNextMilestoneLabel] = useState<
+    string | null
+  >(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { user } = useUser();
@@ -170,6 +181,11 @@ export default function CertificatesPage() {
     'users',
     user?.id,
   );
+  const { isEnabled: isFeatureEnabled, isLoading: isFlagsLoading } = useFeatureFlags();
+  const {
+    presets: certificatePresets,
+    getById: getPresetById,
+  } = useCertificateCatalog();
 
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
@@ -190,40 +206,14 @@ export default function CertificatesPage() {
     } as UserProfile;
   }, [userProfileRaw]);
 
-  const hasPremiumAccess = useMemo(() => {
-    if (!userProfile || !userProfileRaw) return false;
-    const tier = (
-      (userProfile as any).subscription_tier ||
-      userProfile.subscriptionTier ||
-      'free'
-    )
-      .toString()
-      .toLowerCase();
-    const role = (userProfile as any).role || userProfile.role || 'crew';
-    const entitled = hasActiveSubscription(userProfileRaw);
-
-    if (isVesselLinkedFeatureGranted(userProfileRaw, 'certificates')) return entitled;
-    if (tier === 'vessel_linked') return false;
-
-    if (role === 'vessel') {
-      return (
-        (tier.startsWith('vessel_') ||
-          tier === 'vessel_lite' ||
-          tier === 'vessel_basic' ||
-          tier === 'vessel_pro' ||
-          tier === 'vessel_fleet') &&
-        entitled
-      );
-    }
-
-    return (tier === 'premium' || tier === 'pro') && entitled;
-  }, [userProfile, userProfileRaw]);
+  const hasPremiumAccess = isFeatureEnabled('certificates');
+  const hasCareerProgressAccess = isFeatureEnabled('career_progress');
 
   useEffect(() => {
-    if (!isLoadingProfile && userProfile && !hasPremiumAccess) {
+    if (!isLoadingProfile && !isFlagsLoading && userProfile && !hasPremiumAccess) {
       router.push('/dashboard');
     }
-  }, [isLoadingProfile, userProfile, hasPremiumAccess, router]);
+  }, [isLoadingProfile, isFlagsLoading, userProfile, hasPremiumAccess, router]);
 
   const form = useForm<CertificateFormValues>({
     resolver: zodResolver(certificateSchema),
@@ -241,14 +231,14 @@ export default function CertificatesPage() {
   });
 
   const selectedPreset = useMemo(
-    () => CERTIFICATE_PRESETS.find((p) => p.id === selectedPresetId) || null,
-    [selectedPresetId],
+    () => certificatePresets.find((p) => p.id === selectedPresetId) || null,
+    [certificatePresets, selectedPresetId],
   );
 
   const filteredPresets = useMemo(() => {
-    if (presetCategory === 'all') return CERTIFICATE_PRESETS;
-    return CERTIFICATE_PRESETS.filter((p) => p.category === presetCategory);
-  }, [presetCategory]);
+    if (presetCategory === 'all') return certificatePresets;
+    return certificatePresets.filter((p) => p.category === presetCategory);
+  }, [certificatePresets, presetCategory]);
 
   useEffect(() => {
     if (!user?.id || !hasPremiumAccess) {
@@ -286,6 +276,31 @@ export default function CertificatesPage() {
 
     fetchCertificates();
   }, [user?.id, hasPremiumAccess, supabase, toast]);
+
+  const loadCareerCertificateGaps = React.useCallback(async () => {
+    const token = session?.access_token;
+    if (!token || !hasCareerProgressAccess) {
+      setCareerCertificateGaps([]);
+      setCareerNextMilestoneLabel(null);
+      return;
+    }
+    try {
+      const res = await fetch('/api/career/progress', {
+        headers: bearerHeaders(token),
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      setCareerCertificateGaps(json.certificateGaps || []);
+      setCareerNextMilestoneLabel(json.nextMilestone?.label ?? null);
+    } catch {
+      setCareerCertificateGaps([]);
+      setCareerNextMilestoneLabel(null);
+    }
+  }, [session?.access_token, hasCareerProgressAccess]);
+
+  useEffect(() => {
+    void loadCareerCertificateGaps();
+  }, [loadCareerCertificateGaps]);
 
   const applyPreset = (preset: CertificatePreset) => {
     setSelectedPresetId(preset.id);
@@ -353,7 +368,7 @@ export default function CertificatesPage() {
     if (certificate) {
       setEditingCertificate(certificate);
       setFormStep('details');
-      setSelectedPresetId(null);
+      setSelectedPresetId(certificate.presetId || null);
       form.reset({
         certificateName: certificate.certificateName,
         certificateType: certificate.certificateType,
@@ -582,6 +597,10 @@ export default function CertificatesPage() {
         user_id: user.id,
         certificate_name: data.certificateName,
         certificate_type: data.certificateType,
+        preset_id:
+          selectedPresetId && selectedPresetId !== 'other'
+            ? selectedPresetId
+            : null,
         certificate_number: data.certificateNumber || null,
         issuing_authority: data.issuingAuthority || null,
         issue_date: format(data.issueDate, 'yyyy-MM-dd'),
@@ -615,6 +634,7 @@ export default function CertificatesPage() {
 
       handleCloseForm();
       await refreshList();
+      await loadCareerCertificateGaps();
     } catch (error: any) {
       console.error('[CERTIFICATES] Error saving certificate:', error);
       toast({
@@ -785,14 +805,33 @@ export default function CertificatesPage() {
                   ))}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto pr-1">
-                  {filteredPresets.map((preset) => (
+                  {filteredPresets.map((preset) => {
+                    const presetGap = careerCertificateGaps.find(
+                      (gap) => gap.presetId === preset.id,
+                    );
+                    return (
                     <button
                       key={preset.id}
                       type="button"
                       onClick={() => applyPreset(preset)}
-                      className="text-left rounded-xl border p-3 hover:bg-muted/60 transition-colors"
+                      className={cn(
+                        'text-left rounded-xl border p-3 hover:bg-muted/60 transition-colors',
+                        presetGap &&
+                          'border-amber-500/40 bg-amber-500/[0.04]',
+                      )}
                     >
-                      <div className="font-medium text-sm">{preset.name}</div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-medium text-sm">{preset.name}</div>
+                        {presetGap ? (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 gap-0.5 border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-900 dark:text-amber-100"
+                          >
+                            <Target className="h-3 w-3" />
+                            Ticket
+                          </Badge>
+                        ) : null}
+                      </div>
                       <div className="text-xs text-muted-foreground mt-1">
                         {preset.description}
                       </div>
@@ -807,7 +846,8 @@ export default function CertificatesPage() {
                         ) : null}
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -1206,6 +1246,13 @@ export default function CertificatesPage() {
         </Dialog>
       </div>
 
+      {careerCertificateGaps.length > 0 ? (
+        <CareerCertificateGapsPanel
+          gaps={careerCertificateGaps}
+          nextMilestoneLabel={careerNextMilestoneLabel}
+        />
+      ) : null}
+
       {isLoadingCertificates ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -1248,6 +1295,16 @@ export default function CertificatesPage() {
               <TableBody>
                 {certificates.map((certificate) => {
                   const status = getCertificateStatus(certificate);
+                  const careerGap = careerCertificateGaps.find((gap) =>
+                    certificateMatchesGap(
+                      {
+                        certificateName: certificate.certificateName,
+                        certificateType: certificate.certificateType,
+                        presetId: certificate.presetId,
+                      },
+                      gap,
+                    ),
+                  );
                   const daysUntilExpiry = certificate.expiryDate
                     ? differenceInDays(
                         parse(certificate.expiryDate, 'yyyy-MM-dd', new Date()),
@@ -1259,10 +1316,23 @@ export default function CertificatesPage() {
                     <TableRow key={certificate.id}>
                       <TableCell className="font-medium">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             {certificate.certificateName}
                             {certificate.documentUrl ? (
                               <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                            ) : null}
+                            {careerGap ? (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 rounded-lg border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-800 dark:text-amber-200"
+                                title={careerGap.detail}
+                              >
+                                <Target className="h-3 w-3" />
+                                {careerGap.certificateStatus === 'expired' ||
+                                careerGap.certificateStatus === 'expiring_soon'
+                                  ? `Renew for ${careerGap.milestoneLabels[0] || 'next ticket'}`
+                                  : `Needed for ${careerGap.milestoneLabels[0] || 'next ticket'}`}
+                              </Badge>
                             ) : null}
                           </div>
                           {certificate.certificateNumber && (

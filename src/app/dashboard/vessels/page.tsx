@@ -1195,11 +1195,22 @@ export default function VesselsPage() {
     <div className="flex flex-col gap-6">
       {isAdmin ? (
         <>
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Vessels</h1>
-            <p className="text-muted-foreground">
-              Platform directory of every vessel. Search, filter, and edit records.
-            </p>
+          <div className="flex flex-col gap-4 border-b border-border pb-5">
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Ship className="h-3.5 w-3.5" />
+                <span>Platform</span>
+                <span className="text-border">/</span>
+                <span className="text-foreground">Vessels</span>
+              </div>
+              <h1 className="text-xl font-medium tracking-tight text-foreground">
+                Vessels
+              </h1>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                Platform directory of every vessel. Search, filter, and edit
+                records.
+              </p>
+            </div>
           </div>
           <AdminVesselsTable
             vessels={allVessels ?? []}

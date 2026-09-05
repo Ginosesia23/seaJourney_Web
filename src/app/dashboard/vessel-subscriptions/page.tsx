@@ -36,6 +36,7 @@ import type { UserProfile, Vessel } from '@/lib/types';
 import { format } from 'date-fns';
 import React from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { formatSubscriptionTierLabel } from '@/lib/subscription-tier-labels';
 
 interface VesselSubscriptionData {
   vessel: Vessel & { isOfficial: boolean; vesselManagerId?: string | null };
@@ -126,17 +127,6 @@ export default function VesselSubscriptionsPage() {
     return tierLower === 'vessel_pro' || tierLower === 'vessel_fleet';
   };
 
-  // Format subscription tier for display
-  const formatTierName = (tier: string) => {
-    if (!tier || tier === 'free') return 'Free';
-    const cleaned = tier.replace(/^(sj_|sea_journey_)/i, '').trim();
-    return cleaned
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
-  };
-
-  // Format next billing date
   const formatBillingDate = (currentPeriodEnd: string | null): string => {
     if (!currentPeriodEnd) return 'N/A';
     try {
@@ -461,7 +451,7 @@ export default function VesselSubscriptionsPage() {
                     const isExpanded = expandedRows.has(data.vessel.id);
                     const isActive = data.vesselManager.subscriptionStatus.toLowerCase() === 'active';
                     const isCancelled = data.vesselManager.cancelAtPeriodEnd === true;
-                    const tierName = formatTierName(data.vesselManager.subscriptionTier);
+                    const tierName = formatSubscriptionTierLabel(data.vesselManager.subscriptionTier);
                     const billingDate = formatBillingDate(data.vesselManager.currentPeriodEnd);
                     const crewLimit = data.restrictions.crewLimit;
                     const isAtLimit = crewLimit !== null && data.crewCountTowardLimit >= crewLimit;

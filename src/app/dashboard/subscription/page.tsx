@@ -33,6 +33,7 @@ import {
   CalendarDays,
   PauseCircle,
   ArrowRight,
+  Clock,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useUser, useSupabase } from '@/supabase';
@@ -48,6 +49,10 @@ import { CREW_TRIAL_DISPLAY_LABEL } from '@/lib/stripe-checkout-trials';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import {
+  formatSubscriptionTierLabel,
+  resolveDisplayedSubscriptionTier,
+} from '@/lib/subscription-tier-labels';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -347,6 +352,83 @@ export default function ManageSubscriptionPage() {
     };
   }, [pausedPersonalPlan?.vesselId, supabase]);
 
+  const [pendingCoverage, setPendingCoverage] = useState<{
+    vesselId: string;
+    vesselName: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!user?.id || !supabase || isVesselAccount) {
+      setPendingCoverage(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      // Backfill: if crew already self-joined a Pro/Fleet vessel, open the
+      // coverage request so the vessel inbox gets it even if join happened earlier.
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (token) {
+          const { data: activeAssignments } = await supabase
+            .from('vessel_assignments')
+            .select('vessel_id')
+            .eq('user_id', user.id)
+            .is('end_date', null);
+          for (const row of activeAssignments || []) {
+            if (!row.vessel_id) continue;
+            await fetch('/api/vessel-plan-coverage', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ vesselId: row.vessel_id }),
+            });
+          }
+          await fetch('/api/crew/reconcile-vessel-plan', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ userId: user.id }),
+          });
+          router.refresh();
+        }
+      } catch (err) {
+        console.error('[subscription] coverage backfill failed', err);
+      }
+
+      if (cancelled) return;
+
+      const { data } = await supabase
+        .from('vessel_plan_coverage_requests')
+        .select('vessel_id, vessel_name, status')
+        .eq('crew_user_id', user.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (data?.vessel_id) {
+        setPendingCoverage({
+          vesselId: data.vessel_id as string,
+          vesselName: (data.vessel_name as string) || 'a vessel',
+        });
+      } else {
+        setPendingCoverage(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, supabase, isVesselAccount, router]);
+
+  /** Vessel-paid billing is active only after plan coverage is approved. */
+  const vesselManagedBilling =
+    (Boolean(pausedPersonalPlan) || isCrewLimited) && !pendingCoverage;
+
   // Vessel-linked secondary accounts (Captain / Officer / Engineer / Manager
   // owned by a vessel on the Pro/Fleet plan). These accounts don't have their
   // own Stripe subscription — the vessel pays for them — so we show a
@@ -467,17 +549,7 @@ export default function ManageSubscriptionPage() {
   const selectedPlanTemplates = isVesselAccount ? filteredVesselPlans : crewPlanTemplates;
 
   // Format subscription tier for display
-  const formatTierName = (tier: string) => {
-    if (!tier || tier === 'free') return 'Free';
-    const cleaned = tier.replace(/^(sj_|sea_journey_)/i, '').trim();
-    return cleaned
-      .split('_')
-      .map(
-        (word) =>
-          word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
-      )
-      .join(' ');
-  };
+  const formatTierName = formatSubscriptionTierLabel;
 
   const profileTierRaw = userProfile
     ? (userProfile as any).subscription_tier ||
@@ -485,17 +557,20 @@ export default function ManageSubscriptionPage() {
       'free'
     : 'free';
 
-  /** Prefer live Stripe tier when present so UI matches Stripe Dashboard before realtime profile updates. */
-  const displayedPlanName = formatTierName(stripeTierLive ?? profileTierRaw);
+  const displayedTierSlug = resolveDisplayedSubscriptionTier({
+    profileTier: profileTierRaw,
+    stripeTierLive,
+    userProfile: userProfileRaw ?? userProfile,
+  });
+
+  /** Prefer DB tier for demo/manual accounts; otherwise Stripe when linked. */
+  const displayedPlanName = formatSubscriptionTierLabel(displayedTierSlug);
 
   // Check if a plan is the current active plan
   const isCurrentPlan = (planName: string) => {
     if (!userProfile) return false;
-    const userTier =
-      (userProfile as any).subscription_tier ||
-      (userProfile as any).subscriptionTier ||
-      'free';
-    const normalizedUserTier = formatTierName(userTier).toLowerCase();
+    const userTier = displayedTierSlug;
+    const normalizedUserTier = formatSubscriptionTierLabel(userTier).toLowerCase();
     const normalizedPlanName = planName.toLowerCase();
     return (
       normalizedUserTier === normalizedPlanName ||
@@ -805,7 +880,7 @@ export default function ManageSubscriptionPage() {
 
     // Crew on a vessel Professional/Fleet assignment use the vessel plan;
     // their personal Stripe subscription stays paused until they leave.
-    if (pausedPersonalPlan) {
+    if (vesselManagedBilling) {
       toast({
         title: 'Personal plan paused',
         description:
@@ -1119,8 +1194,10 @@ export default function ManageSubscriptionPage() {
     : null;
 
   const matchedPlan = plans.find((p) => isCurrentPlan(p.name));
-  const statusLabel = pausedPersonalPlan
+  const statusLabel = vesselManagedBilling
     ? 'Paused on vessel'
+    : pendingCoverage
+      ? 'Awaiting vessel approval'
     : isFullyCanceled
       ? 'Canceled'
       : isScheduledToCancelAtPeriodEnd
@@ -1133,8 +1210,10 @@ export default function ManageSubscriptionPage() {
               ? 'Active'
               : 'Inactive';
 
-  const statusTone = pausedPersonalPlan
+  const statusTone = vesselManagedBilling
     ? 'sky'
+    : pendingCoverage
+      ? 'amber'
     : isFullyCanceled
       ? 'destructive'
       : isScheduledToCancelAtPeriodEnd
@@ -1350,10 +1429,10 @@ export default function ManageSubscriptionPage() {
               </p>
               <div className="flex flex-wrap items-center gap-3">
                 <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                  {pausedPersonalPlan
+                  {vesselManagedBilling
                     ? 'Crew Limited'
                     : displayedPlanName === 'Free'
-                      ? isCrewLimited
+                      ? isCrewLimited && !pendingCoverage
                         ? 'Crew Limited'
                         : 'Free'
                       : displayedPlanName.startsWith('Crew') ||
@@ -1379,12 +1458,12 @@ export default function ManageSubscriptionPage() {
                   {statusLabel}
                 </span>
               </div>
-              {matchedPlan?.description && !pausedPersonalPlan && (
+              {matchedPlan?.description && !vesselManagedBilling && (
                 <p className="max-w-2xl text-sm text-muted-foreground">
                   {matchedPlan.description}
                 </p>
               )}
-              {pausedPersonalPlan && (
+              {vesselManagedBilling && pausedPersonalPlan && (
                 <p className="max-w-2xl text-sm text-muted-foreground">
                   Using vessel access while assigned to{' '}
                   <span className="font-medium text-foreground">
@@ -1394,13 +1473,13 @@ export default function ManageSubscriptionPage() {
                   when you leave.
                 </p>
               )}
-              {isCrewLimited && !pausedPersonalPlan && (
+              {vesselManagedBilling && isCrewLimited && !pausedPersonalPlan && (
                 <p className="max-w-2xl text-sm text-muted-foreground">
                   This account is covered by a vessel plan. You can still upgrade to your own personal
                   crew subscription below.
                 </p>
               )}
-              {vesselFeatureBoostLabel && (isCrewLimited || pausedPersonalPlan) && (
+              {vesselFeatureBoostLabel && vesselManagedBilling && (
                 <p className="max-w-2xl text-sm text-emerald-700 dark:text-emerald-400">
                   {vesselFeatureBoostLabel} active via{' '}
                   <span className="font-medium">{boostVesselName || 'your current vessel'}</span>
@@ -1408,7 +1487,7 @@ export default function ManageSubscriptionPage() {
                 </p>
               )}
             </div>
-            {matchedPlan && !pausedPersonalPlan && (
+            {matchedPlan && !vesselManagedBilling && (
               <div className="rounded-2xl border bg-background/80 px-5 py-4 text-right shadow-sm backdrop-blur-sm">
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Price
@@ -1435,7 +1514,7 @@ export default function ManageSubscriptionPage() {
             <p className="mt-2 text-lg font-semibold text-foreground">
               {currentPeriodEnd
                 ? format(currentPeriodEnd, 'd MMM yyyy')
-                : pausedPersonalPlan || isCrewLimited
+                : vesselManagedBilling
                   ? 'Covered by vessel'
                   : '—'}
             </p>
@@ -1446,8 +1525,10 @@ export default function ManageSubscriptionPage() {
                   ? 'Subscribe again to restore access'
                   : currentPeriodEnd
                     ? 'Billing period renews on this date'
-                    : pausedPersonalPlan
+                    : vesselManagedBilling
                       ? 'No personal charge while paused'
+                      : pendingCoverage
+                        ? 'Personal billing continues until the vessel approves'
                       : 'No active Stripe billing date'}
             </p>
           </div>
@@ -1458,7 +1539,7 @@ export default function ManageSubscriptionPage() {
               Billing
             </div>
             <p className="mt-2 text-lg font-semibold text-foreground">
-              {pausedPersonalPlan
+              {vesselManagedBilling
                 ? 'Paused'
                 : isFullyCanceled
                   ? 'Ended'
@@ -1466,13 +1547,17 @@ export default function ManageSubscriptionPage() {
                     ? 'Cancels at period end'
                     : subscription
                       ? 'Monthly'
-                      : isCrewLimited
+                      : isCrewLimited && !pendingCoverage
                         ? 'Vessel-paid'
+                        : pendingCoverage
+                          ? 'Personal'
                         : 'None'}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {pausedPersonalPlan
+              {vesselManagedBilling && pausedPersonalPlan
                 ? `Resumes as ${formatTierName(pausedPersonalPlan.tier)}`
+                : pendingCoverage
+                  ? 'Waiting on vessel approval'
                 : isVesselAccount
                   ? 'Vessel subscription'
                   : 'Crew subscription'}
@@ -1493,9 +1578,22 @@ export default function ManageSubscriptionPage() {
           </div>
         </CardContent>
 
-        {(isScheduledToCancelAtPeriodEnd || isFullyCanceled || pausedPersonalPlan) && (
+        {(isScheduledToCancelAtPeriodEnd || isFullyCanceled || vesselManagedBilling || pendingCoverage) && (
           <div className="space-y-3 border-t px-6 py-5 sm:px-8">
-            {pausedPersonalPlan && (
+            {pendingCoverage && (
+              <div className="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div className="text-sm">
+                  <p className="font-medium text-foreground">Waiting for vessel approval</p>
+                  <p className="mt-1 text-muted-foreground">
+                    You asked to use {pendingCoverage.vesselName}&apos;s subscription. Your personal
+                    plan stays active until the vessel account approves the request.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {vesselManagedBilling && pausedPersonalPlan && (
               <div className="flex items-start gap-3 rounded-xl border border-sky-500/25 bg-sky-500/5 p-4">
                 <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" />
                 <div className="text-sm">
@@ -1668,10 +1766,10 @@ export default function ManageSubscriptionPage() {
       <div id="available-plans" className="space-y-5">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-foreground">
-            {pausedPersonalPlan ? 'Plans' : 'Change plan'}
+            {vesselManagedBilling ? 'Plans' : 'Change plan'}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {pausedPersonalPlan
+            {vesselManagedBilling
               ? 'Your personal plan stays paused while you are on a vessel Professional plan.'
               : isVesselAccount
                 ? 'Compare vessel plans and switch when you need more capacity.'
@@ -1682,8 +1780,8 @@ export default function ManageSubscriptionPage() {
         <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {plans.map((plan, index) => {
             const Icon = plan.icon;
-            const isCurrent = isCurrentPlan(plan.name) && !pausedPersonalPlan;
-            const planLocked = !!pausedPersonalPlan;
+            const isCurrent = isCurrentPlan(plan.name) && !vesselManagedBilling;
+            const planLocked = vesselManagedBilling;
 
             return (
               <motion.div
@@ -1735,7 +1833,8 @@ export default function ManageSubscriptionPage() {
                       </div>
                       {plan.trialLabel &&
                         isCrewLimited &&
-                        !pausedPersonalPlan &&
+                        !vesselManagedBilling &&
+                        !pendingCoverage &&
                         plan.priceId &&
                         !plan.comingSoon && (
                           <p className="mt-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
@@ -1805,7 +1904,7 @@ export default function ManageSubscriptionPage() {
       </div>
 
       {/* Cancel */}
-      {subscription && !isCancelled && !pausedPersonalPlan && (
+      {subscription && !isCancelled && !vesselManagedBilling && (
         <Card className="rounded-2xl border-destructive/20 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base text-destructive">Cancel subscription</CardTitle>

@@ -118,9 +118,12 @@ export function CrewAisTrackingCard({
     void loadStatus();
   }, [loadStatus]);
 
+  const onLeaveToday = todayState === 'on-leave';
+  const trackingActive = !!status?.enabled && !onLeaveToday;
+
   const runSync = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (!accessToken || !status?.enabled) return false;
+      if (!accessToken || !status?.enabled || onLeaveToday) return false;
       setSyncing(true);
       try {
         const res = await fetch('/api/ais/crew-tracking', {
@@ -167,7 +170,7 @@ export function CrewAisTrackingCard({
         setSyncing(false);
       }
     },
-    [accessToken, loadStatus, status?.enabled],
+    [accessToken, loadStatus, status?.enabled, onLeaveToday],
   );
 
   // Auto-sync on page load if stale + every hour while open.
@@ -177,13 +180,13 @@ export function CrewAisTrackingCard({
   }, [runSync]);
 
   useEffect(() => {
-    if (!status?.enabled || !accessToken || loading) return;
+    if (!trackingActive || !accessToken || loading) return;
     let cancelled = false;
     const autoSync = async () => {
       if (cancelled) return;
       await runSyncRef.current({ silent: true });
     };
-    if (shouldRunAutoSync(status.lastSyncAt)) {
+    if (shouldRunAutoSync(status?.lastSyncAt)) {
       void autoSync();
     }
     const interval = window.setInterval(() => {
@@ -193,7 +196,7 @@ export function CrewAisTrackingCard({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [status?.enabled, status?.lastSyncAt, accessToken, loading]);
+  }, [trackingActive, status?.lastSyncAt, accessToken, loading]);
 
   const handleToggle = async (enabled: boolean) => {
     if (!accessToken) return;
@@ -282,7 +285,7 @@ export function CrewAisTrackingCard({
   ].filter(Boolean);
 
   return (
-    <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
+    <div className="rounded-md border border-border bg-card px-4 py-3">
       {loading ? (
         <div className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -297,7 +300,11 @@ export function CrewAisTrackingCard({
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">Live AIS tracking</span>
-                {status?.enabled ? (
+                {status?.enabled && onLeaveToday ? (
+                  <Badge className="h-5 border-amber-500/30 bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-800 dark:text-amber-300">
+                    Paused · on leave
+                  </Badge>
+                ) : status?.enabled ? (
                   <Badge className="h-5 border-emerald-500/30 bg-emerald-500/15 px-1.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
                     Active
                   </Badge>
@@ -315,9 +322,13 @@ export function CrewAisTrackingCard({
                 <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400">
                   Your vessel needs an MMSI or IMO on file.
                 </p>
+              ) : onLeaveToday && status?.enabled ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  AIS sync is paused while you&apos;re on leave. It resumes when you log back on board.
+                </p>
               ) : status?.lastError ? (
                 <p className="text-xs leading-relaxed text-destructive">{status.lastError}</p>
-              ) : status?.enabled && liveBits.length > 0 ? (
+              ) : trackingActive && liveBits.length > 0 ? (
                 <p className="text-xs leading-relaxed text-muted-foreground">
                   {liveBits.join(' · ')}
                 </p>
@@ -329,12 +340,12 @@ export function CrewAisTrackingCard({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-3 sm:pt-0.5">
-            {status?.enabled && active?.vesselId && (
+            {trackingActive && active?.vesselId && (
               <AisWrongStateReportButton
                 accessToken={accessToken}
                 vesselId={active.vesselId}
                 accountType="crew"
-                aisEnabled={!!status.enabled}
+                aisEnabled={trackingActive}
                 detectedState={todayState ?? resolvedState}
                 aisNavStatus={latestSample?.navStatus}
                 aisSpeedKn={latestSample?.speedKn}
@@ -344,7 +355,7 @@ export function CrewAisTrackingCard({
               variant="ghost"
               size="sm"
               className="h-8 px-2 text-xs"
-              disabled={!status?.enabled || syncing}
+              disabled={!trackingActive || syncing}
               onClick={() => void runSync()}
             >
               {syncing ? (

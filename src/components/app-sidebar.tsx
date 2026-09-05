@@ -40,6 +40,7 @@ import {
   FolderOpen,
   Layers,
   Anchor,
+  ArrowRightLeft,
   FileCheck,
   ChevronsUpDown,
   Radar,
@@ -48,6 +49,7 @@ import {
   Activity,
   Wallet,
   TicketPercent,
+  Target,
 } from "lucide-react"
 
 import {
@@ -100,8 +102,10 @@ import { useCrewVesselFeatureBoost } from "@/contexts/crew-vessel-feature-boost-
 import { getSubscriptionTierAccentColor } from "@/lib/subscription-tier-colors"
 import { useFeatureFlags } from "@/hooks/use-feature-flags"
 import type { FeatureFlagKey } from "@/lib/feature-flags/catalog"
-import { CREW_LIMITED_ALLOWED_HREFS, isVesselLinkedFeatureGranted, vesselLinkedAllowedHrefs } from "@/lib/vessel-linked-features"
+import { resolveCrewRestrictedAllowedHrefs } from "@/lib/feature-flags/crew-restricted-nav"
+import { isVesselLinkedFeatureGranted, vesselLinkedAllowedHrefs } from "@/lib/vessel-linked-features"
 import { cn } from "@/lib/utils"
+import { navIconPresentation } from "@/lib/nav-icon-colors"
 
 type NavItem = {
   href: string;
@@ -118,7 +122,90 @@ type NavItem = {
   featureFlag?: FeatureFlagKey;
 };
 
-const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vessel' | 'admin' | 'captain' | 'crew')[] }> = [
+type NavGroup = {
+  title: string;
+  items: NavItem[];
+  hideForRoles?: ('vessel' | 'admin' | 'captain' | 'crew')[];
+};
+
+/** Admin-only sidebar — grouped by task, not one long Platform list */
+const adminNavGroups: NavGroup[] = [
+  {
+    title: "Overview",
+    items: [
+      { href: "/dashboard", label: "Home", icon: Home, disabled: false },
+      { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false },
+    ],
+  },
+  {
+    title: "People",
+    items: [
+      { href: "/dashboard/users", label: "User lookup", icon: UserSearch, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/users/transfer", label: "Transfer account", icon: ArrowRightLeft, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/crew-analytics", label: "Crew analytics", icon: Users, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/login-activity", label: "Login activity", icon: LogIn, requiredRole: "admin", disabled: false },
+    ],
+  },
+  {
+    title: "Fleet",
+    items: [
+      { href: "/dashboard/vessels", label: "Vessels", icon: Ship, disabled: false },
+      { href: "/dashboard/crew", label: "Crew", icon: Users, disabled: false },
+    ],
+  },
+  {
+    title: "Revenue",
+    items: [
+      { href: "/dashboard/revenue", label: "Revenue overview", icon: DollarSign, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/spending", label: "Spending & profit", icon: Wallet, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/crew-subscriptions", label: "Crew plans", icon: CreditCard, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/vessel-subscriptions", label: "Vessel plans", icon: Ship, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/partner-codes", label: "Partner codes", icon: TicketPercent, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/ad-revenue-tracking", label: "Ads tracking", icon: Megaphone, requiredRole: "admin", disabled: false },
+    ],
+  },
+  {
+    title: "Analytics",
+    items: [
+      { href: "/dashboard/platform-analytics", label: "Platform overview", icon: BarChart3, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/posthog", label: "PostHog", icon: Activity, requiredRole: "admin", disabled: false },
+    ],
+  },
+  {
+    title: "Product",
+    items: [
+      { href: "/dashboard/feature-flags", label: "Feature flags", icon: ToggleLeft, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/certificate-catalog", label: "Certificate catalog", icon: Award, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/career-milestones", label: "Career milestones", icon: Target, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/application-templates", label: "Apply templates", icon: ClipboardList, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/admin-messages", label: "Broadcasts", icon: MessagesSquare, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/pdf-coordinate-tool", label: "PDF coordinates", icon: Crosshair, requiredRole: "admin", disabled: false },
+    ],
+  },
+  {
+    title: "AIS",
+    items: [
+      { href: "/dashboard/ais-tracking", label: "AIS tracking", icon: Radar, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/ais-wrong-states", label: "Wrong states", icon: Flag, requiredRole: "admin", disabled: false },
+    ],
+  },
+  {
+    title: "Account",
+    items: [
+      { href: "/dashboard/profile", label: "Account", icon: User, disabled: false },
+    ],
+  },
+  {
+    title: "Help",
+    items: [
+      { href: "/dashboard/feedback", label: "Feedback", icon: MessageSquare, disabled: false },
+      { href: "/dashboard/support", label: "Support", icon: HelpCircle, disabled: true },
+      { href: "/dashboard/legal", label: "Legal", icon: FileText, disabled: true },
+    ],
+  },
+];
+
+const navGroups: NavGroup[] = [
   {
     title: "Overview",
     items: [
@@ -154,6 +241,7 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     hideForRoles: ['admin', 'vessel'],
     items: [
       { href: "/dashboard/career-documents", label: "Career documents", icon: FileSignature, disabled: false, hideForRoles: ['vessel', 'admin'] },
+      { href: "/dashboard/career-progress", label: "Career progress", icon: Target, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true, featureFlag: 'career_progress' },
       { href: "/dashboard/apply", label: "Apply for tickets", icon: Award, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true, featureFlag: 'apply_tickets' },
       { href: "/dashboard/certificates", label: "Certificates", icon: ShieldCheck, disabled: false, hideForCrewLimited: true, featureFlag: 'certificates' },
       { href: "/dashboard/my-watch-schedule", label: "My watch roster", icon: Clock, disabled: false, hideForCrewLimited: true, featureFlag: 'watch_schedule' },
@@ -173,7 +261,6 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
     items: [
       { href: "/dashboard/vessels", label: "My vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] },
       { href: "/dashboard/crew", label: "Manage crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
-      { href: "/dashboard/pending-requests", label: "Pending requests", icon: ClipboardList, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/crew-roles", label: "Assign roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] },
       { href: "/dashboard/requests", label: "Sea-time requests", icon: ClipboardList, requiredRole: "captain", disabled: false },
       { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'], featureFlag: 'crew_rotation' },
@@ -207,12 +294,15 @@ const navGroups: Array<{ title: string; items: NavItem[]; hideForRoles?: ('vesse
       { href: "/dashboard/platform-analytics", label: "Platform overview", icon: BarChart3, requiredRole: "admin", disabled: false },
       { href: "/dashboard/posthog", label: "PostHog", icon: Activity, requiredRole: "admin", disabled: false },
       { href: "/dashboard/users", label: "User lookup", icon: UserSearch, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/users/transfer", label: "Transfer account", icon: ArrowRightLeft, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-analytics", label: "Crew analytics", icon: Users, requiredRole: "admin", disabled: false },
       { href: "/dashboard/login-activity", label: "Login activity", icon: LogIn, requiredRole: "admin", disabled: false },
       { href: "/dashboard/ais-tracking", label: "AIS tracking", icon: Radar, requiredRole: "admin", disabled: false },
       { href: "/dashboard/ais-wrong-states", label: "AIS wrong states", icon: Flag, requiredRole: "admin", disabled: false },
       { href: "/dashboard/feature-flags", label: "Feature flags", icon: ToggleLeft, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/certificate-catalog", label: "Certificate catalog", icon: ShieldCheck, requiredRole: "admin", disabled: false },
       { href: "/dashboard/application-templates", label: "Apply templates", icon: ClipboardList, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/career-milestones", label: "Career milestones", icon: Award, requiredRole: "admin", disabled: false },
       { href: "/dashboard/admin-messages", label: "Broadcasts", icon: MessagesSquare, requiredRole: "admin", disabled: false },
       { href: "/dashboard/pdf-coordinate-tool", label: "PDF coordinates", icon: Crosshair, requiredRole: "admin", disabled: false },
     ]
@@ -265,43 +355,24 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const pathname = usePathname()
   const { supabase } = useSupabase()
   const { user } = useUser()
-  const { isEnabled: isFeatureEnabled } = useFeatureFlags()
+  const { isEnabled: isFeatureEnabled, flags, tierAccess, isAdmin: isFeatureAdmin } = useFeatureFlags()
   const [inboxCount, setInboxCount] = React.useState<number>(0)
   const [feedbackCount, setFeedbackCount] = React.useState<number>(0)
   const [requestsCount, setRequestsCount] = React.useState<number>(0)
-  const [pendingSentCount, setPendingSentCount] = React.useState<number>(0)
 
   // Create admin-specific navGroups with updated Vessel Management and Account sections
   const isAdmin = userProfile?.role === 'admin'
-  const adminNavGroups: typeof navGroups = navGroups.map(group => {
-    if (group.title === "Crew") {
-      return {
-        ...group,
-        hideForRoles: undefined,
-        items: [
-          { href: "/dashboard/vessels", label: "Vessels", icon: Ship, disabled: false },
-          { href: "/dashboard/crew", label: "Crew", icon: Users, disabled: false },
-          { href: "/dashboard/inbox", label: "Inbox", icon: Inbox, disabled: false },
-        ]
-      }
-    }
-    if (group.title === "Account") {
-      return {
-        ...group,
-        items: [
-          { href: "/dashboard/profile", label: "Account", icon: User, disabled: false },
-        ]
-      }
-    }
-    return group
-  })
   
-  // Check if user has crew_limited tier (restricted access - only: Home, Current, Calendar, Profile, Feedback)
+  // Check if user has crew_limited tier (restricted nav — see CREW_LIMITED_ALLOWED_HREFS)
   const isCrewLimited = React.useMemo(() => {
     return isCrewLimitedAccount(userProfile);
   }, [userProfile]);
 
-  const { boost: vesselBoost } = useCrewVesselFeatureBoost();
+  const { boost: vesselBoost, managerTier } = useCrewVesselFeatureBoost();
+  const vesselContext = React.useMemo(
+    () => ({ boost: vesselBoost, managerTier }),
+    [vesselBoost, managerTier],
+  );
 
   const isCrewNavRestricted = React.useMemo(() => {
     return isCrewLimitedNavigationRestricted(userProfile, vesselBoost);
@@ -322,9 +393,25 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
 
   const restrictedAllowedHrefs = React.useMemo(() => {
     if (isVesselLinked) return new Set(vesselLinkedAllowedHrefs(userProfile));
-    if (isCrewNavRestricted) return new Set<string>(CREW_LIMITED_ALLOWED_HREFS);
+    if (isCrewNavRestricted && userProfile) {
+      return resolveCrewRestrictedAllowedHrefs({
+        profile: userProfile,
+        vesselContext,
+        enabledMap: flags,
+        tierAccess,
+        isAdmin: isFeatureAdmin,
+      });
+    }
     return null;
-  }, [isVesselLinked, isCrewNavRestricted, userProfile]);
+  }, [
+    isVesselLinked,
+    isCrewNavRestricted,
+    userProfile,
+    vesselContext,
+    flags,
+    tierAccess,
+    isFeatureAdmin,
+  ]);
 
   // Check if user has premium/pro subscription for visa tracker access
   const hasPremiumAccess = React.useMemo(() => {
@@ -440,9 +527,18 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
 
     if (item.disabled) return false;
     if (item.crewLimitedOnly && !isCrewLimited) return false;
-    if (item.hideForCrewLimited && isCrewNavRestricted) return false;
+    if (item.hideForCrewLimited && isCrewNavRestricted) {
+      if (!item.featureFlag || !isFeatureEnabled(item.featureFlag)) return false;
+    }
     if (item.href === '/dashboard/vessel-documents' && !hasPaidAccess) return false;
     if (item.featureFlag && !isFeatureEnabled(item.featureFlag)) return false;
+    if (
+      item.href === '/dashboard/career-documents' &&
+      !isFeatureEnabled('testimonials') &&
+      !isFeatureEnabled('proof_of_service')
+    ) {
+      return false;
+    }
 
     if (restrictedAllowedHrefs && !restrictedAllowedHrefs.has(item.href)) {
       return false;
@@ -490,7 +586,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   ]);
   
   // Use admin navGroups for admin, regular navGroups for others
-  const displayNavGroups = isAdmin ? adminNavGroups : navGroups
+  const displayNavGroups: NavGroup[] = isAdmin ? adminNavGroups : navGroups
   const router = useRouter()
   const { setTheme } = useTheme()
 
@@ -582,9 +678,50 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
               .in('status', ['pending', 'admin_approved']);
             
             captaincyCount = captaincyRequestCount || 0;
+
+            const { count: planCoverageCount } = await supabase
+              .from('vessel_plan_coverage_requests')
+              .select('id', { count: 'exact', head: true })
+              .eq('status', 'pending');
+
+            let sentTestimonialCount = 0;
+            let sentAccessCount = 0;
+            let testimonialSentQuery = supabase
+              .from('testimonials')
+              .select('id', { count: 'exact', head: true })
+              .eq('status', 'pending_captain');
+            if (activeVesselId) {
+              testimonialSentQuery = testimonialSentQuery.or(
+                `vessel_id.eq.${activeVesselId},generated_by_user_id.eq.${user.id}`,
+              );
+            } else {
+              testimonialSentQuery = testimonialSentQuery.eq(
+                'generated_by_user_id',
+                user.id,
+              );
+            }
+            const [sentTestimonials, sentAccess] = await Promise.all([
+              testimonialSentQuery,
+              supabase
+                .from('vessel_sea_time_access_requests')
+                .select('id', { count: 'exact', head: true })
+                .eq('vessel_user_id', user.id)
+                .eq('status', 'pending'),
+            ]);
+            sentTestimonialCount = sentTestimonials.count || 0;
+            sentAccessCount = sentAccess.count || 0;
+
+            setInboxCount(
+              (testimonialCount || 0) +
+                seaTimeCount +
+                captaincyCount +
+                (planCoverageCount || 0) +
+                sentTestimonialCount +
+                sentAccessCount,
+            );
+          } else {
+            setInboxCount((testimonialCount || 0) + seaTimeCount + captaincyCount);
           }
-          
-          setInboxCount((testimonialCount || 0) + seaTimeCount + captaincyCount);
         } else {
           // Crew: vessel sea time access requests, vessel sea time offers, and pending testimonials (where user is captain)
           const [accessResult, offersResult, testimonialResult] = await Promise.all([
@@ -684,6 +821,17 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           event: '*',
           schema: 'public',
           table: 'vessel_sea_time_offers',
+        },
+        () => {
+          fetchInboxCount();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'vessel_plan_coverage_requests',
         },
         () => {
           fetchInboxCount();
@@ -844,69 +992,6 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       supabase.removeChannel(channel);
     };
   }, [user?.id, userProfile, supabase]);
-
-  React.useEffect(() => {
-    const fetchPendingSentCount = async () => {
-      if (!user?.id || !userProfile) {
-        setPendingSentCount(0);
-        return;
-      }
-      const userRole = userProfile.role?.toLowerCase() || '';
-      if (userRole !== 'vessel') {
-        setPendingSentCount(0);
-        return;
-      }
-      const vesselId =
-        (userProfile as { active_vessel_id?: string; activeVesselId?: string })
-          .active_vessel_id || userProfile.activeVesselId || null;
-      try {
-        let testimonialQuery = supabase
-          .from('testimonials')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'pending_captain');
-        if (vesselId) {
-          testimonialQuery = testimonialQuery.or(
-            `vessel_id.eq.${vesselId},generated_by_user_id.eq.${user.id}`,
-          );
-        } else {
-          testimonialQuery = testimonialQuery.eq('generated_by_user_id', user.id);
-        }
-        const [testimonials, access] = await Promise.all([
-          testimonialQuery,
-          supabase
-            .from('vessel_sea_time_access_requests')
-            .select('id', { count: 'exact', head: true })
-            .eq('vessel_user_id', user.id)
-            .eq('status', 'pending'),
-        ]);
-        setPendingSentCount((testimonials.count || 0) + (access.count || 0));
-      } catch {
-        setPendingSentCount(0);
-      }
-    };
-
-    void fetchPendingSentCount();
-    const channel = supabase
-      .channel('pending-sent-count-updates')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'testimonials' },
-        () => {
-          void fetchPendingSentCount();
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'vessel_sea_time_access_requests' },
-        () => {
-          void fetchPendingSentCount();
-        },
-      );
-    channel.subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id, userProfile, supabase]);
   
   // Get display username and email from userProfile or user object
   // For vessel role, use vessel name instead of username
@@ -937,7 +1022,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   };
 
   const subscriptionActiveLine = React.useMemo(() => {
-    if (!userProfile || userProfile.role === 'admin') return undefined;
+    if (!userProfile) return undefined;
+    if (userProfile.role === 'admin') return '#f87171';
     if (!hasActiveSubscriptionEntitlement(userProfile)) return undefined;
     const tier =
       (userProfile as { subscription_tier?: string; subscriptionTier?: string })
@@ -1036,18 +1122,37 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const hideLockedTeasers = isCrewNavRestricted || isVesselLinked;
                   const requiresPremium =
                     !hideLockedTeasers &&
+                    !item.featureFlag &&
                     (isVisaTracker || isBridgeWatch || isSeaTimeRequest || isCertificates || isExport) &&
                     !hasPremiumAccess;
-                  const passageNavLocked = !hideLockedTeasers && isPassageLog && !hasPassageLogAccess;
+                  const passageNavLocked =
+                    !hideLockedTeasers &&
+                    !item.featureFlag &&
+                    isPassageLog &&
+                    !hasPassageLogAccess;
                   const aisImportNavLocked =
-                    !hideLockedTeasers && isAisImport && !hasAisHistoryImportAccess;
+                    !hideLockedTeasers &&
+                    !item.featureFlag &&
+                    isAisImport &&
+                    !hasAisHistoryImportAccess;
                   const passagesMapNavLocked =
-                    !hideLockedTeasers && isPassagesMap && !hasPassagesMapAccess;
+                    !hideLockedTeasers &&
+                    !item.featureFlag &&
+                    isPassagesMap &&
+                    !hasPassagesMapAccess;
                   const vesselPremiumNavLocked =
                     !hideLockedTeasers &&
+                    !item.featureFlag &&
                     VESSEL_PREMIUM_PLUS_NAV.has(item.href) &&
                     userProfile?.role === 'vessel' &&
                     !hasVesselPremiumPlus;
+
+                  const isNavLocked =
+                    requiresPremium ||
+                    passageNavLocked ||
+                    aisImportNavLocked ||
+                    passagesMapNavLocked ||
+                    vesselPremiumNavLocked;
 
                   const isActive =
                     item.href === '/dashboard'
@@ -1059,14 +1164,19 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const isInbox = item.href === '/dashboard/inbox';
                   const isFeedback = item.href === '/dashboard/feedback';
                   const isRequests = item.href === '/dashboard/requests';
-                  const isPendingSent = item.href === '/dashboard/pending-requests';
 
                   const countBadgeClass =
                     'ml-auto h-5 min-w-5 rounded-full border-0 bg-sky-400/20 px-1.5 text-[10px] font-semibold tabular-nums text-sky-100 group-data-[collapsible=icon]:hidden'
+
+                  const iconPresentation = navIconPresentation(groupLabel, {
+                    isActive,
+                    isLocked: isNavLocked,
+                    coloredByGroup: isAdmin,
+                  });
                   
                   return (
                     <SidebarMenuItem key={uniqueKey}>
-                      {requiresPremium || passageNavLocked || aisImportNavLocked || passagesMapNavLocked || vesselPremiumNavLocked ? (
+                      {isNavLocked ? (
                         <Tooltip delayDuration={200}>
                           <TooltipTrigger asChild>
                             <div className="w-full">
@@ -1075,7 +1185,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                                 className="group/button w-full text-sidebar-foreground/55"
                               >
                                 <div className="flex w-full items-center gap-2.5 group-data-[collapsible=icon]:justify-center">
-                                  <item.icon className="h-4 w-4 shrink-0 opacity-70" />
+                                  <item.icon
+                                    className={iconPresentation.className}
+                                    style={iconPresentation.style}
+                                  />
                                   <span className="flex-1 group-data-[collapsible=icon]:hidden">{item.label}</span>
                                   <Sparkles className="ml-auto h-3.5 w-3.5 shrink-0 text-amber-300/90 group-data-[collapsible=icon]:hidden" />
                                 </div>
@@ -1098,12 +1211,20 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                           </TooltipContent>
                         </Tooltip>
                       ) : (
-                        <SidebarMenuButton tooltip={item.label} asChild isActive={isActive}>
+                        <SidebarMenuButton
+                          tooltip={item.label}
+                          asChild
+                          isActive={isActive}
+                          className="[&>svg]:!opacity-[unset]"
+                        >
                           <Link
                             href={item.href}
                             className="flex items-center gap-2.5 group-data-[collapsible=icon]:justify-center"
                           >
-                            <item.icon />
+                            <item.icon
+                              className={iconPresentation.className}
+                              style={iconPresentation.style}
+                            />
                             <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
                           {isInbox && inboxCount > 0 && (
                             <Badge variant="secondary" className={countBadgeClass}>
@@ -1113,11 +1234,6 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                           {isRequests && requestsCount > 0 && (
                             <Badge variant="secondary" className={countBadgeClass}>
                               {requestsCount > 99 ? '99+' : requestsCount}
-                            </Badge>
-                          )}
-                          {isPendingSent && pendingSentCount > 0 && (
-                            <Badge variant="secondary" className={countBadgeClass}>
-                              {pendingSentCount > 99 ? '99+' : pendingSentCount}
                             </Badge>
                           )}
                           {isFeedback && feedbackCount > 0 && (

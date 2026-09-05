@@ -2,126 +2,236 @@
 
 import Link from 'next/link';
 import {
-  Users,
-  Shield,
-  CheckCircle2,
-  BarChart3,
-  UserCheck,
-  Clock,
-  Ship,
-  ArrowRight,
   Anchor,
-  Route,
+  ArrowRight,
+  BarChart3,
+  BookOpen,
+  CheckCircle2,
+  Clock,
   Database,
-  MapPin,
-  Calendar,
-  Zap,
+  FileSignature,
   FileText,
+  Layers,
+  Link2,
+  MapPin,
+  Navigation,
+  Radar,
+  RefreshCw,
+  Route,
+  Shield,
+  Ship,
   Sparkles,
+  UserCog,
+  Users,
+  Zap,
 } from 'lucide-react';
 import { WkPageShell, WkPageHero } from '@/components/wk/wk-page-shell';
 
-const CREW_FEATURES = [
+type Feature = {
+  Icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  color: string;
+  tier?: string;
+};
+
+const HIGHLIGHTS = [
+  { value: 'Linked roles', label: 'Captain, officer, engineer & manager accounts' },
+  { value: 'AIS-powered', label: 'History import & live vessel tracking' },
+  { value: 'Audit-ready', label: 'Passage logs, exports & verification codes' },
+];
+
+const LINKED_ACCOUNT_FEATURES: Feature[] = [
+  {
+    Icon: Link2,
+    title: 'Linked team accounts',
+    description:
+      'Create captain, officer, engineer, and manager logins tied to your vessel. Each role gets its own dashboard with permissions you control.',
+    color: '#0ea5e9',
+    tier: 'Vessel Professional+',
+  },
+  {
+    Icon: UserCog,
+    title: 'Granular feature access',
+    description:
+      'Choose what linked accounts can use — passage logbook, passages map, export reports, testimonials, bridge watch, and more.',
+    color: '#6366f1',
+    tier: 'Vessel Professional+',
+  },
+  {
+    Icon: Shield,
+    title: 'Vessel-paid seats',
+    description:
+      'Secondary accounts sit on your vessel plan instead of personal crew subscriptions — one bill, one place to manage the team.',
+    color: '#16a34a',
+    tier: 'Vessel Professional+',
+  },
+];
+
+const OPERATIONS_FEATURES: Feature[] = [
+  {
+    Icon: BookOpen,
+    title: 'Passage logbook',
+    description:
+      'Record departures, arrivals, distance, weather, and notes for every passage. Promote AIS tracks straight into the logbook.',
+    color: '#0ea5e9',
+    tier: 'Vessel Premium+',
+  },
+  {
+    Icon: Route,
+    title: 'Passage tracks map',
+    description:
+      'Visualise every passage on an interactive map — historical AIS backfill, live position, and scrub through voyages over time.',
+    color: '#8b5cf6',
+    tier: 'Vessel Premium+',
+  },
+  {
+    Icon: Navigation,
+    title: 'Bridge watch log',
+    description:
+      'Officers log watches from the dashboard. Captains and vessel managers review entries in one chronological record.',
+    color: '#06b6d4',
+    tier: 'Vessel Premium+',
+  },
+  {
+    Icon: Clock,
+    title: 'Nav watch schedule',
+    description:
+      'Build and publish watch rotas for the crew. Linked officers see their roster; captains approve and adjust.',
+    color: '#f59e0b',
+    tier: 'Vessel Premium+',
+  },
+  {
+    Icon: RefreshCw,
+    title: 'Onboard crew tracker',
+    description:
+      'See who is on board, who is on leave, and crew rotation status at a glance — no separate spreadsheet.',
+    color: '#14b8a6',
+    tier: 'Vessel Premium+',
+  },
+  {
+    Icon: MapPin,
+    title: 'Daily state logs',
+    description:
+      'Underway, at anchor, moored, in yard, on leave — the whole crew logs vessel state daily with a shared calendar view.',
+    color: '#3b82f6',
+  },
+];
+
+const AIS_FEATURES: Feature[] = [
+  {
+    Icon: Database,
+    title: 'AIS history import',
+    description:
+      'Backfill months or years of operational history from AIS — states, port calls, and passages without manual data entry.',
+    color: '#0ea5e9',
+    tier: 'Vessel Premium+',
+  },
+  {
+    Icon: Radar,
+    title: 'Live AIS tracking',
+    description:
+      'Enable live position sampling for your vessel. See current state on the map and keep crew daily logs aligned with reality.',
+    color: '#8b5cf6',
+    tier: 'Vessel Premium+',
+  },
+  {
+    Icon: Ship,
+    title: 'Vessel state history',
+    description:
+      'Automatically derive underway, at anchor, and moored states from AIS movement — ready for audits and insurer requests.',
+    color: '#16a34a',
+    tier: 'Vessel Premium+',
+  },
+  {
+    Icon: Zap,
+    title: 'One-click reconciliation',
+    description:
+      'Review AIS suggestions against existing logs, resolve conflicts, and import only what you need.',
+    color: '#0d9488',
+    tier: 'Vessel Premium+',
+  },
+];
+
+const CREW_FEATURES: Feature[] = [
   {
     Icon: Users,
     title: 'Crew management',
     description:
-      'View and manage all crew members in one centralised dashboard. Search by name, email, or username.',
+      'Invite crew, manage assignments, and see every member\'s sea time, certificates, and activity in one dashboard.',
     color: '#0ea5e9',
   },
   {
     Icon: CheckCircle2,
     title: 'Onboard status',
     description:
-      'Track which crew members are currently onboard or offboard at a glance. Monitor crew presence in real time.',
+      'Track who is currently on board or ashore. Monitor presence and assignment dates in real time.',
     color: '#16a34a',
+  },
+  {
+    Icon: FileSignature,
+    title: 'Captain sign-off',
+    description:
+      'Captains approve testimonials and sea time records digitally — tamper-proof verification codes included.',
+    color: '#3b82f6',
   },
   {
     Icon: BarChart3,
-    title: 'Activity overview',
+    title: 'Crew analytics',
     description:
-      'Track crew activity, sea time logs, and engagement to understand how your team uses the platform.',
+      'Understand how your team uses the platform — engagement, logging consistency, and certification progress.',
     color: '#8b5cf6',
+    tier: 'Vessel Premium+',
   },
   {
-    Icon: UserCheck,
-    title: 'Profile management',
+    Icon: FileText,
+    title: 'Export reports',
     description:
-      'Access crew member profiles, assign them to vessels, and manage their permissions.',
+      'Pull sea time, state logs, and passage data as CSV, Excel, or PDF whenever owners, managers, or auditors ask.',
     color: '#f59e0b',
+    tier: 'Vessel Premium+',
   },
   {
-    Icon: Clock,
-    title: 'Sea time tracking',
+    Icon: Layers,
+    title: 'Document generator',
     description:
-      'Real-time view of every crew member\'s sea time logs and certifications.',
-    color: '#06b6d4',
-  },
-  {
-    Icon: Shield,
-    title: 'Captain sign-off',
-    description:
-      'Captains can approve testimonials and sign off sea time records directly from the dashboard.',
-    color: '#3b82f6',
+      'Generate vessel documents from templates, issue them to crew, and keep a searchable archive with verification codes.',
+    color: '#6366f1',
+    tier: 'Vessel Premium+',
   },
 ];
 
-const AIS_FEATURES = [
+const PLANS = [
   {
-    Icon: Route,
-    title: 'Past passages',
-    description:
-      'Import complete passage history including departure / arrival ports, dates, and routes from AIS data.',
-    color: '#0ea5e9',
+    name: 'Vessel Standard',
+    slug: 'vessel_lite',
+    summary: 'Core crew logging and vessel management for smaller yachts.',
+    highlights: ['Crew invites & assignments', 'Daily state calendar', 'Testimonial workflows'],
   },
   {
-    Icon: Ship,
-    title: 'Vessel state history',
-    description:
-      'Automatically populate vessel state logs (underway, at anchor, moored) since vessel launch.',
-    color: '#8b5cf6',
+    name: 'Vessel Premium',
+    slug: 'vessel_basic',
+    summary: 'AIS history, passage tools, and Premium management features.',
+    highlights: [
+      'Passage logbook & tracks map',
+      'AIS history import & live tracking',
+      'Watch schedules & bridge watch',
+    ],
+    featured: true,
   },
   {
-    Icon: Database,
-    title: 'Historical data',
-    description:
-      'Backfill years of operational data instantly — no manual entry required.',
-    color: '#16a34a',
-  },
-  {
-    Icon: MapPin,
-    title: 'Port logs',
-    description:
-      'Detailed records of every port visit, with timestamps and durations.',
-    color: '#f59e0b',
-  },
-  {
-    Icon: Calendar,
-    title: 'Operational timeline',
-    description:
-      'A complete chronological view of vessel activity, ready to share with crew, owners or insurers.',
-    color: '#06b6d4',
-  },
-  {
-    Icon: Zap,
-    title: 'Instant import',
-    description:
-      'One-click ingestion of AIS feeds — no spreadsheets, no manual reconciliation.',
-    color: '#0d9488',
+    name: 'Vessel Professional',
+    slug: 'vessel_pro',
+    summary: 'Linked team accounts and full operational toolkit for larger programs.',
+    highlights: [
+      'Linked captain / officer / engineer accounts',
+      'Onboard crew tracker & document generator',
+      'Priority AIS & passage map capacity',
+    ],
   },
 ];
 
-function FeatureCard({
-  Icon,
-  title,
-  description,
-  color,
-}: {
-  Icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-  color: string;
-}) {
+function FeatureCard({ Icon, title, description, color, tier }: Feature) {
   const ring = `color-mix(in srgb, ${color} 30%, transparent)`;
   const soft = `color-mix(in srgb, ${color} 12%, transparent)`;
   return (
@@ -133,29 +243,81 @@ function FeatureCard({
         boxShadow: 'var(--wk-shadow-md)',
       }}
     >
-      <span
-        className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl transition-transform group-hover:scale-105"
-        style={{
-          backgroundColor: soft,
-          color,
-          border: `1px solid ${ring}`,
-        }}
-      >
-        <Icon className="h-6 w-6" />
-      </span>
-      <h3
-        className="text-lg font-bold tracking-tight"
-        style={{ color: 'var(--wk-text)' }}
-      >
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <span
+          className="inline-flex h-12 w-12 flex-none items-center justify-center rounded-xl transition-transform group-hover:scale-105"
+          style={{
+            backgroundColor: soft,
+            color,
+            border: `1px solid ${ring}`,
+          }}
+        >
+          <Icon className="h-6 w-6" />
+        </span>
+        {tier ? (
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+            style={{
+              backgroundColor: 'var(--wk-accent-soft)',
+              color: 'var(--wk-accent)',
+              border: '1px solid var(--wk-accent-ring)',
+            }}
+          >
+            {tier}
+          </span>
+        ) : null}
+      </div>
+      <h3 className="text-lg font-bold tracking-tight" style={{ color: 'var(--wk-text)' }}>
         {title}
       </h3>
-      <p
-        className="mt-2 text-sm leading-relaxed"
-        style={{ color: 'var(--wk-text-soft)' }}
-      >
+      <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
         {description}
       </p>
     </div>
+  );
+}
+
+function FeatureSection({
+  chip,
+  title,
+  titleAccent,
+  description,
+  features,
+}: {
+  chip: string;
+  title: string;
+  titleAccent: string;
+  description: string;
+  features: Feature[];
+}) {
+  return (
+    <section className="pb-16">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-10 max-w-3xl">
+            <span className="wk-chip">{chip}</span>
+            <h2
+              className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              {title}{' '}
+              <span className="wk-gradient-text">{titleAccent}</span>
+            </h2>
+            <p
+              className="mt-3 text-base leading-relaxed sm:text-lg"
+              style={{ color: 'var(--wk-text-soft)' }}
+            >
+              {description}
+            </p>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {features.map((f) => (
+              <FeatureCard key={f.title} {...f} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -167,24 +329,19 @@ export default function ForVesselsPage() {
         icon={<Anchor className="h-7 w-7" />}
         title={
           <>
-            Built for vessels,{' '}
-            <span className="wk-gradient-text">captains and operators</span>
+            One platform for your yacht,{' '}
+            <span className="wk-gradient-text">crew & operations</span>
           </>
         }
-        description="A single command centre for crew, sea time, and operations — with verifiable testimonials and effortless AIS history import."
+        description="Linked team accounts, passage logbook, AIS-powered tracks, watch schedules, and verifiable documents — built for captains, managers, and fleet operators."
       />
 
-      {/* Headline stats */}
       <section className="pb-14">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 md:grid-cols-3">
-            {[
-              { value: '1', label: 'Centralised dashboard' },
-              { value: 'Real-time', label: 'Crew & onboard status' },
-              { value: 'Tamper-proof', label: 'Verifiable testimonials' },
-            ].map((s, i) => (
+            {HIGHLIGHTS.map((s) => (
               <div
-                key={i}
+                key={s.label}
                 className="rounded-2xl p-6 text-center"
                 style={{
                   backgroundColor: 'var(--wk-card)',
@@ -192,14 +349,11 @@ export default function ForVesselsPage() {
                   boxShadow: 'var(--wk-shadow-md)',
                 }}
               >
-                <div
-                  className="text-3xl font-bold"
-                  style={{ color: 'var(--wk-accent)' }}
-                >
+                <div className="text-xl font-bold sm:text-2xl" style={{ color: 'var(--wk-accent)' }}>
                   {s.value}
                 </div>
                 <div
-                  className="mt-1 text-xs font-semibold uppercase tracking-wider"
+                  className="mt-2 text-xs font-semibold uppercase tracking-wider leading-snug"
                   style={{ color: 'var(--wk-text-muted)' }}
                 >
                   {s.label}
@@ -210,67 +364,108 @@ export default function ForVesselsPage() {
         </div>
       </section>
 
-      {/* Crew dashboard */}
+      <FeatureSection
+        chip="Team accounts"
+        title="Linked roles for your"
+        titleAccent="bridge team"
+        description="On Vessel Professional, create dedicated logins for captains, officers, engineers, and managers — each with the features you choose to grant."
+        features={LINKED_ACCOUNT_FEATURES}
+      />
+
+      <FeatureSection
+        chip="Passages & watches"
+        title="Logbook, tracks &"
+        titleAccent="watchkeeping"
+        description="From passage records to interactive AIS maps and nav watch rotas — everything your operational team needs on Vessel Premium and above."
+        features={OPERATIONS_FEATURES}
+      />
+
+      <FeatureSection
+        chip="AIS & tracking"
+        title="Backfill history &"
+        titleAccent="track live"
+        description="Import years of AIS data in minutes, keep daily states accurate, and monitor your vessel's position without spreadsheets or third-party tools."
+        features={AIS_FEATURES}
+      />
+
+      <FeatureSection
+        chip="Crew & compliance"
+        title="Manage crew &"
+        titleAccent="stay audit-ready"
+        description="Invite crew, sign off testimonials, export professional reports, and generate vessel documents — all from the same dashboard."
+        features={CREW_FEATURES}
+      />
+
       <section className="pb-16">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-6xl">
             <div className="mb-10 max-w-3xl">
-              <span className="wk-chip">Crew dashboard</span>
+              <span className="wk-chip">Plans</span>
               <h2
                 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl"
                 style={{ color: 'var(--wk-text)' }}
               >
-                Manage your <span className="wk-gradient-text">entire crew</span> from one place
+                Choose the right{' '}
+                <span className="wk-gradient-text">vessel plan</span>
               </h2>
               <p
                 className="mt-3 text-base leading-relaxed sm:text-lg"
                 style={{ color: 'var(--wk-text-soft)' }}
               >
-                Onboarding, sign-offs, sea time, certifications — all in a
-                single, real-time view designed for captains and crew managers.
+                Start with Standard for core crew logging, step up to Premium for AIS
+                and passage tools, or Professional for linked team accounts.
               </p>
             </div>
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {CREW_FEATURES.map((f, i) => (
-                <FeatureCard key={i} {...f} />
+            <div className="grid gap-5 lg:grid-cols-3">
+              {PLANS.map((plan) => (
+                <div
+                  key={plan.slug}
+                  className="flex h-full flex-col rounded-2xl p-6 sm:p-8"
+                  style={{
+                    backgroundColor: 'var(--wk-card)',
+                    border: plan.featured
+                      ? '1px solid var(--wk-accent-ring)'
+                      : '1px solid var(--wk-line)',
+                    boxShadow: plan.featured ? 'var(--wk-glow)' : 'var(--wk-shadow-md)',
+                  }}
+                >
+                  {plan.featured ? (
+                    <span className="wk-chip mb-4 w-fit">Most popular</span>
+                  ) : (
+                    <span className="mb-4 h-6" aria-hidden />
+                  )}
+                  <h3 className="text-xl font-bold" style={{ color: 'var(--wk-text)' }}>
+                    {plan.name}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+                    {plan.summary}
+                  </p>
+                  <ul className="mt-5 flex-1 space-y-2.5">
+                    {plan.highlights.map((item) => (
+                      <li
+                        key={item}
+                        className="flex items-start gap-2 text-sm"
+                        style={{ color: 'var(--wk-text-soft)' }}
+                      >
+                        <CheckCircle2
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                          style={{ color: 'var(--wk-good)' }}
+                        />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
             </div>
+            <p className="mt-6 text-center text-sm" style={{ color: 'var(--wk-text-muted)' }}>
+              Crew on your vessel can inherit Premium or Professional features while
+              actively assigned — without each member needing their own paid plan.
+            </p>
           </div>
         </div>
       </section>
 
-      {/* AIS import */}
-      <section className="pb-16">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-6xl">
-            <div className="mb-10 max-w-3xl">
-              <span className="wk-chip">AIS import</span>
-              <h2
-                className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl"
-                style={{ color: 'var(--wk-text)' }}
-              >
-                Backfill years of vessel history{' '}
-                <span className="wk-gradient-text">in one click</span>
-              </h2>
-              <p
-                className="mt-3 text-base leading-relaxed sm:text-lg"
-                style={{ color: 'var(--wk-text-soft)' }}
-              >
-                Connect your vessel's AIS feed and SeaJourney will populate
-                passages, port calls and operational state automatically — no
-                spreadsheets, no manual entry.
-              </p>
-            </div>
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {AIS_FEATURES.map((f, i) => (
-                <FeatureCard key={i} {...f} />
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Why it matters */}
       <section className="pb-16">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div
@@ -286,20 +481,20 @@ export default function ForVesselsPage() {
                 {
                   Icon: Sparkles,
                   title: 'Less paperwork',
-                  text: 'Replace email-based testimonials and manual sea time spreadsheets with a single signed digital record.',
+                  text: 'Replace email testimonials and manual sea time spreadsheets with signed digital records.',
                 },
                 {
                   Icon: Shield,
-                  title: 'Trusted by authorities',
-                  text: 'Every sign-off includes a tamper-proof verification code that the MCA and recruiters can verify instantly.',
+                  title: 'Trusted verification',
+                  text: 'Every sign-off and issued document includes a verification code recruiters and authorities can check.',
                 },
                 {
                   Icon: FileText,
-                  title: 'Audit-ready exports',
-                  text: 'Export complete crew records and vessel histories as professional PDFs whenever you need them.',
+                  title: 'Owner-ready exports',
+                  text: 'Export complete crew and vessel histories as professional PDFs whenever you need them.',
                 },
-              ].map((b, i) => (
-                <div key={i}>
+              ].map((b) => (
+                <div key={b.title}>
                   <span
                     className="inline-flex h-11 w-11 items-center justify-center rounded-xl"
                     style={{
@@ -310,16 +505,10 @@ export default function ForVesselsPage() {
                   >
                     <b.Icon className="h-5 w-5" />
                   </span>
-                  <h3
-                    className="mt-4 text-lg font-bold"
-                    style={{ color: 'var(--wk-text)' }}
-                  >
+                  <h3 className="mt-4 text-lg font-bold" style={{ color: 'var(--wk-text)' }}>
                     {b.title}
                   </h3>
-                  <p
-                    className="mt-2 text-sm leading-relaxed"
-                    style={{ color: 'var(--wk-text-soft)' }}
-                  >
+                  <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
                     {b.text}
                   </p>
                 </div>
@@ -329,7 +518,6 @@ export default function ForVesselsPage() {
         </div>
       </section>
 
-      {/* CTA */}
       <section className="pb-24">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div
@@ -351,18 +539,15 @@ export default function ForVesselsPage() {
             >
               <Anchor className="h-7 w-7" />
             </span>
-            <h3
-              className="mt-5 text-3xl font-bold tracking-tight"
-              style={{ color: 'var(--wk-text)' }}
-            >
+            <h3 className="mt-5 text-3xl font-bold tracking-tight" style={{ color: 'var(--wk-text)' }}>
               Ready to bring your vessel onboard?
             </h3>
             <p
               className="mx-auto mt-3 max-w-2xl text-base"
               style={{ color: 'var(--wk-text-soft)' }}
             >
-              Register your vessel in minutes and start tracking your crew, sea
-              time, and testimonials with a single platform.
+              Register in minutes, link your yacht, invite crew, and start logging
+              passages with AIS-backed accuracy.
             </p>
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link href="/signup/vessel" className="wk-btn wk-btn-primary">
@@ -376,6 +561,12 @@ export default function ForVesselsPage() {
                 See plans
               </Link>
             </div>
+            <p className="mt-6 text-sm" style={{ color: 'var(--wk-text-muted)' }}>
+              Looking for individual crew features?{' '}
+              <Link href="/" className="font-medium underline-offset-2 hover:underline" style={{ color: 'var(--wk-accent)' }}>
+                View the crew landing page
+              </Link>
+            </p>
           </div>
         </div>
       </section>

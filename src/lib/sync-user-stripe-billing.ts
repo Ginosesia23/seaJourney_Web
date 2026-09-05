@@ -15,9 +15,17 @@ export async function syncSupabaseUserFromStripeSubscription(
 ): Promise<void> {
   const { data: existing } = await supabaseAdmin
     .from('users')
-    .select('personal_plan_paused_at, personal_plan_paused_subscription_id')
+    .select('personal_plan_paused_at, personal_plan_paused_subscription_id, is_testing')
     .eq('id', userId)
     .maybeSingle();
+
+  if (existing?.is_testing) {
+    console.log(
+      '[syncSupabaseUserFromStripeSubscription] Skipping — testing/demo account',
+      { userId },
+    );
+    return;
+  }
 
   if (
     existing?.personal_plan_paused_at &&

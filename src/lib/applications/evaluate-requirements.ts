@@ -5,6 +5,12 @@ import type {
   RequirementConfig,
   RequirementEvaluation,
 } from '@/lib/applications/types';
+import {
+  filterCertificatesForRequirement,
+  type CertificateMatchInput,
+} from '@/lib/certificates/match';
+import type { CertificatePreset } from '@/lib/certificates/presets';
+import { CERTIFICATE_PRESETS } from '@/lib/certificates/presets';
 
 type ProfileRow = Record<string, unknown> & {
   id?: string;
@@ -20,12 +26,9 @@ type ProfileRow = Record<string, unknown> & {
   lastName?: string | null;
 };
 
-type CertificateRow = {
-  id: string;
-  certificate_name?: string | null;
-  certificate_type?: string | null;
-  certificateName?: string | null;
-  certificateType?: string | null;
+type CertificateRow = CertificateMatchInput & {
+  issue_date?: string | null;
+  issueDate?: string | null;
   expiry_date?: string | null;
   expiryDate?: string | null;
   renewal_notice_days?: number | null;
@@ -44,6 +47,13 @@ type TestimonialRow = {
 
 type ProofRow = { id: string };
 
+export type MilestoneProgressSnapshot = {
+  label: string;
+  levelKey: string;
+  allRequiredMet: boolean;
+  achievedAt: string | null;
+};
+
 export type EvaluationContext = {
   profile: ProfileRow | null;
   certificates: CertificateRow[];
@@ -54,6 +64,11 @@ export type EvaluationContext = {
   /** Live tracked totals from state logs (optional) */
   trackedSea?: { atSeaDays: number; totalDays: number; standbyDays: number } | null;
   completedManualIds: Set<string>;
+  /** Progress on other milestones (for prior_milestone requirements) */
+  milestoneProgress?: Record<string, MilestoneProgressSnapshot>;
+  milestoneByLevelKey?: Record<string, string>;
+  /** Admin catalog for preset matching (falls back to seed). */
+  certificateCatalog?: CertificatePreset[];
 };
 
 function stringField(profile: ProfileRow | null, key: string): string {
@@ -74,6 +89,22 @@ function certType(c: CertificateRow): string {
 function certExpiry(c: CertificateRow): string | null {
   const v = c.expiry_date ?? c.expiryDate;
   return typeof v === 'string' && v ? v : null;
+}
+
+function certIssueDate(c: CertificateRow): string | null {
+  const v = c.issue_date ?? c.issueDate;
+  return typeof v === 'string' && v ? v : null;
+}
+
+function monthsSince(isoDate: string): number {
+  const start = new Date(isoDate);
+  if (Number.isNaN(start.getTime())) return 0;
+  const now = new Date();
+  let months =
+    (now.getFullYear() - start.getFullYear()) * 12 +
+    (now.getMonth() - start.getMonth());
+  if (now.getDate() < start.getDate()) months -= 1;
+  return Math.max(0, months);
 }
 
 function certNoticeDays(c: CertificateRow): number {
@@ -113,6 +144,8 @@ function hrefForType(type: ApplicationRequirement['requirement_type']): string |
       return '/dashboard/career-documents?tab=testimonials';
     case 'proof_of_service':
       return '/dashboard/career-documents?tab=proof';
+    case 'prior_milestone':
+      return '/dashboard/career-progress';
     default:
       return undefined;
   }
@@ -130,19 +163,13 @@ function certificateHref(config: RequirementConfig): string {
 function filterMatchingCertificates(
   certificates: CertificateRow[],
   config: RequirementConfig,
+  catalog: CertificatePreset[] = CERTIFICATE_PRESETS,
 ): CertificateRow[] {
-  let matches = certificates;
-  if (config.certificateType) {
-    const want = config.certificateType.toLowerCase();
-    matches = matches.filter((c) => certType(c).toLowerCase() === want);
-  }
-  if (config.nameContains) {
-    const needle = config.nameContains.toLowerCase();
-    matches = matches.filter((c) =>
-      certName(c).toLowerCase().includes(needle),
-    );
-  }
-  return matches;
+  return filterCertificatesForRequirement(
+    certificates,
+    config,
+    catalog,
+  ) as CertificateRow[];
 }
 
 function summarizeMatched(
@@ -192,28 +219,48 @@ function evaluateOne(
         ? config.fields
         : ['first_name', 'last_name', 'email', 'nationality', 'date_of_birth'];
       const missing = fields.filter((f) => !stringField(ctx.profile, f));
+      const present = fields.filter((f) => stringField(ctx.profile, f));
       const met = missing.length === 0;
       return {
         ...base,
         met,
-        current: fields.length - missing.length,
+        current: present.length,
         target: fields.length,
         detail: met
-          ? 'All required profile fields are complete'
-          : `Missing: ${missing.join(', ').replace(/_/g, ' ')}`,
+          ? `Profile complete: ${present.map((f) => f.replace(/_/g, ' ')).join(', ')}`
+          : `Missing on profile: ${missing.join(', ').replace(/_/g, ' ')}`,
       };
     }
     case 'certificate': {
       const minCount = Math.max(1, config.minCount ?? 1);
       // Default: expired certificates do not satisfy the requirement
       const mustNotExpired = config.mustNotExpired !== false;
-      const allMatches = filterMatchingCertificates(ctx.certificates, config);
+      const allMatches = filterMatchingCertificates(
+        ctx.certificates,
+        config,
+        ctx.certificateCatalog || CERTIFICATE_PRESETS,
+      );
       const matchedCertificates = summarizeMatched(allMatches);
       const validMatches = matchedCertificates.filter(
         (c) => c.status !== 'expired',
       );
       const counting = mustNotExpired ? validMatches : matchedCertificates;
-      const met = counting.length >= minCount;
+      const minMonthsHeld = Math.max(0, config.minMonthsHeld ?? 0);
+      let monthsHeld = 0;
+      if (minMonthsHeld > 0 && counting.length > 0) {
+        const issueDates = allMatches
+          .filter((c) =>
+            counting.some((v) => v.id === c.id),
+          )
+          .map((c) => certIssueDate(c))
+          .filter((d): d is string => Boolean(d));
+        if (issueDates.length > 0) {
+          const earliest = issueDates.sort()[0];
+          monthsHeld = monthsSince(earliest);
+        }
+      }
+      const durationMet = minMonthsHeld === 0 || monthsHeld >= minMonthsHeld;
+      const met = counting.length >= minCount && durationMet;
       const certificateStatus = met
         ? worstStatus(counting.map((c) => c.status))
         : allMatches.length === 0
@@ -222,7 +269,7 @@ function evaluateOne(
 
       let detail: string;
       if (allMatches.length === 0) {
-        detail = `Not on your Certificates page yet — add ${minCount === 1 ? 'a matching certificate' : `${minCount} matching certificates`}`;
+        detail = `No matching certificate on your Certificates page — add ${minCount === 1 ? 'one' : `${minCount}`} that matches this requirement`;
       } else if (!met && mustNotExpired && allMatches.length > 0) {
         const expiredOnly = matchedCertificates.every(
           (c) => c.status === 'expired',
@@ -240,16 +287,30 @@ function evaluateOne(
       } else if (certificateStatus === 'expired') {
         detail = 'On file but expired — renew to stay compliant';
       } else if (certificateStatus === 'no_expiry') {
-        detail = `${counting.length} matching certificate${counting.length === 1 ? '' : 's'} on file (no expiry date)`;
+        const names = counting.map((c) => c.name).join(', ');
+        detail = names
+          ? `On file: ${names}`
+          : `${counting.length} matching certificate${counting.length === 1 ? '' : 's'} on file (no expiry date)`;
       } else {
-        detail = `${counting.length} matching certificate${counting.length === 1 ? '' : 's'} on file and valid`;
+        const names = counting.map((c) => c.name).join(', ');
+        detail = names
+          ? `On file: ${names}`
+          : `${counting.length} matching certificate${counting.length === 1 ? '' : 's'} on file and valid`;
+      }
+
+      if (minMonthsHeld > 0) {
+        detail = durationMet
+          ? `${detail} — held ${monthsHeld} months (required ${minMonthsHeld})`
+          : counting.length >= minCount
+            ? `Certificate on file — ${monthsHeld} of ${minMonthsHeld} months held`
+            : detail;
       }
 
       return {
         ...base,
         met,
-        current: counting.length,
-        target: minCount,
+        current: minMonthsHeld > 0 ? monthsHeld : counting.length,
+        target: minMonthsHeld > 0 ? minMonthsHeld : minCount,
         detail,
         href: certificateHref(config),
         certificateStatus,
@@ -270,8 +331,8 @@ function evaluateOne(
         current: matches.length,
         target: minCount,
         detail: met
-          ? `${matches.length} ${status} testimonial${matches.length === 1 ? '' : 's'}`
-          : `${matches.length} of ${minCount} ${status} testimonial${minCount === 1 ? '' : 's'}`,
+          ? `${matches.length} ${status} testimonial${matches.length === 1 ? '' : 's'} in your account`
+          : `${matches.length} of ${minCount} ${status} testimonial${minCount === 1 ? '' : 's'} in your account`,
       };
     }
     case 'proof_of_service': {
@@ -326,7 +387,7 @@ function evaluateOne(
         ...base,
         met,
         detail: met
-          ? 'Marked complete'
+          ? 'You marked this step complete'
           : config.hint || 'Mark complete when you have finished this step',
       };
     }
@@ -339,6 +400,55 @@ function evaluateOne(
         detail: met
           ? 'Visited / acknowledged'
           : config.label || config.url || 'Open the external link, then mark complete',
+      };
+    }
+    case 'prior_milestone': {
+      const refId =
+        config.milestoneId ||
+        (config.levelKey ? ctx.milestoneByLevelKey?.[config.levelKey] : undefined);
+      const minMonths = Math.max(0, config.minMonths ?? 0);
+      const snap = refId ? ctx.milestoneProgress?.[refId] : undefined;
+
+      if (!refId || !snap) {
+        return {
+          ...base,
+          met: false,
+          detail: config.levelKey
+            ? `Prerequisite milestone “${config.levelKey}” not found or not published`
+            : 'Select a prerequisite milestone in admin',
+        };
+      }
+
+      if (!snap.allRequiredMet) {
+        return {
+          ...base,
+          met: false,
+          detail: `${snap.label} — requirements not yet complete`,
+          href: '/dashboard/career-progress',
+        };
+      }
+
+      const months = snap.achievedAt ? monthsSince(snap.achievedAt) : 0;
+
+      if (minMonths > 0) {
+        const met = months >= minMonths;
+        return {
+          ...base,
+          met,
+          current: months,
+          target: minMonths,
+          detail: met
+            ? `${snap.label} held for ${months} months (required ${minMonths})`
+            : `${snap.label} complete — ${months} of ${minMonths} months`,
+          href: '/dashboard/career-progress',
+        };
+      }
+
+      return {
+        ...base,
+        met: true,
+        detail: `${snap.label} requirements complete`,
+        href: '/dashboard/career-progress',
       };
     }
     default:
@@ -363,16 +473,22 @@ export function progressFromEvaluations(
   evaluations: RequirementEvaluation[],
 ): { metRequired: number; totalRequired: number; percent: number; allRequiredMet: boolean } {
   const required = evaluations.filter((e) => e.isRequired);
-  const totalRequired = required.length || evaluations.length;
-  const pool = required.length ? required : evaluations;
-  const metRequired = pool.filter((e) => e.met).length;
-  const percent =
-    totalRequired === 0 ? 100 : Math.round((metRequired / totalRequired) * 100);
+  const totalRequired = required.length;
+  if (totalRequired === 0) {
+    return {
+      metRequired: 0,
+      totalRequired: 0,
+      percent: 0,
+      allRequiredMet: false,
+    };
+  }
+  const metRequired = required.filter((e) => e.met).length;
+  const percent = Math.round((metRequired / totalRequired) * 100);
   return {
     metRequired,
     totalRequired,
     percent,
-    allRequiredMet: pool.every((e) => e.met),
+    allRequiredMet: metRequired === totalRequired,
   };
 }
 

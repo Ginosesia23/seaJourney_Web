@@ -826,6 +826,7 @@ function WkHeader({
   const [open, setOpen] = useState(false);
   const links = [
     { label: 'Benefits', href: '#benefits' },
+    { label: 'Vessels', href: '/for-vessels' },
     { label: 'Platform', href: '#platform' },
     { label: 'Features', href: '#features' },
     { label: 'Apply', href: '#apply' },

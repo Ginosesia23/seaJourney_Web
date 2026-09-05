@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -13,7 +15,13 @@ import {
   YAxis,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
-import { ChevronDown, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import {
+  Activity,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react';
 
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
@@ -24,14 +32,8 @@ import type {
   PostHogExceptionEvent,
   PostHogRange,
 } from '@/lib/posthog';
-import {
-  DashboardHeader,
-  DashboardPanel,
-  DashboardStatRow,
-} from '@/components/dashboard/dashboard-home-ui';
 import { PostHogUsageMap } from '@/components/dashboard/posthog-usage-map';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -48,13 +50,14 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 
 function changeHint(current: number, previous: number): string {
   if (previous <= 0 && current <= 0) return 'vs previous period';
-  if (previous <= 0) return 'New vs previous period';
+  if (previous <= 0) return 'New vs previous';
   const pct = Math.round(((current - previous) / previous) * 100);
   const sign = pct > 0 ? '+' : '';
-  return `${sign}${pct}% vs previous period`;
+  return `${sign}${pct}% vs previous`;
 }
 
 function formatInt(n: number): string {
@@ -91,7 +94,7 @@ function PersonCell({
         className="min-w-0 hover:underline"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="truncate text-xs font-medium">{matched.name}</div>
+        <div className="truncate text-xs text-foreground">{matched.name}</div>
         <div className="truncate text-[11px] text-muted-foreground">
           {matched.email || email}
           {matched.role ? ` · ${matched.role}` : ''}
@@ -101,7 +104,9 @@ function PersonCell({
   }
   return (
     <div className="min-w-0">
-      <div className="truncate text-xs text-muted-foreground">{email || 'Anonymous'}</div>
+      <div className="truncate text-xs text-muted-foreground">
+        {email || 'Anonymous'}
+      </div>
       {distinctId ? (
         <div className="truncate font-mono text-[10px] text-muted-foreground/70">
           {distinctId.slice(0, 8)}…
@@ -111,14 +116,111 @@ function PersonCell({
   );
 }
 
+function StudioPanel({
+  title,
+  description,
+  action,
+  children,
+  className,
+}: {
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-md border border-border bg-background',
+        className,
+      )}
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-foreground">{title}</p>
+          {description ? (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+      <div className="p-0">{children}</div>
+    </div>
+  );
+}
+
+function EmptyCell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
+function RankTable({
+  columns,
+  rows,
+  empty,
+}: {
+  columns: Array<{ key: string; label: string; align?: 'left' | 'right' }>;
+  rows: Array<Record<string, React.ReactNode>>;
+  empty: string;
+}) {
+  if (rows.length === 0) return <EmptyCell>{empty}</EmptyCell>;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="border-border hover:bg-transparent">
+          {columns.map((col) => (
+            <TableHead
+              key={col.key}
+              className={cn(
+                'h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground',
+                col.align === 'right' ? 'text-right' : '',
+                col.key === columns[0]?.key ? 'pl-4' : '',
+                col.key === columns[columns.length - 1]?.key ? 'pr-4' : '',
+              )}
+            >
+              {col.label}
+            </TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row, i) => (
+          <TableRow
+            key={i}
+            className="border-border bg-background hover:bg-muted/40"
+          >
+            {columns.map((col) => (
+              <TableCell
+                key={col.key}
+                className={cn(
+                  'py-2 text-xs',
+                  col.align === 'right' && 'text-right tabular-nums',
+                  col.key === columns[0]?.key ? 'pl-4' : '',
+                  col.key === columns[columns.length - 1]?.key ? 'pr-4' : '',
+                )}
+              >
+                {row[col.key]}
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 export default function PostHogAnalyticsPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
   const router = useRouter();
-  const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>(
-    'users',
-    user?.id,
-  );
+  const { data: userProfileRaw, isLoading: isLoadingProfile } =
+    useDoc<UserProfile>('users', user?.id);
 
   const isAdmin = useMemo(() => {
     const role = (userProfileRaw as { role?: string } | null)?.role;
@@ -131,6 +233,7 @@ export default function PostHogAnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState(true);
   const [openException, setOpenException] = useState<string | null>(null);
+  const [tab, setTab] = useState('overview');
 
   useEffect(() => {
     if (!isLoadingProfile && userProfileRaw && !isAdmin) {
@@ -166,7 +269,9 @@ export default function PostHogAnalyticsPage() {
       setData(body.data as PostHogAnalytics);
     } catch (e: unknown) {
       setData(null);
-      setError(e instanceof Error ? e.message : 'Failed to load PostHog analytics');
+      setError(
+        e instanceof Error ? e.message : 'Failed to load PostHog analytics',
+      );
     } finally {
       setIsLoading(false);
     }
@@ -182,7 +287,7 @@ export default function PostHogAnalyticsPage() {
   if (isLoadingProfile || (!isAdmin && userProfileRaw)) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin" />
+        <Loader2 className="h-5 w-5 animate-spin" />
       </div>
     );
   }
@@ -190,135 +295,240 @@ export default function PostHogAnalyticsPage() {
   if (!isAdmin) return null;
 
   const totals = data?.totals;
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'audience', label: 'Audience' },
+    { id: 'map', label: 'Map' },
+    { id: 'events', label: 'Events' },
+    { id: 'people', label: 'People' },
+    {
+      id: 'exceptions',
+      label: 'Exceptions',
+      count: totals?.exceptions,
+    },
+  ] as const;
+
+  const statTiles = totals
+    ? [
+        {
+          label: 'Unique users',
+          value: formatInt(totals.uniqueUsers),
+          hint: changeHint(totals.uniqueUsers, totals.uniqueUsersPrev),
+          tone: 'default' as const,
+        },
+        {
+          label: 'Pageviews',
+          value: formatInt(totals.pageviews),
+          hint: changeHint(totals.pageviews, totals.pageviewsPrev),
+          tone: 'sky' as const,
+        },
+        {
+          label: 'Sessions',
+          value: formatInt(totals.sessions),
+          hint: changeHint(totals.sessions, totals.sessionsPrev),
+          tone: 'emerald' as const,
+        },
+        {
+          label: 'Events',
+          value: formatInt(totals.events),
+          hint: `${totals.avgEventsPerSession} / session avg`,
+          tone: 'default' as const,
+        },
+        {
+          label: 'Exceptions',
+          value: formatInt(totals.exceptions),
+          hint: changeHint(totals.exceptions, totals.exceptionsPrev),
+          tone: 'destructive' as const,
+        },
+        {
+          label: 'Matched people',
+          value: `${matchedPeople}/${data?.people.length ?? 0}`,
+          hint: `${totals.avgPageviewsPerUser} views / user`,
+          tone: 'amber' as const,
+        },
+      ]
+    : [];
 
   return (
     <div className="flex flex-col gap-6">
-      <DashboardHeader
-        title="PostHog"
-        description="Live product analytics, matched to SeaJourney accounts where identify succeeded."
-        actions={
-          <div className="flex items-center gap-2">
-            <Select value={range} onValueChange={(v) => setRange(v as PostHogRange)}>
-              <SelectTrigger className="h-9 w-[140px] rounded-lg">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-                <SelectItem value="90d">Last 90 days</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-lg"
-              onClick={() => void load()}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-            </Button>
+      {/* Header */}
+      <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Activity className="h-3.5 w-3.5" />
+            <span>Platform</span>
+            <span className="text-border">/</span>
+            <span className="text-foreground">PostHog</span>
           </div>
-        }
-      />
+          <h1 className="text-xl font-medium tracking-tight text-foreground">
+            PostHog
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Live product analytics matched to SeaJourney accounts when identify
+            succeeds. Admins are excluded from capture.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {data?.generatedAt ? (
+            <div className="hidden items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
+              Updated{' '}
+              <span className="font-mono tabular-nums text-foreground">
+                {format(parseISO(data.generatedAt), 'HH:mm:ss')}
+              </span>
+            </div>
+          ) : null}
+          <Select
+            value={range}
+            onValueChange={(v) => setRange(v as PostHogRange)}
+          >
+            <SelectTrigger className="h-8 w-[130px] rounded-md border-border text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d" className="text-xs">
+                Last 7 days
+              </SelectItem>
+              <SelectItem value="30d" className="text-xs">
+                Last 30 days
+              </SelectItem>
+              <SelectItem value="90d" className="text-xs">
+                Last 90 days
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 rounded-md border-border text-xs"
+            onClick={() => void load()}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh
+          </Button>
+        </div>
+      </div>
 
       {!configured ? (
-        <DashboardPanel title="Connect PostHog" description="Server env vars required to query the API">
-          <p className="text-sm text-muted-foreground leading-relaxed">{error}</p>
-        </DashboardPanel>
+        <StudioPanel
+          title="Connect PostHog"
+          description="Server env vars required to query the API"
+        >
+          <p className="px-4 py-4 text-sm text-muted-foreground">{error}</p>
+        </StudioPanel>
       ) : isLoading && !data ? (
-        <div className="flex items-center justify-center py-24 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
+        <div className="flex items-center justify-center rounded-md border border-border bg-muted/40 py-20 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
         </div>
       ) : error && !data ? (
-        <DashboardPanel title="Could not load analytics">
-          <p className="text-sm text-destructive">{error}</p>
-        </DashboardPanel>
+        <StudioPanel title="Could not load analytics">
+          <p className="px-4 py-4 text-sm text-destructive">{error}</p>
+        </StudioPanel>
       ) : totals && data ? (
         <>
-          <DashboardStatRow
-            items={[
-              {
-                label: 'Unique users',
-                value: formatInt(totals.uniqueUsers),
-                hint: changeHint(totals.uniqueUsers, totals.uniqueUsersPrev),
-              },
-              {
-                label: 'Pageviews',
-                value: formatInt(totals.pageviews),
-                hint: changeHint(totals.pageviews, totals.pageviewsPrev),
-              },
-              {
-                label: 'Exceptions',
-                value: formatInt(totals.exceptions),
-                hint: changeHint(totals.exceptions, totals.exceptionsPrev),
-              },
-              {
-                label: 'Matched people',
-                value: `${matchedPeople}/${data.people.length}`,
-                hint: 'PostHog distinct_id / email → users table',
-              },
-            ]}
-          />
+          {/* Stats — kept as top section */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            {statTiles.map((tile) => (
+              <div
+                key={tile.label}
+                className="overflow-hidden rounded-md border border-border bg-background"
+              >
+                <div className="border-b border-border bg-muted/40 px-3 py-2">
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    {tile.label}
+                  </span>
+                </div>
+                <div className="px-3 py-3">
+                  <div
+                    className={cn(
+                      'font-mono text-xl font-medium tabular-nums tracking-tight',
+                      tile.tone === 'emerald' && 'text-emerald-600',
+                      tile.tone === 'sky' && 'text-sky-600',
+                      tile.tone === 'amber' && 'text-amber-600',
+                      tile.tone === 'destructive' && 'text-destructive',
+                      tile.tone === 'default' && 'text-foreground',
+                    )}
+                  >
+                    {tile.value}
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {tile.hint}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
 
-          <Tabs defaultValue="overview" className="flex flex-col gap-4">
-            <TabsList className="w-fit">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="map">Map</TabsTrigger>
-              <TabsTrigger value="events">Events</TabsTrigger>
-              <TabsTrigger value="people">People</TabsTrigger>
-              <TabsTrigger value="exceptions">
-                Exceptions
-                {totals.exceptions > 0 ? (
-                  <span className="ml-1.5 tabular-nums text-[10px]">{totals.exceptions}</span>
-                ) : null}
-              </TabsTrigger>
+          {/* Tabs */}
+          <Tabs value={tab} onValueChange={setTab} className="flex flex-col gap-4">
+            <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+              {tabs.map((t) => (
+                <TabsTrigger
+                  key={t.id}
+                  value={t.id}
+                  className="h-7 gap-1.5 rounded-[5px] px-2.5 text-xs text-muted-foreground shadow-none data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+                >
+                  {t.label}
+                  {'count' in t && typeof t.count === 'number' && t.count > 0 ? (
+                    <span className="rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+                      {t.count}
+                    </span>
+                  ) : null}
+                </TabsTrigger>
+              ))}
             </TabsList>
 
-            <TabsContent value="overview" className="mt-0 flex flex-col gap-6">
-              <DashboardPanel
+            <TabsContent value="overview" className="mt-0 flex flex-col gap-4">
+              <StudioPanel
                 title="Traffic"
-                description={`Daily unique users and pageviews · last ${data.days} days`}
-                action={
-                  data.generatedAt ? (
-                    <Badge variant="secondary" className="rounded-md text-[10px] font-medium">
-                      {format(parseISO(data.generatedAt), 'HH:mm')}
-                    </Badge>
-                  ) : null
-                }
+                description={`Daily users, pageviews, and sessions · last ${data.days} days`}
               >
                 {data.trend.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No events in this range yet.</p>
+                  <EmptyCell>No events in this range yet.</EmptyCell>
                 ) : (
-                  <div className="h-64 w-full">
+                  <div className="h-64 w-full px-2 py-3">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={data.trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <AreaChart
+                        data={data.trend}
+                        margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          className="stroke-border"
+                        />
                         <XAxis
                           dataKey="day"
-                          tickFormatter={(v) => format(parseISO(String(v)), 'd MMM')}
+                          tickFormatter={(v) =>
+                            format(parseISO(String(v)), 'd MMM')
+                          }
                           tick={{ fontSize: 11 }}
-                          className="text-muted-foreground"
                         />
-                        <YAxis tick={{ fontSize: 11 }} allowDecimals={false} width={36} />
+                        <YAxis
+                          tick={{ fontSize: 11 }}
+                          allowDecimals={false}
+                          width={36}
+                        />
                         <Tooltip
                           contentStyle={{
-                            borderRadius: 12,
+                            borderRadius: 8,
                             border: '1px solid hsl(var(--border))',
                             background: 'hsl(var(--background))',
                             fontSize: 12,
                           }}
-                          labelFormatter={(v) => format(parseISO(String(v)), 'd MMM yyyy')}
+                          labelFormatter={(v) =>
+                            format(parseISO(String(v)), 'd MMM yyyy')
+                          }
                         />
                         <Area
                           type="monotone"
                           dataKey="uniqueUsers"
                           name="Users"
-                          stroke="hsl(var(--primary))"
-                          fill="hsl(var(--primary))"
+                          stroke="hsl(142 76% 36%)"
+                          fill="hsl(142 76% 36%)"
                           fillOpacity={0.12}
                           strokeWidth={2}
                         />
@@ -328,6 +538,15 @@ export default function PostHogAnalyticsPage() {
                           name="Pageviews"
                           stroke="hsl(var(--muted-foreground))"
                           fill="hsl(var(--muted-foreground))"
+                          fillOpacity={0.06}
+                          strokeWidth={1.5}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="sessions"
+                          name="Sessions"
+                          stroke="hsl(199 89% 48%)"
+                          fill="hsl(199 89% 48%)"
                           fillOpacity={0.08}
                           strokeWidth={1.5}
                         />
@@ -335,379 +554,572 @@ export default function PostHogAnalyticsPage() {
                     </ResponsiveContainer>
                   </div>
                 )}
-              </DashboardPanel>
+              </StudioPanel>
 
-              <div className="grid gap-6 lg:grid-cols-2">
-                <DashboardPanel title="Top pages" description="By pageview count">
-                  {data.topPages.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No pageviews yet.</p>
-                  ) : (
-                    <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="hover:bg-transparent">
-                            <TableHead className="h-8 px-4 text-xs font-medium">Path</TableHead>
-                            <TableHead className="h-8 px-2 text-xs font-medium text-right">Views</TableHead>
-                            <TableHead className="h-8 px-4 text-xs font-medium text-right">Users</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.topPages.map((row) => (
-                            <TableRow key={row.path} className="hover:bg-muted/40">
-                              <TableCell className="px-4 py-1.5 text-xs font-medium max-w-[280px] truncate">
-                                {row.path}
-                              </TableCell>
-                              <TableCell className="px-2 py-1.5 text-xs tabular-nums text-right">
-                                {formatInt(row.views)}
-                              </TableCell>
-                              <TableCell className="px-4 py-1.5 text-xs tabular-nums text-right text-muted-foreground">
-                                {formatInt(row.users)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </DashboardPanel>
+              <StudioPanel
+                title="Activity by hour (UTC)"
+                description="When events land across the day"
+              >
+                <div className="h-48 w-full px-2 py-3">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data.hourly ?? []}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        className="stroke-border"
+                      />
+                      <XAxis
+                        dataKey="hour"
+                        tickFormatter={(v) => `${v}`}
+                        tick={{ fontSize: 10 }}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11 }}
+                        allowDecimals={false}
+                        width={36}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: 8,
+                          border: '1px solid hsl(var(--border))',
+                          background: 'hsl(var(--background))',
+                          fontSize: 12,
+                        }}
+                        labelFormatter={(v) => `${v}:00 UTC`}
+                      />
+                      <Bar
+                        dataKey="events"
+                        name="Events"
+                        fill="hsl(142 76% 36%)"
+                        fillOpacity={0.7}
+                        radius={[2, 2, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </StudioPanel>
 
-                <DashboardPanel title="Top events" description="Including custom captures">
-                  {data.topEvents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No events yet.</p>
-                  ) : (
-                    <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="hover:bg-transparent">
-                            <TableHead className="h-8 px-4 text-xs font-medium">Event</TableHead>
-                            <TableHead className="h-8 px-2 text-xs font-medium text-right">Count</TableHead>
-                            <TableHead className="h-8 px-4 text-xs font-medium text-right">Users</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.topEvents.map((row) => (
-                            <TableRow key={row.event} className="hover:bg-muted/40">
-                              <TableCell className="px-4 py-1.5 text-xs font-medium font-mono">
-                                {row.event}
-                              </TableCell>
-                              <TableCell className="px-2 py-1.5 text-xs tabular-nums text-right">
-                                {formatInt(row.count)}
-                              </TableCell>
-                              <TableCell className="px-4 py-1.5 text-xs tabular-nums text-right text-muted-foreground">
-                                {formatInt(row.users)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </DashboardPanel>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <StudioPanel title="Top pages" description="By pageview count">
+                  <RankTable
+                    empty="No pageviews yet."
+                    columns={[
+                      { key: 'path', label: 'Path' },
+                      { key: 'views', label: 'Views', align: 'right' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                    ]}
+                    rows={data.topPages.map((row) => ({
+                      path: (
+                        <span className="max-w-[280px] truncate font-mono text-[11px]">
+                          {row.path}
+                        </span>
+                      ),
+                      views: formatInt(row.views),
+                      users: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.users)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
+
+                <StudioPanel
+                  title="Dashboard routes"
+                  description="Paths under /dashboard"
+                >
+                  <RankTable
+                    empty="No dashboard pageviews yet."
+                    columns={[
+                      { key: 'path', label: 'Path' },
+                      { key: 'views', label: 'Views', align: 'right' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                    ]}
+                    rows={(data.dashboardPages ?? []).map((row) => ({
+                      path: (
+                        <span className="max-w-[280px] truncate font-mono text-[11px]">
+                          {row.path}
+                        </span>
+                      ),
+                      views: formatInt(row.views),
+                      users: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.users)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
               </div>
 
-              <DashboardPanel title="Devices" description="Unique users by device type">
-                {data.devices.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No device data yet.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-3">
-                    {data.devices.map((row) => (
-                      <div key={row.device} className="min-w-[140px] rounded-lg border px-3 py-2.5">
-                        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          {row.device}
-                        </div>
-                        <div className="mt-0.5 text-lg font-semibold tabular-nums">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <StudioPanel title="Top events" description="All event types">
+                  <RankTable
+                    empty="No events yet."
+                    columns={[
+                      { key: 'event', label: 'Event' },
+                      { key: 'count', label: 'Count', align: 'right' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                    ]}
+                    rows={data.topEvents.map((row) => ({
+                      event: (
+                        <span className="font-mono text-[11px]">{row.event}</span>
+                      ),
+                      count: formatInt(row.count),
+                      users: (
+                        <span className="text-muted-foreground">
                           {formatInt(row.users)}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatInt(row.events)} events
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </DashboardPanel>
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
+
+                <StudioPanel
+                  title="Custom events"
+                  description="Excludes $ system events"
+                >
+                  <RankTable
+                    empty="No custom events captured yet."
+                    columns={[
+                      { key: 'event', label: 'Event' },
+                      { key: 'count', label: 'Count', align: 'right' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                    ]}
+                    rows={(data.customEvents ?? []).map((row) => ({
+                      event: (
+                        <span className="font-mono text-[11px]">{row.event}</span>
+                      ),
+                      count: formatInt(row.count),
+                      users: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.users)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
+              </div>
             </TabsContent>
 
-            <TabsContent value="map" className="mt-0 flex flex-col gap-6">
-              <DashboardPanel
+            <TabsContent value="audience" className="mt-0 flex flex-col gap-4">
+              <div className="grid gap-4 lg:grid-cols-3">
+                <StudioPanel title="Devices" description="Unique users">
+                  <RankTable
+                    empty="No device data yet."
+                    columns={[
+                      { key: 'name', label: 'Device' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                      { key: 'events', label: 'Events', align: 'right' },
+                    ]}
+                    rows={data.devices.map((row) => ({
+                      name: row.device,
+                      users: formatInt(row.users),
+                      events: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.events)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
+                <StudioPanel title="Browsers" description="Unique users">
+                  <RankTable
+                    empty="No browser data yet."
+                    columns={[
+                      { key: 'name', label: 'Browser' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                      { key: 'events', label: 'Events', align: 'right' },
+                    ]}
+                    rows={(data.browsers ?? []).map((row) => ({
+                      name: row.browser,
+                      users: formatInt(row.users),
+                      events: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.events)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
+                <StudioPanel title="Operating systems" description="Unique users">
+                  <RankTable
+                    empty="No OS data yet."
+                    columns={[
+                      { key: 'name', label: 'OS' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                      { key: 'events', label: 'Events', align: 'right' },
+                    ]}
+                    rows={(data.operatingSystems ?? []).map((row) => ({
+                      name: row.os,
+                      users: formatInt(row.users),
+                      events: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.events)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <StudioPanel
+                  title="Referrers"
+                  description="Referring domain on pageviews"
+                >
+                  <RankTable
+                    empty="No referrer data yet."
+                    columns={[
+                      { key: 'name', label: 'Referrer' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                      { key: 'events', label: 'Views', align: 'right' },
+                    ]}
+                    rows={(data.referrers ?? []).map((row) => ({
+                      name: (
+                        <span className="font-mono text-[11px]">
+                          {row.referrer}
+                        </span>
+                      ),
+                      users: formatInt(row.users),
+                      events: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.events)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
+
+                <StudioPanel
+                  title="Roles"
+                  description="From person.properties.role after identify"
+                >
+                  <RankTable
+                    empty="No role data yet."
+                    columns={[
+                      { key: 'name', label: 'Role' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                      { key: 'events', label: 'Events', align: 'right' },
+                    ]}
+                    rows={(data.roles ?? []).map((row) => ({
+                      name: (
+                        <span className="capitalize">{row.role}</span>
+                      ),
+                      users: formatInt(row.users),
+                      events: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.events)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="map" className="mt-0 flex flex-col gap-4">
+              <StudioPanel
                 title="Where the app is used"
-                description="PostHog GeoIP — city-level from IP address, matched to SeaJourney accounts when identified."
+                description="PostHog GeoIP — city-level from IP, matched when identified"
               >
-                <PostHogUsageMap
-                  locations={data.locations ?? []}
-                  locatedPeople={data.locatedPeople ?? []}
-                />
-              </DashboardPanel>
+                <div className="p-4">
+                  <PostHogUsageMap
+                    locations={data.locations ?? []}
+                    locatedPeople={data.locatedPeople ?? []}
+                  />
+                </div>
+              </StudioPanel>
 
-              <div className="grid gap-6 lg:grid-cols-2">
-                <DashboardPanel title="Countries" description="Unique people by country">
-                  {(data.countries ?? []).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No country data yet.</p>
-                  ) : (
-                    <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="hover:bg-transparent">
-                            <TableHead className="h-8 px-4 text-xs font-medium">Country</TableHead>
-                            <TableHead className="h-8 px-2 text-xs font-medium text-right">People</TableHead>
-                            <TableHead className="h-8 px-4 text-xs font-medium text-right">Events</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.countries.map((row) => (
-                            <TableRow key={row.countryCode + row.country} className="hover:bg-muted/40">
-                              <TableCell className="px-4 py-1.5 text-xs font-medium">
-                                {row.country}
-                                <span className="ml-1.5 text-[10px] uppercase text-muted-foreground">
-                                  {row.countryCode}
-                                </span>
-                              </TableCell>
-                              <TableCell className="px-2 py-1.5 text-xs tabular-nums text-right">
-                                {formatInt(row.users)}
-                              </TableCell>
-                              <TableCell className="px-4 py-1.5 text-xs tabular-nums text-right text-muted-foreground">
-                                {formatInt(row.events)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </DashboardPanel>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <StudioPanel title="Countries" description="Unique people">
+                  <RankTable
+                    empty="No country data yet."
+                    columns={[
+                      { key: 'name', label: 'Country' },
+                      { key: 'users', label: 'People', align: 'right' },
+                      { key: 'events', label: 'Events', align: 'right' },
+                    ]}
+                    rows={(data.countries ?? []).map((row) => ({
+                      name: (
+                        <span>
+                          {row.country}
+                          <span className="ml-1.5 text-[10px] uppercase text-muted-foreground">
+                            {row.countryCode}
+                          </span>
+                        </span>
+                      ),
+                      users: formatInt(row.users),
+                      events: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.events)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
 
-                <DashboardPanel title="People by location" description="Last known city for identified and anonymous users">
-                  {(data.locatedPeople ?? []).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No located people in this range.</p>
-                  ) : (
-                    <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="hover:bg-transparent">
-                            <TableHead className="h-8 px-4 text-xs font-medium">Person</TableHead>
-                            <TableHead className="h-8 px-2 text-xs font-medium">Location</TableHead>
-                            <TableHead className="h-8 px-4 text-xs font-medium text-right">Events</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.locatedPeople.map((row) => (
-                            <TableRow key={row.distinctId} className="hover:bg-muted/40">
-                              <TableCell className="px-4 py-1.5">
-                                <PersonCell
-                                  matched={row.matchedUser}
-                                  email={row.email}
-                                  distinctId={row.distinctId}
-                                />
-                              </TableCell>
-                              <TableCell className="px-2 py-1.5 text-xs">
-                                {[row.city, row.country].filter(Boolean).join(', ') || '—'}
-                              </TableCell>
-                              <TableCell className="px-4 py-1.5 text-xs tabular-nums text-right text-muted-foreground">
-                                {formatInt(row.events)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </DashboardPanel>
+                <StudioPanel
+                  title="People by location"
+                  description="Last known city"
+                >
+                  <RankTable
+                    empty="No located people in this range."
+                    columns={[
+                      { key: 'person', label: 'Person' },
+                      { key: 'place', label: 'Location' },
+                      { key: 'events', label: 'Events', align: 'right' },
+                    ]}
+                    rows={(data.locatedPeople ?? []).map((row) => ({
+                      person: (
+                        <PersonCell
+                          matched={row.matchedUser}
+                          email={row.email}
+                          distinctId={row.distinctId}
+                        />
+                      ),
+                      place:
+                        [row.city, row.country].filter(Boolean).join(', ') ||
+                        '—',
+                      events: (
+                        <span className="text-muted-foreground">
+                          {formatInt(row.events)}
+                        </span>
+                      ),
+                    }))}
+                  />
+                </StudioPanel>
               </div>
             </TabsContent>
 
             <TabsContent value="events" className="mt-0">
-              <DashboardPanel
+              <StudioPanel
                 title="Recent events"
-                description="Latest captures in this range, excluding $pageleave. Click a matched name to open the user."
+                description="Latest captures · excluding $pageleave"
               >
-                {data.recentEvents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No events in this range.</p>
+                {(data.recentEvents ?? []).length === 0 ? (
+                  <EmptyCell>No events in this range.</EmptyCell>
                 ) : (
-                  <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="hover:bg-transparent">
-                          <TableHead className="h-8 px-4 text-xs font-medium">When</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium">Event</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium">Person</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium">Path</TableHead>
-                          <TableHead className="h-8 px-4 text-xs font-medium">Client</TableHead>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 pl-4 text-[11px] font-normal text-muted-foreground">
+                          When
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                          Event
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                          Person
+                        </TableHead>
+                        <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground md:table-cell">
+                          Path
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 pr-4 text-[11px] font-normal text-muted-foreground">
+                          Client
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.recentEvents.map((row, i) => (
+                        <TableRow
+                          key={`${row.timestamp}-${row.event}-${i}`}
+                          className="border-border bg-background hover:bg-muted/40"
+                        >
+                          <TableCell className="py-2 pl-4 text-xs tabular-nums whitespace-nowrap text-muted-foreground">
+                            {formatTs(row.timestamp)}
+                          </TableCell>
+                          <TableCell className="py-2 font-mono text-[11px]">
+                            {row.event}
+                          </TableCell>
+                          <TableCell className="py-2">
+                            <PersonCell
+                              matched={row.matchedUser}
+                              email={row.email}
+                              distinctId={row.distinctId}
+                            />
+                          </TableCell>
+                          <TableCell className="hidden max-w-[220px] truncate py-2 text-xs md:table-cell">
+                            {row.path || '—'}
+                          </TableCell>
+                          <TableCell className="py-2 pr-4 text-xs whitespace-nowrap text-muted-foreground">
+                            {[row.device, row.browser, row.os]
+                              .filter(Boolean)
+                              .join(' · ') || '—'}
+                          </TableCell>
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.recentEvents.map((row, i) => (
-                          <TableRow key={`${row.timestamp}-${row.event}-${i}`} className="hover:bg-muted/40">
-                            <TableCell className="px-4 py-1.5 text-xs tabular-nums whitespace-nowrap text-muted-foreground">
-                              {formatTs(row.timestamp)}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5">
-                              <span className="font-mono text-xs">{row.event}</span>
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5">
-                              <PersonCell
-                                matched={row.matchedUser}
-                                email={row.email}
-                                distinctId={row.distinctId}
-                              />
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 text-xs max-w-[240px] truncate">
-                              {row.path || '—'}
-                            </TableCell>
-                            <TableCell className="px-4 py-1.5 text-xs text-muted-foreground whitespace-nowrap">
-                              {[row.device, row.browser, row.os].filter(Boolean).join(' · ') || '—'}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                      ))}
+                    </TableBody>
+                  </Table>
                 )}
-              </DashboardPanel>
+              </StudioPanel>
             </TabsContent>
 
             <TabsContent value="people" className="mt-0">
-              <DashboardPanel
+              <StudioPanel
                 title="People"
-                description="Matched by PostHog distinct_id = users.id (after login identify), or person email."
+                description="Matched by distinct_id = users.id or person email"
               >
                 {data.people.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No people in this range.</p>
+                  <EmptyCell>No people in this range.</EmptyCell>
                 ) : (
-                  <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="hover:bg-transparent">
-                          <TableHead className="h-8 px-4 text-xs font-medium">Person</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium">Match</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium text-right">Events</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium text-right">Views</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium text-right">Errors</TableHead>
-                          <TableHead className="h-8 px-4 text-xs font-medium">Last seen</TableHead>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 bg-muted/40 pl-4 text-[11px] font-normal text-muted-foreground">
+                          Person
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                          Match
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 text-right text-[11px] font-normal text-muted-foreground">
+                          Events
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 text-right text-[11px] font-normal text-muted-foreground">
+                          Views
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 text-right text-[11px] font-normal text-muted-foreground">
+                          Errors
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 pr-4 text-[11px] font-normal text-muted-foreground">
+                          Last seen
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.people.map((row) => (
+                        <TableRow
+                          key={row.distinctId}
+                          className="border-border bg-background hover:bg-muted/40"
+                        >
+                          <TableCell className="py-2 pl-4">
+                            <PersonCell
+                              matched={row.matchedUser}
+                              email={row.email}
+                              distinctId={row.distinctId}
+                            />
+                          </TableCell>
+                          <TableCell className="py-2">
+                            {row.matchedUser ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                SeaJourney
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+                                Unmatched
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="py-2 text-right font-mono text-xs tabular-nums">
+                            {formatInt(row.events)}
+                          </TableCell>
+                          <TableCell className="py-2 text-right font-mono text-xs tabular-nums">
+                            {formatInt(row.pageviews)}
+                          </TableCell>
+                          <TableCell className="py-2 text-right font-mono text-xs tabular-nums">
+                            {formatInt(row.exceptions)}
+                          </TableCell>
+                          <TableCell className="py-2 pr-4 text-xs tabular-nums whitespace-nowrap text-muted-foreground">
+                            {formatTs(row.lastSeen)}
+                          </TableCell>
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.people.map((row) => (
-                          <TableRow key={row.distinctId} className="hover:bg-muted/40">
-                            <TableCell className="px-4 py-1.5">
-                              <PersonCell
-                                matched={row.matchedUser}
-                                email={row.email}
-                                distinctId={row.distinctId}
-                              />
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5">
-                              {row.matchedUser ? (
-                                <Badge
-                                  variant="secondary"
-                                  className="h-5 rounded-md px-1.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-700 border-emerald-500/20"
-                                >
-                                  SeaJourney
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="h-5 rounded-md px-1.5 text-[10px] font-medium">
-                                  Unmatched
-                                </Badge>
-                              )}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 text-xs tabular-nums text-right">
-                              {formatInt(row.events)}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 text-xs tabular-nums text-right">
-                              {formatInt(row.pageviews)}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 text-xs tabular-nums text-right">
-                              {formatInt(row.exceptions)}
-                            </TableCell>
-                            <TableCell className="px-4 py-1.5 text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-                              {formatTs(row.lastSeen)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                      ))}
+                    </TableBody>
+                  </Table>
                 )}
-              </DashboardPanel>
+              </StudioPanel>
             </TabsContent>
 
-            <TabsContent value="exceptions" className="mt-0 flex flex-col gap-6">
-              <DashboardPanel title="Grouped exceptions" description="Same type + message, counted in this range">
+            <TabsContent
+              value="exceptions"
+              className="mt-0 flex flex-col gap-4"
+            >
+              <StudioPanel
+                title="Grouped exceptions"
+                description="Same type + message in this range"
+              >
                 {data.exceptionGroups.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No <span className="font-mono text-xs">$exception</span> events yet. Uncaught errors are captured
-                    automatically from this app going forward.
-                  </p>
+                  <EmptyCell>
+                    No <span className="font-mono">$exception</span> events yet.
+                  </EmptyCell>
                 ) : (
-                  <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="hover:bg-transparent">
-                          <TableHead className="h-8 px-4 text-xs font-medium">Type</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium">Message</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium text-right">Count</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium text-right">Users</TableHead>
-                          <TableHead className="h-8 px-4 text-xs font-medium">Last seen</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.exceptionGroups.map((row, i) => (
-                          <TableRow key={`${row.type}-${row.message}-${i}`} className="hover:bg-muted/40">
-                            <TableCell className="px-4 py-1.5 font-mono text-xs whitespace-nowrap">
-                              {row.type}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 text-xs max-w-[420px] truncate">
-                              {row.message}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 text-xs tabular-nums text-right">
-                              {formatInt(row.occurrences)}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 text-xs tabular-nums text-right">
-                              {formatInt(row.users)}
-                            </TableCell>
-                            <TableCell className="px-4 py-1.5 text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-                              {formatTs(row.lastSeen)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                  <RankTable
+                    empty=""
+                    columns={[
+                      { key: 'type', label: 'Type' },
+                      { key: 'message', label: 'Message' },
+                      { key: 'count', label: 'Count', align: 'right' },
+                      { key: 'users', label: 'Users', align: 'right' },
+                      { key: 'last', label: 'Last seen' },
+                    ]}
+                    rows={data.exceptionGroups.map((row) => ({
+                      type: (
+                        <span className="font-mono text-[11px] whitespace-nowrap">
+                          {row.type}
+                        </span>
+                      ),
+                      message: (
+                        <span className="max-w-[360px] truncate">
+                          {row.message}
+                        </span>
+                      ),
+                      count: formatInt(row.occurrences),
+                      users: formatInt(row.users),
+                      last: (
+                        <span className="tabular-nums text-muted-foreground">
+                          {formatTs(row.lastSeen)}
+                        </span>
+                      ),
+                    }))}
+                  />
                 )}
-              </DashboardPanel>
+              </StudioPanel>
 
-              <DashboardPanel title="Exception log" description="Expand a row for stack, page, and browser">
+              <StudioPanel
+                title="Exception log"
+                description="Expand a row for stack, page, and browser"
+              >
                 {data.exceptions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No exception events in this range.</p>
+                  <EmptyCell>No exception events in this range.</EmptyCell>
                 ) : (
-                  <div className="-mx-4 -mb-4 overflow-x-auto sm:-mx-5 sm:-mb-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="hover:bg-transparent">
-                          <TableHead className="h-8 w-8 px-2" />
-                          <TableHead className="h-8 px-2 text-xs font-medium">When</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium">Person</TableHead>
-                          <TableHead className="h-8 px-2 text-xs font-medium">Exception</TableHead>
-                          <TableHead className="h-8 px-4 text-xs font-medium">Path</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.exceptions.map((row, i) => (
-                          <ExceptionRows
-                            key={`${row.timestamp}-${i}`}
-                            row={row}
-                            open={openException === `${row.timestamp}-${i}`}
-                            onToggle={() =>
-                              setOpenException((cur) =>
-                                cur === `${row.timestamp}-${i}` ? null : `${row.timestamp}-${i}`,
-                              )
-                            }
-                          />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="h-9 w-8 bg-muted/40 pl-2 text-[11px] font-normal" />
+                        <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                          When
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                          Person
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                          Exception
+                        </TableHead>
+                        <TableHead className="h-9 bg-muted/40 pr-4 text-[11px] font-normal text-muted-foreground">
+                          Path
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.exceptions.map((row, i) => (
+                        <ExceptionRows
+                          key={`${row.timestamp}-${i}`}
+                          row={row}
+                          open={openException === `${row.timestamp}-${i}`}
+                          onToggle={() =>
+                            setOpenException((cur) =>
+                              cur === `${row.timestamp}-${i}`
+                                ? null
+                                : `${row.timestamp}-${i}`,
+                            )
+                          }
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
                 )}
-              </DashboardPanel>
+              </StudioPanel>
             </TabsContent>
           </Tabs>
         </>
@@ -727,36 +1139,56 @@ function ExceptionRows({
 }) {
   return (
     <>
-      <TableRow className="cursor-pointer hover:bg-muted/40" onClick={onToggle}>
-        <TableCell className="w-8 px-2 py-1.5 text-muted-foreground">
-          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+      <TableRow
+        className="cursor-pointer border-border bg-background hover:bg-muted/40"
+        onClick={onToggle}
+      >
+        <TableCell className="w-8 py-2 pl-2 text-muted-foreground">
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
         </TableCell>
-        <TableCell className="px-2 py-1.5 text-xs tabular-nums whitespace-nowrap text-muted-foreground">
+        <TableCell className="py-2 text-xs tabular-nums whitespace-nowrap text-muted-foreground">
           {formatTs(row.timestamp)}
         </TableCell>
-        <TableCell className="px-2 py-1.5">
-          <PersonCell matched={row.matchedUser} email={row.email} distinctId={row.distinctId} />
+        <TableCell className="py-2">
+          <PersonCell
+            matched={row.matchedUser}
+            email={row.email}
+            distinctId={row.distinctId}
+          />
         </TableCell>
-        <TableCell className="px-2 py-1.5">
-          <div className="font-mono text-xs">{row.type}</div>
-          <div className="max-w-[360px] truncate text-[11px] text-muted-foreground">{row.message}</div>
+        <TableCell className="py-2">
+          <div className="font-mono text-[11px]">{row.type}</div>
+          <div className="max-w-[360px] truncate text-[11px] text-muted-foreground">
+            {row.message}
+          </div>
         </TableCell>
-        <TableCell className="px-4 py-1.5 text-xs max-w-[200px] truncate">{row.path || '—'}</TableCell>
+        <TableCell className="max-w-[200px] truncate py-2 pr-4 text-xs">
+          {row.path || '—'}
+        </TableCell>
       </TableRow>
       {open ? (
         <TableRow className="hover:bg-transparent">
-          <TableCell colSpan={5} className="bg-muted/30 px-4 py-3">
+          <TableCell colSpan={5} className="bg-muted/20 px-4 py-3">
             <div className="grid gap-3 text-xs sm:grid-cols-2">
               <div>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                   Message
                 </div>
-                <p className="mt-0.5 whitespace-pre-wrap break-words">{row.message}</p>
+                <p className="mt-0.5 whitespace-pre-wrap break-words">
+                  {row.message}
+                </p>
               </div>
               <div className="space-y-1">
                 <Detail label="Level" value={row.level} />
                 <Detail label="Source" value={row.source} />
-                <Detail label="Browser" value={[row.browser, row.os].filter(Boolean).join(' · ')} />
+                <Detail
+                  label="Browser"
+                  value={[row.browser, row.os].filter(Boolean).join(' · ')}
+                />
                 <Detail label="Path" value={row.path} />
                 {row.issueId && row.issueId !== 'null' ? (
                   <Detail label="Issue" value={row.issueId} />
@@ -764,11 +1196,13 @@ function ExceptionRows({
               </div>
             </div>
             {row.stack ? (
-              <pre className="mt-3 max-h-56 overflow-auto rounded-lg border bg-background p-3 text-[11px] leading-relaxed">
+              <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-background p-3 text-[11px] leading-relaxed">
                 {row.stack}
               </pre>
             ) : (
-              <p className="mt-3 text-[11px] text-muted-foreground">No stack trace on this event.</p>
+              <p className="mt-3 text-[11px] text-muted-foreground">
+                No stack trace on this event.
+              </p>
             )}
           </TableCell>
         </TableRow>
@@ -781,7 +1215,7 @@ function Detail({ label, value }: { label: string; value?: string }) {
   if (!value) return null;
   return (
     <div>
-      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
       <div className="break-all">{value}</div>

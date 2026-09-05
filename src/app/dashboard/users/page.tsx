@@ -15,27 +15,15 @@ import { useRouter } from 'next/navigation';
 import { differenceInDays, format, parseISO, startOfDay } from 'date-fns';
 import {
   ArrowUpRight,
+  ArrowRightLeft,
   FlaskConical,
   Loader2,
   Mail,
   Search,
   ShieldCheck,
-  ShieldOff,
   Ship,
-  User as UserIcon,
-  Users,
-  UserSearch,
-  type LucideIcon,
 } from 'lucide-react';
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -53,10 +41,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { StatePill } from '@/components/state-pill';
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import type { DailyStatus, UserProfile } from '@/lib/types';
+import { formatSubscriptionTierLabel } from '@/lib/subscription-tier-labels';
 import { cn } from '@/lib/utils';
 
 type AdminUserRow = {
@@ -79,14 +69,6 @@ type AdminUserRow = {
   isDisabled: boolean | null;
   isTesting: boolean;
 };
-
-const ROLE_FILTERS: Array<{ value: string; label: string }> = [
-  { value: 'all', label: 'All roles' },
-  { value: 'crew', label: 'Crew' },
-  { value: 'captain', label: 'Captain' },
-  { value: 'vessel', label: 'Vessel' },
-  { value: 'admin', label: 'Admin' },
-];
 
 const VERIFICATION_FILTERS: Array<{ value: string; label: string }> = [
   { value: 'all', label: 'Any verification' },
@@ -390,334 +372,365 @@ export default function AdminUserLookupPage() {
     return (
       <div className="flex flex-col gap-6">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">User Lookup</h1>
-          <p className="text-muted-foreground">Loading…</p>
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-4 w-96 max-w-full" />
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-24" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-[480px] w-full rounded-md" />
       </div>
     );
   }
 
   if (!isAdmin) return null;
 
+  const roleTabs = [
+    { id: 'all', label: 'All', count: stats.total },
+    { id: 'crew', label: 'Crew', count: stats.counts.crew },
+    { id: 'captain', label: 'Captain', count: stats.counts.captain },
+    { id: 'vessel', label: 'Vessel', count: stats.counts.vessel },
+    { id: 'admin', label: 'Admin', count: stats.counts.admin },
+  ] as const;
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-6 w-6 text-sky-600" />
-          <h1 className="text-3xl font-bold tracking-tight">User Lookup</h1>
-        </div>
-        <p className="text-muted-foreground">
-          Find any account on the platform and drill into their calendar, passages, watches, testimonials, and full activity history.
-        </p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Total accounts" value={stats.total} icon={Users} />
-        <StatTile
-          label="Active (30d)"
-          value={stats.active30}
-          icon={UserSearch}
-          tone="positive"
-        />
-        <StatTile
-          label="Unverified email"
-          value={
-            stats.authChecked === 0
-              ? '…'
-              : stats.unverified === 0
-                ? '0'
-                : stats.unverified
-          }
-          icon={ShieldOff}
-          tone={stats.unverified > 0 ? 'warning' : undefined}
-        />
-        <StatTile
-          label="Never logged in"
-          value={stats.neverLoggedIn}
-          icon={UserIcon}
-          tone={stats.neverLoggedIn > 0 ? 'warning' : undefined}
-        />
-      </div>
-
-      <Card className="rounded-2xl border shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle>Accounts</CardTitle>
-          <CardDescription>
-            {filteredRows.length} of {rows.length} accounts shown
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, username, email, or vessel…"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
-              <SelectTrigger className="w-full sm:w-[160px]">
-                <SelectValue placeholder="Role" />
-              </SelectTrigger>
-              <SelectContent>
-                {ROLE_FILTERS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={verificationFilter}
-              onValueChange={setVerificationFilter}
-            >
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Verification" />
-              </SelectTrigger>
-              <SelectContent>
-                {VERIFICATION_FILTERS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={testingFilter} onValueChange={setTestingFilter}>
-              <SelectTrigger className="w-full sm:w-[170px]">
-                <SelectValue placeholder="Testing" />
-              </SelectTrigger>
-              <SelectContent>
-                {TESTING_FILTERS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="lastLogin">Sort: last login</SelectItem>
-                <SelectItem value="lastState">Sort: last state change</SelectItem>
-                <SelectItem value="name">Sort: name</SelectItem>
-              </SelectContent>
-            </Select>
+      {/* Page header */}
+      <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            <span>Platform</span>
+            <span className="text-border">/</span>
+            <span className="text-foreground">Users</span>
           </div>
+          <h1 className="text-xl font-medium tracking-tight text-foreground">
+            User lookup
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Find any account and open their calendar, passages, watches,
+            testimonials, and full activity history.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="hidden items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {stats.active30} active (30d)
+            </span>
+            <span className="h-3 w-px bg-border" />
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              {stats.authChecked === 0 ? '…' : stats.unverified} unverified
+            </span>
+            <span className="h-3 w-px bg-border" />
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+              {stats.neverLoggedIn} never signed in
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 rounded-md border-border text-xs"
+            asChild
+          >
+            <Link href="/dashboard/users/transfer">
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              Transfer email
+            </Link>
+          </Button>
+        </div>
+      </div>
 
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Verified</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Subscription</TableHead>
-                  <TableHead>Active vessel</TableHead>
-                  <TableHead>Latest state</TableHead>
-                  <TableHead>Last sign in</TableHead>
-                  <TableHead className="w-12 text-right" aria-label="Open" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="py-12 text-center">
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
-                    </TableCell>
-                  </TableRow>
-                ) : filteredRows.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className="py-10 text-center text-sm text-muted-foreground"
-                    >
-                      No accounts match the current filters.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredRows.map((r) => {
-                    const fullName =
-                      `${r.firstName} ${r.lastName}`.trim() || r.username || '—';
-                    return (
-                      <TableRow
-                        key={r.id}
-                        className="cursor-pointer hover:bg-muted/40"
-                        onClick={() => router.push(`/dashboard/users/${r.id}`)}
-                      >
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="inline-flex items-center gap-1.5 font-medium">
-                              {fullName}
-                              {r.isTesting ? (
-                                <Badge
-                                  variant="outline"
-                                  className="gap-0.5 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-800 dark:text-amber-300"
-                                >
-                                  <FlaskConical className="h-2.5 w-2.5" />
-                                  Testing
-                                </Badge>
-                              ) : null}
-                              {r.isDisabled ? (
-                                <Badge variant="destructive" className="text-[10px]">
-                                  Disabled
-                                </Badge>
-                              ) : null}
-                            </span>
-                            {r.username && (
-                              <span className="text-xs text-muted-foreground">
-                                @{r.username}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1.5 text-sm">
-                            <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                            {r.email || '—'}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <VerifiedBadge confirmed={r.emailConfirmed} />
-                        </TableCell>
-                        <TableCell>
-                          <RoleBadge role={r.role} />
-                        </TableCell>
-                        <TableCell>
-                          {r.subscriptionTier ? (
-                            <div className="flex flex-col text-xs">
-                              <span className="font-medium capitalize">
-                                {r.subscriptionTier}
-                              </span>
-                              <span
-                                className={cn(
-                                  'text-muted-foreground',
-                                  r.subscriptionStatus === 'active' &&
-                                    'text-green-600',
-                                  r.subscriptionStatus === 'past-due' &&
-                                    'text-amber-600',
-                                  r.subscriptionStatus === 'inactive' &&
-                                    'text-destructive',
-                                )}
-                              >
-                                {r.subscriptionStatus ?? '—'}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {r.vesselName ? (
-                            <span className="inline-flex items-center gap-1.5 text-sm">
-                              <Ship className="h-3.5 w-3.5 text-muted-foreground" />
-                              {r.vesselName}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {r.latestState ? (
-                            <div className="flex flex-col gap-1">
-                              <StatePill stateKey={r.latestState} />
-                              {r.latestStateAt && (
-                                <span className="text-[11px] text-muted-foreground">
-                                  {format(parseISO(r.latestStateAt), 'd MMM yyyy')}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {r.lastSignInAt ? (
-                            <div className="flex flex-col text-xs">
-                              <span className="font-medium">
-                                {format(parseISO(r.lastSignInAt), 'd MMM yyyy')}
-                              </span>
-                              <span className="text-muted-foreground">
-                                {r.daysSinceLastLogin != null
-                                  ? `${r.daysSinceLastLogin} d ago`
-                                  : ''}
-                              </span>
-                            </div>
-                          ) : (
-                            <Badge variant="destructive" className="text-[10px]">
-                              Never
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Link
-                            href={`/dashboard/users/${r.id}`}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                            onClick={(e) => e.stopPropagation()}
-                            aria-label="Open user profile"
-                          >
-                            <ArrowUpRight className="h-4 w-4" />
-                          </Link>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+            {roleTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setRoleFilter(tab.id)}
+                className={cn(
+                  'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-xs transition-colors',
+                  roleFilter === tab.id
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
-              </TableBody>
-            </Table>
+              >
+                {tab.label}
+                <span
+                  className={cn(
+                    'rounded px-1 font-mono text-[10px] tabular-nums',
+                    roleFilter === tab.id
+                      ? 'bg-muted text-muted-foreground'
+                      : 'text-muted-foreground/70',
+                  )}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
           </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
 
-function StatTile({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: string | number;
-  icon: LucideIcon;
-  tone?: 'positive' | 'warning' | 'destructive';
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{label}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <div
-          className={cn(
-            'text-2xl font-bold',
-            tone === 'positive' && 'text-green-600',
-            tone === 'warning' && 'text-amber-600',
-            tone === 'destructive' && 'text-destructive',
-          )}
-        >
-          {value}
+          <div className="relative w-full lg:w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search name, email, vessel…"
+              className="h-8 rounded-md border-border bg-background pl-8 text-xs shadow-none"
+            />
+          </div>
         </div>
-      </CardContent>
-    </Card>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Select
+            value={verificationFilter}
+            onValueChange={setVerificationFilter}
+          >
+            <SelectTrigger className="h-8 w-full rounded-md border-border text-xs sm:w-[160px]">
+              <SelectValue placeholder="Verification" />
+            </SelectTrigger>
+            <SelectContent>
+              {VERIFICATION_FILTERS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={testingFilter} onValueChange={setTestingFilter}>
+            <SelectTrigger className="h-8 w-full rounded-md border-border text-xs sm:w-[150px]">
+              <SelectValue placeholder="Testing" />
+            </SelectTrigger>
+            <SelectContent>
+              {TESTING_FILTERS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={sortBy}
+            onValueChange={(v) =>
+              setSortBy(v as 'name' | 'lastLogin' | 'lastState')
+            }
+          >
+            <SelectTrigger className="h-8 w-full rounded-md border-border text-xs sm:w-[170px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="lastLogin" className="text-xs">
+                Sort: last login
+              </SelectItem>
+              <SelectItem value="lastState" className="text-xs">
+                Sort: last state
+              </SelectItem>
+              <SelectItem value="name" className="text-xs">
+                Sort: name
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground sm:ml-auto">
+            <span className="font-mono tabular-nums">{filteredRows.length}</span>
+            {' of '}
+            <span className="font-mono tabular-nums">{rows.length}</span>
+            {' shown'}
+          </p>
+        </div>
+      </div>
+
+      {/* Data table */}
+      <div className="overflow-hidden rounded-md border border-border bg-muted/40">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border hover:bg-transparent">
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Name
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Email
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Verified
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Role
+              </TableHead>
+              <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground md:table-cell">
+                Plan
+              </TableHead>
+              <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground lg:table-cell">
+                Vessel
+              </TableHead>
+              <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground xl:table-cell">
+                Latest state
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Last sign in
+              </TableHead>
+              <TableHead
+                className="h-9 w-10 bg-muted/40 text-right text-[11px] font-normal text-muted-foreground"
+                aria-label="Open"
+              />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={9} className="h-36 bg-background">
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading accounts…
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : filteredRows.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={9} className="h-36 bg-background">
+                  <div className="flex flex-col items-center justify-center gap-1 text-center">
+                    <p className="text-sm text-foreground">No accounts found</p>
+                    <p className="text-xs text-muted-foreground">
+                      Try another filter or search term.
+                    </p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredRows.map((r) => {
+                const fullName =
+                  `${r.firstName} ${r.lastName}`.trim() ||
+                  r.username ||
+                  '—';
+                return (
+                  <TableRow
+                    key={r.id}
+                    className="cursor-pointer border-border bg-background hover:bg-muted/40"
+                    onClick={() => router.push(`/dashboard/users/${r.id}`)}
+                  >
+                    <TableCell className="py-2.5 align-middle">
+                      <div className="min-w-0 max-w-[220px]">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="truncate text-sm text-foreground">
+                            {fullName}
+                          </span>
+                          {r.isTesting ? (
+                            <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[10px] text-amber-800 dark:text-amber-300">
+                              <FlaskConical className="h-2.5 w-2.5" />
+                              Testing
+                            </span>
+                          ) : null}
+                          {r.isDisabled ? (
+                            <span className="rounded border border-destructive/40 bg-destructive/10 px-1 py-0.5 text-[10px] text-destructive">
+                              Disabled
+                            </span>
+                          ) : null}
+                        </div>
+                        {r.username ? (
+                          <div className="truncate font-mono text-[11px] text-muted-foreground">
+                            @{r.username}
+                          </div>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      <span className="inline-flex max-w-[200px] items-center gap-1.5 truncate text-xs text-foreground">
+                        <Mail className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{r.email || '—'}</span>
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      <VerifiedBadge confirmed={r.emailConfirmed} />
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      <RoleBadge role={r.role} />
+                    </TableCell>
+                    <TableCell className="hidden py-2.5 align-middle md:table-cell">
+                      {r.subscriptionTier ? (
+                        <div className="flex flex-col">
+                          <span className="text-xs text-foreground">
+                            {formatSubscriptionTierLabel(r.subscriptionTier)}
+                          </span>
+                          <span
+                            className={cn(
+                              'text-[11px] capitalize text-muted-foreground',
+                              r.subscriptionStatus === 'active' &&
+                                'text-emerald-600',
+                              r.subscriptionStatus === 'past-due' &&
+                                'text-amber-600',
+                              r.subscriptionStatus === 'inactive' &&
+                                'text-destructive',
+                            )}
+                          >
+                            {r.subscriptionStatus ?? '—'}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden py-2.5 align-middle lg:table-cell">
+                      {r.vesselName ? (
+                        <span className="inline-flex max-w-[160px] items-center gap-1.5 truncate text-xs text-foreground">
+                          <Ship className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{r.vesselName}</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden py-2.5 align-middle xl:table-cell">
+                      {r.latestState ? (
+                        <div className="flex flex-col gap-1">
+                          <StatePill stateKey={r.latestState} />
+                          {r.latestStateAt ? (
+                            <span className="text-[11px] text-muted-foreground">
+                              {format(parseISO(r.latestStateAt), 'd MMM yyyy')}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      {r.lastSignInAt ? (
+                        <div className="flex flex-col">
+                          <span className="text-xs tabular-nums text-foreground">
+                            {format(parseISO(r.lastSignInAt), 'd MMM yyyy')}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {r.daysSinceLastLogin != null
+                              ? `${r.daysSinceLastLogin}d ago`
+                              : ''}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                          Never
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-2.5 text-right align-middle">
+                      <Link
+                        href={`/dashboard/users/${r.id}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Open user profile"
+                      >
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }
 
@@ -727,33 +740,24 @@ function VerifiedBadge({ confirmed }: { confirmed: boolean | null }) {
   }
   if (confirmed) {
     return (
-      <Badge className="bg-green-600 hover:bg-green-600/90 text-[10px]">
+      <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
         Verified
-      </Badge>
+      </span>
     );
   }
   return (
-    <Badge
-      variant="outline"
-      className="border-amber-400 text-[10px] text-amber-700 dark:text-amber-300"
-    >
+    <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
       Unverified
-    </Badge>
+    </span>
   );
 }
 
 function RoleBadge({ role }: { role: string }) {
-  const variant: 'default' | 'secondary' | 'destructive' | 'outline' =
-    role === 'admin'
-      ? 'destructive'
-      : role === 'vessel'
-        ? 'default'
-        : role === 'captain'
-          ? 'default'
-          : 'secondary';
   return (
-    <Badge variant={variant} className="capitalize">
+    <span className="inline-flex rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] capitalize text-muted-foreground">
       {role}
-    </Badge>
+    </span>
   );
 }

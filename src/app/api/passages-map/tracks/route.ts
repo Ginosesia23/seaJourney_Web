@@ -53,9 +53,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
-import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
+import { isFeatureAccessibleServer } from '@/lib/feature-flags/server';
 import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
 import { DatalasticApiError, fetchVesselHistoryRange } from '@/lib/datalastic/client';
 import { todayDateKey } from '@/lib/vessel-assignment-dates';
@@ -331,22 +330,11 @@ async function authenticate(req: NextRequest): Promise<
 
   const vesselBoost = await getCrewVesselFeatureBoost(user.id);
 
-  if (!hasPassagesMapAccess(profile, vesselBoost)) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        {
-          error:
-            'The Passages Map requires Crew Professional or Vessel Premium and above.',
-        },
-        { status: 402 },
-      ),
-    };
-  }
-
   const role = String(profile.role || '').toLowerCase();
-  const flagOn = await isFeatureEnabledServer('passages_map', {
+  const flagOn = await isFeatureAccessibleServer('passages_map', {
     isAdmin: role === 'admin',
+    profile,
+    vesselBoost,
   });
   if (!flagOn) {
     return {

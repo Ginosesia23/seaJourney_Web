@@ -224,7 +224,7 @@ export function StateMonthGrid({
                     )}
                     {secondary === 'standby' && (
                       <div
-                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-purple-600"
+                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-[#7629BB]"
                         aria-hidden
                       />
                     )}
@@ -265,8 +265,8 @@ export function StateMonthGrid({
                       <div className="text-muted-foreground">No state logged</div>
                     )}
                     {secondary === 'standby' && (
-                      <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300">
-                        <span className="h-1.5 w-3 rounded-sm bg-purple-600" aria-hidden />
+                      <div className="flex items-center gap-1.5 text-[#7629BB] dark:text-purple-300">
+                        <span className="h-1.5 w-3 rounded-sm bg-[#7629BB]" aria-hidden />
                         Counted as standby
                       </div>
                     )}

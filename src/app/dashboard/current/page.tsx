@@ -8,10 +8,8 @@ import { z } from 'zod';
 import { format, differenceInDays, eachDayOfInterval, isSameDay, startOfDay, endOfDay, parse, isWithinInterval, startOfMonth, endOfMonth, getDaysInMonth, getDay, isSameMonth, isToday, isAfter, isBefore, addDays, subMonths, startOfYear, endOfYear } from 'date-fns';
 import { CalendarIcon, MapPin, Briefcase, Info, PlusCircle, Loader2, Ship, Wrench, Clock, Waves, Anchor, Building, CalendarDays, Edit, MousePointer2, BoxSelect, Search, UserPlus, ChevronsUpDown, ChevronDown, Check, XCircle, User, Play, Square, ShieldCheck, Sparkles, ArrowRight } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -64,6 +62,13 @@ import { AisTrackingCard } from '@/components/dashboard/ais-tracking-card';
 import { CrewAisTrackingCard } from '@/components/dashboard/crew-ais-tracking-card';
 import { CrewAisDebugPanel } from '@/components/dashboard/crew-ais-debug-panel';
 import { AisDebugPanel } from '@/components/dashboard/ais-debug-panel';
+import {
+  DailyLogPageHeader,
+  DailyLogStatTiles,
+  DailyLogSection,
+  DailyLogEmptyState,
+  DailyLogPanel,
+} from '@/components/dashboard/daily-log-page-ui';
 
 const startServiceSchema = z.object({
   vesselId: z.string().min(1, 'Please select a vessel.'),
@@ -2862,13 +2867,13 @@ export default function CurrentPage() {
     }
 
     return (
-      <Card key={month.toISOString()} className="rounded-xl border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold">
+      <Card key={month.toISOString()} className="rounded-md border border-border shadow-none">
+        <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
+          <CardTitle className="text-xs font-medium">
             {format(month, 'MMMM yyyy')}
           </CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col pb-6">
+        <CardContent className="flex flex-col px-4 pb-4 pt-3">
           <div className="flex-1 space-y-1">
             {/* Day headers */}
             <div className="grid grid-cols-7 gap-1 mb-2">
@@ -2974,7 +2979,7 @@ export default function CurrentPage() {
                           </div>
                         )}
                         {isCountedStandby && (
-                          <div className="flex items-center gap-2 text-purple-600">
+                          <div className="flex items-center gap-2 text-[#7629BB]">
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
                           </div>
@@ -3101,7 +3106,7 @@ export default function CurrentPage() {
                           )}
                           {secondaryIndicatorBar === 'standby' && (
                             <div
-                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-purple-600"
+                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-[#7629BB]"
                               aria-hidden
                             />
                           )}
@@ -3489,19 +3494,19 @@ export default function CurrentPage() {
                 return (
                   <FormItem>
                     <FormLabel className="text-sm font-semibold">Vessel</FormLabel>
-                    <div className="rounded-xl border border-sky-500/25 bg-gradient-to-br from-sky-500/[0.07] via-background to-blue-600/5 p-4">
+                    <div className="rounded-md border border-sky-500/25 bg-sky-500/5 p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-sky-500/20 bg-sky-500/10">
                             <Ship className="h-5 w-5 text-sky-600 dark:text-sky-400" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate font-semibold tracking-tight">{vessel.name}</div>
+                            <div className="truncate text-sm font-medium tracking-tight">{vessel.name}</div>
                             <div className="text-sm text-muted-foreground">{vessel.type}</div>
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          <Badge className="rounded-full border-sky-500/30 bg-sky-500/10 text-sky-700 hover:bg-sky-500/10 dark:text-sky-300">
+                          <Badge className="rounded-md border-sky-500/30 bg-sky-500/10 text-sky-700 hover:bg-sky-500/10 dark:text-sky-300">
                             Your vessel
                           </Badge>
                           <Button
@@ -3544,7 +3549,7 @@ export default function CurrentPage() {
                     }))}
                     disabled={isLoadingVessels}
                     blockManagedVessels={isVesselAccount}
-                    triggerClassName="h-11 rounded-xl"
+                    triggerClassName="h-9 rounded-md"
                   />
                 </FormControl>
                 <FormMessage />
@@ -3562,11 +3567,11 @@ export default function CurrentPage() {
                 <FormLabel className="text-sm font-semibold">Position / role</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value || ''}>
                   <FormControl>
-                    <SelectTrigger className="h-11 rounded-xl">
+                    <SelectTrigger className="h-9 rounded-md">
                       <SelectValue placeholder="Select your position..." />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent className="rounded-xl">
+                  <SelectContent className="rounded-md">
                     {POSITION_OPTIONS.map((position) => (
                       <SelectItem key={position} value={position}>
                         {position}
@@ -3606,7 +3611,7 @@ export default function CurrentPage() {
                     <Button
                       variant="outline"
                       className={cn(
-                        'h-11 w-full justify-start rounded-xl pl-3 text-left font-normal',
+                        'h-9 w-full justify-start rounded-md pl-3 text-left font-normal',
                         !field.value && 'text-muted-foreground'
                       )}
                     >
@@ -3646,7 +3651,7 @@ export default function CurrentPage() {
                       <Button
                         variant="outline"
                         className={cn(
-                          'h-11 w-full justify-start rounded-xl pl-3 text-left font-normal',
+                          'h-9 w-full justify-start rounded-md pl-3 text-left font-normal',
                           !field.value && 'text-muted-foreground'
                         )}
                       >
@@ -3681,11 +3686,11 @@ export default function CurrentPage() {
   );
 
   const renderStartServiceFooter = (opts?: { formId?: string }) => (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/30 px-6 py-4">
-      <div className="min-w-0 text-sm">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-4 py-3 sm:px-5">
+      <div className="min-w-0 text-xs">
         {startServiceReady ? (
           <span className="inline-flex items-center gap-1.5 font-medium">
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
             {startServiceFooterHint}
           </span>
         ) : (
@@ -3695,122 +3700,133 @@ export default function CurrentPage() {
       <Button
         type="submit"
         form={opts?.formId}
-        size="lg"
         disabled={!startServiceReady}
-        className="h-11 shrink-0 gap-2 rounded-xl px-5"
+        className="h-8 shrink-0 gap-2 rounded-md px-4 text-xs"
       >
-        <Ship className="h-4 w-4" />
+        <Ship className="h-3.5 w-3.5" />
         {isVesselAccount
           ? 'Start managing'
           : watchedServiceEndDate
             ? 'Record past service'
             : 'Start tracking'}
-        <ArrowRight className="h-4 w-4" />
+        <ArrowRight className="h-3.5 w-3.5" />
       </Button>
     </div>
   );
 
   if (isLoadingProfile || isLoadingVessels) {
     return (
-        <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        </div>
-    )
+      <div className="flex min-h-[220px] items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading daily log…
+      </div>
+    );
   }
   
   const isDisplayingStatus = hasActiveService && currentVessel;
 
   return (
     <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Current Service</h1>
-            <p className="text-muted-foreground">
-              {isDisplayingStatus 
-                ? `Tracking active service on ${currentVessel?.name || 'your vessel'}`
-                : userProfile?.activeVesselId 
-                  ? `Active vessel ID set (${userProfile.activeVesselId}) but vessel not found. Please select a vessel or start a service.`
-                  : 'Track and manage your active sea service - Start a service to begin tracking'
-              }
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {/* Captain View Mode Toggle — personal captains only.
-                Vessel-linked accounts belong to the vessel and stay on vessel sea time. */}
-            {isApprovedCaptain && isDisplayingStatus && !isVesselLinked && (
-              <div className="flex items-center gap-2 rounded-lg border bg-card p-1">
+        <DailyLogPageHeader
+          title="Daily log"
+          description={
+            isDisplayingStatus
+              ? `Tracking active service on ${currentVessel?.name || 'your vessel'}`
+              : userProfile?.activeVesselId
+                ? `Active vessel ID set (${userProfile.activeVesselId}) but vessel not found. Please select a vessel or start a service.`
+                : 'Track and manage your active sea service - Start a service to begin tracking'
+          }
+          actions={
+            <>
+              {/* Captain View Mode Toggle — personal captains only.
+                  Vessel-linked accounts belong to the vessel and stay on vessel sea time. */}
+              {isApprovedCaptain && isDisplayingStatus && !isVesselLinked && (
+                <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCaptainViewMode('personal')}
+                    className={cn(
+                      'h-7 rounded-[5px] px-2.5 text-xs',
+                      captainViewMode === 'personal'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <User className="mr-1.5 h-3.5 w-3.5" />
+                    My Sea Time
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCaptainViewMode('vessel')}
+                    className={cn(
+                      'h-7 rounded-[5px] px-2.5 text-xs',
+                      captainViewMode === 'vessel'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <Ship className="mr-1.5 h-3.5 w-3.5" />
+                    Vessel Sea Time
+                  </Button>
+                </div>
+              )}
+              {isDisplayingStatus && !isVesselAccount && !isVesselLinked && (
                 <Button
-                  variant={captainViewMode === 'personal' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCaptainViewMode('personal')}
-                  className={cn(
-                    "rounded-md",
-                    captainViewMode === 'personal' && "bg-primary text-primary-foreground"
-                  )}
+                  onClick={handleEndTrip}
+                  variant="destructive"
+                  className="h-8 rounded-md text-xs"
                 >
-                  <User className="h-4 w-4 mr-2" />
-                  My Sea Time
+                  End Current Service
                 </Button>
-                <Button
-                  variant={captainViewMode === 'vessel' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCaptainViewMode('vessel')}
-                  className={cn(
-                    "rounded-md",
-                    captainViewMode === 'vessel' && "bg-primary text-primary-foreground"
-                  )}
-                >
-                  <Ship className="h-4 w-4 mr-2" />
-                  Vessel Sea Time
-                </Button>
-              </div>
-            )}
-            {isDisplayingStatus && !isVesselAccount && !isVesselLinked && (
-              <Button onClick={handleEndTrip} variant="destructive" className="rounded-xl">End Current Service</Button>
-            )}
-          </div>
-        </div>
-        <Separator />
+              )}
+            </>
+          }
+        />
       {isDisplayingStatus ? (
         <div className="space-y-6">
             {/* Top Row: Vessel Info (crew/captain only — vessel accounts have a single vessel so no need) and Watch card */}
             {!isVesselAccount && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Left: Vessel Info */}
-                <Card className="rounded-xl border shadow-sm bg-gradient-to-r from-primary/5 to-primary/10">
-                    <CardContent className="pt-6">
-                        <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-4 flex-1 relative">
+                <DailyLogPanel>
+                    <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+                      <p className="text-xs font-medium text-foreground">Vessel</p>
+                    </div>
+                    <div className="p-4 sm:p-5">
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-3 flex-1 relative min-w-0">
                                 <div className="flex flex-col gap-4 flex-shrink-0 items-start">
-                                    <div className="h-16 w-16 rounded-xl bg-primary/20 flex items-center justify-center">
-                                        <Ship className="h-8 w-8 text-primary" />
+                                    <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center">
+                                        <Ship className="h-5 w-5 text-muted-foreground" />
                                     </div>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 mb-1">
-                                        <h2 className="text-2xl font-bold">{currentVessel.name}</h2>
+                                        <h2 className="text-sm font-medium">{currentVessel.name}</h2>
                                     </div>
-                                    <p className="text-sm text-muted-foreground">{currentVessel.type} • Active Service</p>
+                                    <p className="text-xs text-muted-foreground">{currentVessel.type} • Active Service</p>
                                     {serviceDate && (
-                                        <p className="text-xs text-muted-foreground mt-1">Started {format(serviceDate, 'PPP')}</p>
+                                        <p className="text-[11px] text-muted-foreground mt-1">Started {format(serviceDate, 'PPP')}</p>
                                     )}
                                     
                                     {/* Captaincy Request Section — not for vessel-linked accounts */}
                                     {isCaptain && currentVessel && !isVesselLinked && (
-                                        <div className="mt-6 pt-4 border-t border-border/50 relative">
+                                        <div className="mt-4 pt-3 border-t border-border/50 relative">
                                             {/* Captaincy Request Icon - positioned in left column aligned with text */}
                                             {!isApprovedCaptain && (
-                                                <div className="absolute -left-20 h-16 w-16 rounded-xl bg-primary/10 flex items-center justify-center">
+                                                <div className="absolute -left-[52px] h-10 w-10 rounded-md bg-muted flex items-center justify-center">
                                                     {hasPendingCaptaincyRequest ? (
-                                                        <Clock className="h-8 w-8 text-yellow-600 dark:text-yellow-400" />
+                                                        <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                                                     ) : (
-                                                        <ShieldCheck className="h-8 w-8 text-primary" />
+                                                        <ShieldCheck className="h-5 w-5 text-muted-foreground" />
                                                     )}
                                                 </div>
                                             )}
                                             {!isApprovedCaptain && !hasPendingCaptaincyRequest ? (
                                                 <div>
-                                                    <h3 className="text-sm font-semibold mb-1">Request Captaincy</h3>
+                                                    <h3 className="text-sm font-medium mb-1">Request Captaincy</h3>
                                                     <p className="text-xs text-muted-foreground mb-3">
                                                         Request official captaincy status for this vessel to access vessel management features.
                                                     </p>
@@ -3818,19 +3834,19 @@ export default function CurrentPage() {
                                                         variant="default"
                                                         size="sm"
                                                         onClick={handleOpenCurrentVesselCaptaincyDialog}
-                                                        className="rounded-lg"
+                                                        className="h-8 rounded-md text-xs"
                                                     >
-                                                        <ShieldCheck className="h-4 w-4 mr-2" />
+                                                        <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
                                                         Request Captain
                                                     </Button>
                                                 </div>
                                             ) : hasPendingCaptaincyRequest ? (
                                                 <div>
-                                                    <h3 className="text-sm font-semibold mb-1">Captaincy Request Pending</h3>
+                                                    <h3 className="text-sm font-medium mb-1">Captaincy Request Pending</h3>
                                                     <p className="text-xs text-muted-foreground mb-2">
                                                         Your request is being reviewed by the vessel manager and administrator.
                                                     </p>
-                                                    <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
+                                                    <Badge variant="secondary" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20">
                                                         <Clock className="h-3 w-3 mr-1" />
                                                         Request Pending
                                                     </Badge>
@@ -3842,37 +3858,40 @@ export default function CurrentPage() {
                             </div>
                             {todayStatusValue && (
                                 <div className="text-right flex-shrink-0">
-                                    <p className="text-xs text-muted-foreground mb-1">Today's Status</p>
+                                    <p className="text-[11px] text-muted-foreground mb-1">Today&apos;s Status</p>
                                     <div className="flex items-center gap-2">
                                         <div 
-                                            className="h-3 w-3 rounded-full" 
+                                            className="h-2.5 w-2.5 rounded-full" 
                                             style={{ backgroundColor: vesselStates.find(s => s.value === todayStatusValue)?.color }}
                                         />
-                                        <span className="text-lg font-semibold">
+                                        <span className="text-sm font-medium">
                                             {vesselStates.find(s => s.value === todayStatusValue)?.label || 'No status'}
                                         </span>
                                     </div>
                                 </div>
                             )}
                         </div>
-                    </CardContent>
-                </Card>
+                    </div>
+                </DailyLogPanel>
 
                 {/* Right: Watch today — same compact layout as Today's vessel state */}
                 {isOfficer && (
-                  <Card className="rounded-xl border shadow-sm">
-                    <CardContent className="p-4 sm:p-5">
+                  <DailyLogPanel>
+                    <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+                      <p className="text-xs font-medium text-foreground">On watch today</p>
+                    </div>
+                    <div className="p-4 sm:p-5">
                       {(() => {
                         const canEditLogbookExtras = !isVesselLinked && !(isCaptain && captainViewMode === 'vessel');
                         return (
                           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-                            <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
-                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-primary/10 border-primary/20">
-                                <Clock className="h-6 w-6 text-primary" />
+                            <div className="flex min-w-0 flex-1 gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
+                                <Clock className="h-4 w-4 text-muted-foreground" />
                               </div>
                               <div className="min-w-0 flex-1 space-y-1.5">
                                 <div className="flex flex-wrap items-center gap-2 gap-y-1">
-                                  <h3 className="text-lg font-semibold tracking-tight">On watch today</h3>
+                                  <h3 className="text-sm font-medium tracking-tight">On watch today</h3>
                                   {!canEditLogbookExtras && (
                                     <Badge variant="secondary" className="text-[10px] font-medium uppercase">
                                       View only
@@ -3889,13 +3908,13 @@ export default function CurrentPage() {
                                   {canEditLogbookExtras && canLogWatch && isOnWatchToday && (
                                     <Badge
                                       variant="secondary"
-                                      className="border-green-500/25 bg-green-500/10 text-[10px] font-medium uppercase text-green-800 dark:text-green-300"
+                                      className="border-emerald-500/25 bg-emerald-500/10 text-[10px] font-medium uppercase text-emerald-800 dark:text-emerald-300"
                                     >
                                       On watch
                                     </Badge>
                                   )}
                                 </div>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="text-xs text-muted-foreground">
                                   <span className="font-medium text-foreground/80">
                                     {format(new Date(), 'EEEE')}
                                   </span>
@@ -3906,7 +3925,7 @@ export default function CurrentPage() {
                                 </p>
                               </div>
                             </div>
-                            <div className="w-full shrink-0 sm:w-auto sm:pt-1">
+                            <div className="w-full shrink-0 sm:w-auto sm:pt-0.5">
                               <Button
                                 onClick={handleToggleWatch}
                                 disabled={isTogglingWatch || !canLogWatch || !canEditLogbookExtras}
@@ -3918,32 +3937,32 @@ export default function CurrentPage() {
                                       : undefined
                                 }
                                 className={cn(
-                                  'h-11 w-full justify-center gap-2 rounded-xl px-4 font-medium sm:min-w-[220px]',
+                                  'h-8 w-full justify-center gap-2 rounded-md px-3 text-xs font-medium sm:min-w-[200px]',
                                   !canLogWatch || !canEditLogbookExtras
                                     ? 'cursor-not-allowed opacity-60'
                                     : isOnWatchToday
                                       ? 'bg-red-600 text-white hover:bg-red-700'
-                                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                                      : 'bg-sky-600 text-white hover:bg-sky-700'
                                 )}
                               >
                                 {isTogglingWatch ? (
                                   <>
-                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                                     {isOnWatchToday ? 'Removing…' : 'Recording…'}
                                   </>
                                 ) : !canLogWatch ? (
                                   <>
-                                    <Anchor className="h-4 w-4 shrink-0" />
+                                    <Anchor className="h-3.5 w-3.5 shrink-0" />
                                     Needs at anchor
                                   </>
                                 ) : isOnWatchToday ? (
                                   <>
-                                    <Square className="h-4 w-4 shrink-0" />
+                                    <Square className="h-3.5 w-3.5 shrink-0" />
                                     Remove watch
                                   </>
                                 ) : (
                                   <>
-                                    <Play className="h-4 w-4 shrink-0" />
+                                    <Play className="h-3.5 w-3.5 shrink-0" />
                                     Record watch
                                   </>
                                 )}
@@ -3952,8 +3971,8 @@ export default function CurrentPage() {
                           </div>
                         );
                       })()}
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </DailyLogPanel>
                 )}
             </div>
             )}
@@ -3961,8 +3980,11 @@ export default function CurrentPage() {
             {/* Second Row: Update Today's Status (half) and Part of Active Passage (half) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Left: Today's status — compact row + dropdown */}
-                <Card className="rounded-xl border shadow-sm">
-                  <CardContent className="p-4 sm:p-5">
+                <DailyLogPanel>
+                  <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+                    <p className="text-xs font-medium text-foreground">Today&apos;s vessel state</p>
+                  </div>
+                  <div className="p-4 sm:p-5">
                     {(() => {
                       const todayStatesForPicker = vesselStates.filter(
                         (s) => !isVesselAccount || s.value !== 'on-leave'
@@ -3978,13 +4000,13 @@ export default function CurrentPage() {
 
                       return (
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-                          <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border bg-primary/10 border-primary/20">
-                              <CalendarDays className="h-6 w-6 text-primary" />
+                          <div className="flex min-w-0 flex-1 gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
+                              <CalendarDays className="h-4 w-4 text-muted-foreground" />
                             </div>
                             <div className="min-w-0 flex-1 space-y-1.5">
                               <div className="flex flex-wrap items-center gap-2 gap-y-1">
-                                <h3 className="text-lg font-semibold tracking-tight">
+                                <h3 className="text-sm font-medium tracking-tight">
                                   Today&apos;s vessel state
                                 </h3>
                                 {!canEditTodayState && isVesselAccount && aisTrackingEnabled && (
@@ -4001,7 +4023,7 @@ export default function CurrentPage() {
                                   </Badge>
                                 )}
                               </div>
-                              <p className="text-sm text-muted-foreground">
+                              <p className="text-xs text-muted-foreground">
                                 <span className="font-medium text-foreground/80">
                                   {format(new Date(), 'EEEE')}
                                 </span>
@@ -4013,17 +4035,17 @@ export default function CurrentPage() {
                             </div>
                           </div>
                           {isLoadingLogs ? (
-                            <div className="flex h-11 items-center justify-center sm:justify-end sm:min-w-[200px] sm:pt-1">
-                              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            <div className="flex h-8 items-center justify-center sm:justify-end sm:min-w-[200px] sm:pt-0.5">
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             </div>
                           ) : (
-                            <div className="w-full shrink-0 sm:w-auto sm:pt-1">
+                            <div className="w-full shrink-0 sm:w-auto sm:pt-0.5">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild disabled={!canEditTodayState}>
                                 <Button
                                   variant="outline"
                                   className={cn(
-                                    'h-11 w-full sm:w-auto sm:min-w-[220px] justify-between gap-2 rounded-xl border-2 px-3 font-medium shadow-none',
+                                    'h-8 w-full sm:w-auto sm:min-w-[200px] justify-between gap-2 rounded-md border px-3 text-xs font-medium shadow-none',
                                     !canEditTodayState && 'cursor-not-allowed opacity-60'
                                   )}
                                   style={
@@ -4046,10 +4068,10 @@ export default function CurrentPage() {
                                     {cur && TodayTriggerIcon ? (
                                       <>
                                         <span
-                                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+                                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
                                           style={{ backgroundColor: cur.color }}
                                         >
-                                          <TodayTriggerIcon className="h-4 w-4 text-white" />
+                                          <TodayTriggerIcon className="h-3.5 w-3.5 text-white" />
                                         </span>
                                         <span className="min-w-0 truncate" style={{ color: cur.color }}>
                                           {cur.label}
@@ -4057,14 +4079,14 @@ export default function CurrentPage() {
                                       </>
                                     ) : (
                                       <>
-                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted">
-                                          <Ship className="h-4 w-4 text-muted-foreground" />
+                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted">
+                                          <Ship className="h-3.5 w-3.5 text-muted-foreground" />
                                         </span>
                                         <span className="truncate text-muted-foreground">Set state for today</span>
                                       </>
                                     )}
                                   </span>
-                                  <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+                                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent
@@ -4109,13 +4131,16 @@ export default function CurrentPage() {
                         </div>
                       );
                     })()}
-                  </CardContent>
-                </Card>
+                  </div>
+                </DailyLogPanel>
 
                 {/* Right: Part of active passage — same compact layout */}
                 {todayStatusValue !== 'on-leave' && (
-                <Card className="rounded-xl border shadow-sm">
-                  <CardContent className="p-4 sm:p-5">
+                <DailyLogPanel>
+                  <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+                    <p className="text-xs font-medium text-foreground">Part of active passage</p>
+                  </div>
+                  <div className="p-4 sm:p-5">
                     {(() => {
                       const canEditLogbookExtras = !isVesselLinked && !(isCaptain && captainViewMode === 'vessel');
                       const hasTodayState = !!todayStatusValue;
@@ -4128,13 +4153,13 @@ export default function CurrentPage() {
 
                       return (
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-                          <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10">
-                              <Ship className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+                          <div className="flex min-w-0 flex-1 gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-500/25 bg-emerald-500/10">
+                              <Ship className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                             </div>
                             <div className="min-w-0 flex-1 space-y-1.5">
                               <div className="flex flex-wrap items-center gap-2 gap-y-1">
-                                <h3 className="text-lg font-semibold tracking-tight">Part of active passage</h3>
+                                <h3 className="text-sm font-medium tracking-tight">Part of active passage</h3>
                                 {!canEditLogbookExtras && (
                                   <Badge variant="secondary" className="text-[10px] font-medium uppercase">
                                     View only
@@ -4154,7 +4179,7 @@ export default function CurrentPage() {
                                   </Badge>
                                 )}
                               </div>
-                              <p className="text-sm text-muted-foreground">
+                              <p className="text-xs text-muted-foreground">
                                 <span className="font-medium text-foreground/80">
                                   {format(new Date(), 'EEEE')}
                                 </span>
@@ -4165,7 +4190,7 @@ export default function CurrentPage() {
                               </p>
                             </div>
                           </div>
-                          <div className="w-full shrink-0 sm:w-auto sm:pt-1">
+                          <div className="w-full shrink-0 sm:w-auto sm:pt-0.5">
                             <Button
                               onClick={handleTogglePartOfActivePassage}
                               disabled={passageDisabled}
@@ -4179,7 +4204,7 @@ export default function CurrentPage() {
                                       : undefined
                               }
                               className={cn(
-                                'h-11 w-full justify-center gap-2 rounded-xl px-4 font-medium sm:min-w-[220px]',
+                                'h-8 w-full justify-center gap-2 rounded-md px-3 text-xs font-medium sm:min-w-[200px]',
                                 passageDisabled && 'cursor-not-allowed opacity-60',
                                 !passageDisabled &&
                                   (isPartOfActivePassageToday
@@ -4189,27 +4214,27 @@ export default function CurrentPage() {
                             >
                               {isTogglingPartOfActivePassage ? (
                                 <>
-                                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                                   {isPartOfActivePassageToday ? 'Removing…' : 'Recording…'}
                                 </>
                               ) : !hasTodayState ? (
                                 <>
-                                  <Ship className="h-4 w-4 shrink-0" />
+                                  <Ship className="h-3.5 w-3.5 shrink-0" />
                                   Set state first
                                 </>
                               ) : isPartOfActivePassageToday ? (
                                 <>
-                                  <Square className="h-4 w-4 shrink-0" />
+                                  <Square className="h-3.5 w-3.5 shrink-0" />
                                   Remove passage mark
                                 </>
                               ) : isUnderwayToday ? (
                                 <>
-                                  <Ship className="h-4 w-4 shrink-0" />
+                                  <Ship className="h-3.5 w-3.5 shrink-0" />
                                   Not applicable
                                 </>
                               ) : (
                                 <>
-                                  <Play className="h-4 w-4 shrink-0" />
+                                  <Play className="h-3.5 w-3.5 shrink-0" />
                                   Mark passage day
                                 </>
                               )}
@@ -4218,8 +4243,8 @@ export default function CurrentPage() {
                         </div>
                       );
                     })()}
-                  </CardContent>
-                </Card>
+                  </div>
+                </DailyLogPanel>
                 )}
             </div>
 
@@ -4276,106 +4301,85 @@ export default function CurrentPage() {
 
             {/* Quick Stats — personal sea-time style; hide for vessel accounts */}
             {!isVesselAccount && (
-            <div className="grid gap-4 md:grid-cols-3">
-                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">At Sea</CardTitle>
-                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <Waves className="h-4 w-4 text-primary" />
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{atSeaDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {`Underway, passage, and watch days since joining ${currentVessel.name}`}
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Standby</CardTitle>
-                        <div className="h-8 w-8 rounded-xl bg-purple-500/10 flex items-center justify-center">
-                            <Anchor className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold text-purple-700 dark:text-purple-300">{standbyDays}</div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {`days logged since joining ${currentVessel.name}`}
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Total Days</CardTitle>
-                        <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <CalendarDays className="h-4 w-4 text-primary" />
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                          {assignmentStartDate 
-                            ? stateLogs.filter(log => {
-                          const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-                                const filterEndDate = endOfDay(new Date());
-                                return isWithinInterval(logDate, { start: assignmentStartDate, end: filterEndDate });
-                              }).length
-                            : stateLogs.length
-                          }
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {`total days logged since joining ${currentVessel.name}`}
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
+            <DailyLogStatTiles
+              items={[
+                {
+                  label: 'At Sea',
+                  value: atSeaDays,
+                  hint: `Underway, passage, and watch days since joining ${currentVessel.name}`,
+                  tone: 'sky',
+                },
+                {
+                  label: 'Standby',
+                  value: standbyDays,
+                  hint: `days logged since joining ${currentVessel.name}`,
+                  tone: 'purple',
+                },
+                {
+                  label: 'Total Days',
+                  value: assignmentStartDate
+                    ? stateLogs.filter((log) => {
+                        const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                        const filterEndDate = endOfDay(new Date());
+                        return isWithinInterval(logDate, {
+                          start: assignmentStartDate,
+                          end: filterEndDate,
+                        });
+                      }).length
+                    : stateLogs.length,
+                  hint: `total days logged since joining ${currentVessel.name}`,
+                },
+              ]}
+            />
             )}
             
             {/* Monthly Calendar - Updated to match calendar page */}
-            <div className="space-y-6">
-              {/* Header */}
-              <div className="space-y-2">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div className="space-y-1">
-                    <h2 className="text-2xl font-bold tracking-tight">Monthly Calendar</h2>
-                    <p className="text-muted-foreground">
-                      View and update your vessel status for {currentVessel.name}. Click dates to update states.
-                    </p>
-                            </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant={selectionMode === 'single' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSelectionMode('single')}
-                      className="rounded-xl"
-                    >
-                      <MousePointer2 className="h-4 w-4 mr-2" />
-                      Single
-                                    </Button>
-                    <Button
-                      variant={selectionMode === 'range' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => {
-                        setSelectionMode('range');
-                        setDateRange(undefined);
-                      }}
-                      className="rounded-xl"
-                    >
-                      <CalendarDays className="h-4 w-4 mr-2" />
-                      Range
-                    </Button>
-                        </div>
-                                    </div>
-                <Separator />
-                        </div>
-
+            <DailyLogSection
+              title="Monthly calendar"
+              description={`View and update your vessel status for ${currentVessel.name}. Click dates to update states.`}
+              action={
+                <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectionMode('single')}
+                    className={cn(
+                      'h-8 rounded-[5px] px-2.5 text-xs',
+                      selectionMode === 'single'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <MousePointer2 className="mr-1.5 h-3.5 w-3.5" />
+                    Single
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSelectionMode('range');
+                      setDateRange(undefined);
+                    }}
+                    className={cn(
+                      'h-8 rounded-[5px] px-2.5 text-xs',
+                      selectionMode === 'range'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+                    Range
+                  </Button>
+                </div>
+              }
+            >
               {/* Calendar months: 3 cols up to 1700px, 4 cols when wider */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 min-[1701px]:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 min-[1701px]:grid-cols-4 gap-4">
                 <TooltipProvider delayDuration={100}>
                   {recentCalendarMonths.map((month) => renderMonth(month))}
                 </TooltipProvider>
               </div>
-            </div>
+            </DailyLogSection>
 
             {/* State Change Dialog */}
             <Dialog open={isDialogOpen} onOpenChange={(open) => {
@@ -4389,7 +4393,7 @@ export default function CurrentPage() {
               }
               setIsDialogOpen(open);
             }}>
-              <DialogContent className="rounded-xl max-w-2xl">
+              <DialogContent className="rounded-md max-w-2xl">
                                 <DialogHeader>
                                     <DialogTitle>
                     {dateRange?.from && dateRange?.to 
@@ -4410,10 +4414,10 @@ export default function CurrentPage() {
                                                     key={state.value} 
                         variant="outline"
                                                     className={cn(
-                                                      "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2 ring-offset-background",
+                                                      "h-auto py-3 px-3 flex flex-col items-center gap-2 rounded-md transition-all relative border ring-offset-background",
                                                       isSelected 
-                                                        ? "shadow-md scale-[1.02] focus-visible:ring-2 focus-visible:ring-offset-2" 
-                                                        : "hover:scale-[1.01]"
+                                                        ? "shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2" 
+                                                        : "hover:bg-muted/40"
                                                     )}
                                                     style={{
                                                       backgroundColor: isSelected 
@@ -4444,12 +4448,12 @@ export default function CurrentPage() {
                         disabled={isSaving}
                                                 >
                                                     <div 
-                                                        className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm" 
+                                                        className="h-10 w-10 rounded-md flex items-center justify-center" 
                                                         style={{ backgroundColor: state.color }}
                                                     >
-                                                      <StateIcon className="h-6 w-6 text-white" />
+                                                      <StateIcon className="h-5 w-5 text-white" />
                                                     </div>
-                                                    <span className="font-semibold text-sm">{state.label}</span>
+                                                    <span className="font-medium text-sm">{state.label}</span>
                         {isSelected && (
                           <div className="absolute top-2 right-2">
                             <div className="h-2 w-2 rounded-full" style={{ backgroundColor: state.color }}></div>
@@ -4481,7 +4485,7 @@ export default function CurrentPage() {
                                           onClick={handleRemoveState}
                                           disabled={isSaving}
                                           className={cn(
-                                            "h-auto py-4 px-4 flex flex-col items-center gap-3 rounded-xl transition-all relative border-2 hover:scale-[1.01]"
+                                            "h-auto py-3 px-3 flex flex-col items-center gap-2 rounded-md transition-all relative border hover:bg-muted/40"
                                           )}
                                           style={{
                                             backgroundColor: 'hsl(var(--destructive) / 0.08)',
@@ -4489,11 +4493,11 @@ export default function CurrentPage() {
                                           }}
                                         >
                                           <div
-                                            className="h-12 w-12 rounded-xl flex items-center justify-center shadow-sm bg-destructive"
+                                            className="h-10 w-10 rounded-md flex items-center justify-center bg-destructive"
                                           >
-                                            <XCircle className="h-6 w-6 text-white" />
+                                            <XCircle className="h-5 w-5 text-white" />
                                           </div>
-                                          <span className="font-semibold text-sm">Remove State</span>
+                                          <span className="font-medium text-sm">Remove State</span>
                                         </Button>
                                       );
                                     })()}
@@ -4569,13 +4573,13 @@ export default function CurrentPage() {
                                   if (isCountedStandby) {
                                     return (
                                       <div className="border-t pt-4 px-1">
-                                        <div className="flex items-start space-x-3 p-3 rounded-lg border border-purple-600/30 bg-purple-600/10">
-                                          <Clock className="h-5 w-5 text-purple-600 mt-0.5 shrink-0" />
+                                        <div className="flex items-start space-x-3 p-3 rounded-md border border-[#7629BB]/30 bg-[#7629BB]/10">
+                                          <Clock className="h-5 w-5 text-[#7629BB] mt-0.5 shrink-0" />
                                           <div className="flex-1">
-                                            <div className="text-sm font-semibold text-purple-700 dark:text-purple-400">
+                                            <div className="text-sm font-medium text-[#7629BB] dark:text-purple-400">
                                               Counted as Standby
                                             </div>
-                                            <div className="text-xs text-purple-600 dark:text-purple-500 mt-1">
+                                            <div className="text-xs text-[#7629BB] dark:text-purple-500 mt-1">
                                               This date is counted as standby time and will be included in your standby calculations.
                                             </div>
                                           </div>
@@ -4611,7 +4615,7 @@ export default function CurrentPage() {
                                       }
                                     }}
                                     disabled={!selectedState || isSaving}
-                                    className="rounded-xl"
+                                    className="h-8 rounded-md text-xs"
                                   >
                                     {isSaving ? (
                                       <>
@@ -4631,90 +4635,64 @@ export default function CurrentPage() {
                             </DialogContent>
                         </Dialog>
             
-            <Card className="rounded-xl border shadow-sm">
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-2xl">
-                              {isVesselAccount ? 'State overview' : 'Day Breakdown'}
-                            </CardTitle>
-                            <CardDescription className="text-base mt-1">
-                              {isVesselAccount
-                                ? 'Breakdown of logged vessel states'
-                                : 'Comprehensive overview of your sea service statistics'}
-                            </CardDescription>
-                        </div>
-                        <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <CalendarDays className="h-6 w-6 text-primary" />
-                        </div>
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
+            <DailyLogSection
+              title={isVesselAccount ? 'State overview' : 'Day breakdown'}
+              description={
+                isVesselAccount
+                  ? 'Breakdown of logged vessel states'
+                  : 'Comprehensive overview of your sea service statistics'
+              }
+            >
                     {/* Key Statistics Cards — personal sea-time metrics; crew only */}
                     {!isVesselAccount && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border-blue-200 dark:border-blue-800">
-                            <CardContent className="pt-6">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm font-medium text-muted-foreground mb-1">At Sea Days</p>
-                                        <p className="text-3xl font-bold text-blue-700 dark:text-blue-400">{atSeaDays}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                          Underway + active passage + watch (when applicable)
-                                        </p>
-                                    </div>
-                                    <div className="h-12 w-12 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                                        <Waves className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
+                    <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+                        <div className="overflow-hidden rounded-md border border-border bg-background">
+                            <div className="border-b border-border bg-muted/40 px-3 py-2">
+                              <span className="text-[11px] font-medium text-muted-foreground">At Sea Days</span>
+                            </div>
+                            <div className="px-3 py-3">
+                              <p className="font-mono text-2xl font-medium tabular-nums tracking-tight text-sky-600">{atSeaDays}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Underway + active passage + watch (when applicable)
+                              </p>
+                            </div>
+                        </div>
                         
-                        <Card className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border-purple-200 dark:border-purple-800">
-                            <CardContent className="pt-6">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm font-medium text-muted-foreground mb-1">Standby Days</p>
-                                        <p className="text-3xl font-bold text-purple-700 dark:text-purple-400">{standbyDays}</p>
-                                        <p className="text-xs text-muted-foreground mt-1">MCA-compliant calculation methods</p>
-                                    </div>
-                                    <div className="h-12 w-12 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                                        <Clock className="h-6 w-6 text-purple-600 dark:text-purple-400" />
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
+                        <div className="overflow-hidden rounded-md border border-border bg-background">
+                            <div className="border-b border-border bg-muted/40 px-3 py-2">
+                              <span className="text-[11px] font-medium text-muted-foreground">Standby Days</span>
+                            </div>
+                            <div className="px-3 py-3">
+                              <p className="font-mono text-2xl font-medium tabular-nums tracking-tight text-[#7629BB]">{standbyDays}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">MCA-compliant calculation methods</p>
+                            </div>
+                        </div>
                         
-                        <Card className="bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 border-green-200 dark:border-green-800">
-                            <CardContent className="pt-6">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm font-medium text-muted-foreground mb-1">Total Days</p>
-                                        <p className="text-3xl font-bold text-green-700 dark:text-green-400">
-                                            {stateLogs?.filter(log => {
-                                                if (!assignmentStartDate) return true;
-                                                const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
-                                                return isWithinInterval(logDate, { start: assignmentStartDate, end: endOfDay(new Date()) });
-                                            }).length || 0}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground mt-1">Days since joining vessel</p>
-                                    </div>
-                                    <div className="h-12 w-12 rounded-lg bg-green-500/20 flex items-center justify-center">
-                                        <CalendarDays className="h-6 w-6 text-green-600 dark:text-green-400" />
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
+                        <div className="overflow-hidden rounded-md border border-border bg-background">
+                            <div className="border-b border-border bg-muted/40 px-3 py-2">
+                              <span className="text-[11px] font-medium text-muted-foreground">Total Days</span>
+                            </div>
+                            <div className="px-3 py-3">
+                              <p className="font-mono text-2xl font-medium tabular-nums tracking-tight text-emerald-600">
+                                  {stateLogs?.filter(log => {
+                                      if (!assignmentStartDate) return true;
+                                      const logDate = parse(log.date, 'yyyy-MM-dd', new Date());
+                                      return isWithinInterval(logDate, { start: assignmentStartDate, end: endOfDay(new Date()) });
+                                  }).length || 0}
+                              </p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">Days since joining vessel</p>
+                            </div>
+                        </div>
                     </div>
                     )}
 
                     {/* State Breakdown */}
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                         <div>
-                            <h3 className="text-lg font-semibold mb-2">State Details</h3>
-                            <p className="text-sm text-muted-foreground">Breakdown of days by vessel state</p>
+                            <h3 className="text-xs font-medium mb-0.5">State details</h3>
+                            <p className="text-[11px] text-muted-foreground">Breakdown of days by vessel state</p>
                         </div>
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                             {vesselStates
                               .filter(state => !isVesselAccount || state.value !== 'on-leave')
                               .map((stateInfo) => {
@@ -4729,116 +4707,78 @@ export default function CurrentPage() {
                                 if (days === 0) return null;
                                 
                                 return (
-                                    <div key={stateInfo.value} className="flex items-center gap-4 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors">
-                                        <div className="h-10 w-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${stateInfo.color}20`, color: stateInfo.color }}>
-                                            <stateInfo.icon className="h-5 w-5" />
+                                    <div key={stateInfo.value} className="flex items-center gap-3 p-2.5 rounded-md border border-border bg-background hover:bg-muted/40 transition-colors">
+                                        <div className="h-8 w-8 rounded-md flex items-center justify-center" style={{ backgroundColor: `${stateInfo.color}20`, color: stateInfo.color }}>
+                                            <stateInfo.icon className="h-4 w-4" />
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center justify-between mb-1">
-                                                <p className="font-medium text-sm">{stateInfo.label}</p>
-                                                <p className="text-sm font-semibold">{days} {days === 1 ? 'day' : 'days'}</p>
+                                                <p className="font-medium text-xs">{stateInfo.label}</p>
+                                                <p className="text-xs font-medium tabular-nums">{days} {days === 1 ? 'day' : 'days'}</p>
                                             </div>
-                                            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                                            <div className="w-full bg-muted rounded-sm h-1.5 overflow-hidden">
                                                 <div 
-                                                    className="h-2 rounded-full transition-all"
+                                                    className="h-1.5 rounded-sm transition-all"
                                                     style={{ 
                                                         width: `${percentage}%`,
                                                         backgroundColor: stateInfo.color
                                                     }}
                                                 />
                                             </div>
-                                            <p className="text-xs text-muted-foreground mt-1">{percentage}% of total days</p>
+                                            <p className="text-[11px] text-muted-foreground mt-1">{percentage}% of total days</p>
                                         </div>
                                     </div>
                                 );
                             })}
                             {totalDaysByState.length === 0 && (
                                 <div className="text-center py-8 text-muted-foreground">
-                                    <CalendarDays className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                    <p className="text-sm">No state data available yet</p>
+                                    <CalendarDays className="h-5 w-5 mx-auto mb-2 opacity-50" />
+                                    <p className="text-xs">No state data available yet</p>
                                 </div>
                             )}
                         </div>
                     </div>
-                </CardContent>
-            </Card>
+            </DailyLogSection>
         </div>
       ) : isVesselLinked ? (
-        <Card className="overflow-hidden rounded-2xl border shadow-sm">
-          <div className="relative border-b bg-gradient-to-br from-sky-500/10 via-primary/5 to-background px-6 py-6">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0 opacity-[0.07]"
-              style={{
-                backgroundImage: 'radial-gradient(currentColor 1px, transparent 1px)',
-                backgroundSize: '12px 12px',
-              }}
-            />
-            <div className="relative">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-4 ring-primary/15">
-                <Ship className="h-5 w-5" />
-              </span>
-              <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-                Vessel-linked account
-              </p>
-              <h2 className="mt-1 text-2xl font-semibold tracking-tight">Vessel record</h2>
-              <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
-                This login belongs to the vessel and does not keep a personal sea-time log.
-                Open the daily log once the vessel has an active service.
-              </p>
-            </div>
-          </div>
-        </Card>
+        <DailyLogEmptyState
+          icon={Ship}
+          title="Vessel record"
+          description="This login belongs to the vessel and does not keep a personal sea-time log. Open the daily log once the vessel has an active service."
+        />
       ) : (
         <div className="space-y-6">
-          {/* Start service — three-band CTA (hero / form / action footer) */}
-          <Card className="overflow-hidden rounded-2xl border shadow-sm">
-            <div className="relative border-b bg-gradient-to-br from-sky-500/10 via-primary/5 to-background px-6 py-6">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0 opacity-[0.07]"
-                style={{
-                  backgroundImage: 'radial-gradient(currentColor 1px, transparent 1px)',
-                  backgroundSize: '12px 12px',
-                }}
-              />
-              <div className="relative flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-4 ring-primary/15">
-                    <Ship className="h-5 w-5" />
-                  </span>
-                  <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-                    {startServiceHero.eyebrow}
-                  </p>
-                  <h2 className="mt-1 text-2xl font-semibold tracking-tight">
-                    {startServiceHero.title}
-                  </h2>
-                  <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
-                    {startServiceHero.description}
-                  </p>
-                </div>
-                {!isVesselAccount && (
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-md bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
-                      Active = no end date
-                    </span>
-                    <span className="rounded-md bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
-                      Past = start + end
-                    </span>
-                  </div>
-                )}
+          {/* Start service — Studio muted header / form / action footer */}
+          <DailyLogPanel>
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
+              <div className="min-w-0">
+                <p className="text-[11px] text-muted-foreground">{startServiceHero.eyebrow}</p>
+                <h2 className="text-xs font-medium text-foreground">{startServiceHero.title}</h2>
+                <p className="mt-0.5 max-w-xl text-[11px] text-muted-foreground">
+                  {startServiceHero.description}
+                </p>
               </div>
+              {!isVesselAccount && (
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                    Active = no end date
+                  </span>
+                  <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                    Past = start + end
+                  </span>
+                </div>
+              )}
             </div>
 
             {isCaptain ? (
               <Tabs defaultValue="service" className="w-full">
-                <div className="border-b bg-muted/20 px-6 pt-4">
-                  <TabsList className="grid h-11 w-full max-w-md grid-cols-2 rounded-xl bg-muted/60 p-1">
-                    <TabsTrigger value="service" className="rounded-lg gap-1.5">
+                <div className="border-b border-border px-4 pt-3">
+                  <TabsList className="grid h-8 w-full max-w-md grid-cols-2 rounded-md bg-muted/40 p-0.5">
+                    <TabsTrigger value="service" className="h-7 rounded-[5px] gap-1.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
                       <Ship className="h-3.5 w-3.5" />
                       Sea service
                     </TabsTrigger>
-                    <TabsTrigger value="captaincy" className="rounded-lg gap-1.5">
+                    <TabsTrigger value="captaincy" className="h-7 rounded-[5px] gap-1.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
                       <UserPlus className="h-3.5 w-3.5" />
                       Request captaincy
                     </TabsTrigger>
@@ -4851,18 +4791,18 @@ export default function CurrentPage() {
                       id="start-service-form"
                       onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)}
                     >
-                      <CardContent className="space-y-5 p-6">
+                      <div className="space-y-5 p-4 sm:p-5">
                         {renderStartServiceFields()}
-                      </CardContent>
+                      </div>
                       {renderStartServiceFooter()}
                     </form>
                   </Form>
                 </TabsContent>
 
                 <TabsContent value="captaincy" className="mt-0">
-                  <CardContent className="space-y-5 p-6">
+                  <div className="space-y-5 p-4 sm:p-5">
                     <div className="space-y-2">
-                      <Label className="text-sm font-semibold">Search for vessel</Label>
+                      <Label className="text-sm font-medium">Search for vessel</Label>
                       <UnifiedVesselSearchPicker
                         value={selectedVesselForAction?.id ?? ''}
                         onChange={(id, name, type) =>
@@ -4875,22 +4815,22 @@ export default function CurrentPage() {
                           type: v.type,
                         }))}
                         disabled={isLoadingVessels}
-                        triggerClassName="h-11 rounded-xl text-base"
+                        triggerClassName="h-9 rounded-md text-sm"
                       />
                     </div>
 
                     {selectedVesselForAction && (
-                      <div className="rounded-xl border border-sky-500/25 bg-gradient-to-br from-sky-500/[0.07] via-background to-blue-600/5 p-4">
+                      <div className="rounded-md border border-sky-500/25 bg-sky-500/5 p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10">
-                              <Ship className="h-6 w-6 text-sky-600 dark:text-sky-400" />
+                            <div className="flex h-9 w-9 items-center justify-center rounded-md border border-sky-500/20 bg-sky-500/10">
+                              <Ship className="h-4 w-4 text-sky-600 dark:text-sky-400" />
                             </div>
                             <div>
-                              <h3 className="text-lg font-semibold tracking-tight">
+                              <h3 className="text-sm font-medium tracking-tight">
                                 {selectedVesselForAction.name}
                               </h3>
-                              <p className="text-sm text-muted-foreground">
+                              <p className="text-xs text-muted-foreground">
                                 {selectedVesselForAction.type}
                               </p>
                             </div>
@@ -4900,16 +4840,16 @@ export default function CurrentPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => setSelectedVesselForAction(null)}
-                            className="text-muted-foreground hover:text-foreground"
+                            className="h-7 rounded-md text-xs text-muted-foreground hover:text-foreground"
                           >
                             Change
                           </Button>
                         </div>
                       </div>
                     )}
-                  </CardContent>
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/30 px-6 py-4">
-                    <div className="min-w-0 text-sm text-muted-foreground">
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/40 px-4 py-3 sm:px-5">
+                    <div className="min-w-0 text-xs text-muted-foreground">
                       {selectedVesselForAction
                         ? 'Ready to request captaincy for this vessel.'
                         : 'Select a vessel to request captaincy.'}
@@ -4917,20 +4857,19 @@ export default function CurrentPage() {
                     <Button
                       type="button"
                       onClick={handleOpenCaptaincyDialog}
-                      size="lg"
                       disabled={!selectedVesselForAction || isRequestingCaptaincy}
-                      className="h-11 shrink-0 gap-2 rounded-xl px-5"
+                      className="h-8 shrink-0 gap-2 rounded-md px-4 text-xs"
                     >
                       {isRequestingCaptaincy ? (
                         <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           Submitting…
                         </>
                       ) : (
                         <>
-                          <UserPlus className="h-4 w-4" />
+                          <UserPlus className="h-3.5 w-3.5" />
                           Request captaincy
-                          <ArrowRight className="h-4 w-4" />
+                          <ArrowRight className="h-3.5 w-3.5" />
                         </>
                       )}
                     </Button>
@@ -4940,14 +4879,14 @@ export default function CurrentPage() {
             ) : (
               <Form {...startServiceForm}>
                 <form onSubmit={startServiceForm.handleSubmit(onStartServiceSubmit)}>
-                  <CardContent className="space-y-5 p-6">
+                  <div className="space-y-5 p-4 sm:p-5">
                     {renderStartServiceFields()}
-                  </CardContent>
+                  </div>
                   {renderStartServiceFooter()}
                 </form>
               </Form>
             )}
-          </Card>
+          </DailyLogPanel>
         </div>
       )}
 
@@ -4958,7 +4897,7 @@ export default function CurrentPage() {
           setCaptaincyDocumentUrls(['']);
         }
       }}>
-        <DialogContent className="sm:max-w-[600px] rounded-xl">
+        <DialogContent className="sm:max-w-[600px] rounded-md">
           <DialogHeader>
             <DialogTitle>Request Vessel Captaincy</DialogTitle>
             <DialogDescription>
@@ -4977,7 +4916,7 @@ export default function CurrentPage() {
                     placeholder="https://example.com/document.pdf"
                     value={url}
                     onChange={(e) => handleCaptaincyDocumentUrlChange(index, e.target.value)}
-                    className="rounded-lg"
+                    className="rounded-md h-8 text-xs"
                   />
                   {captaincyDocumentUrls.length > 1 && (
                     <Button
@@ -4985,7 +4924,7 @@ export default function CurrentPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => handleRemoveCaptaincyDocumentUrl(index)}
-                      className="rounded-lg"
+                      className="h-8 w-8 rounded-md"
                     >
                       <XCircle className="h-4 w-4" />
                     </Button>
@@ -4997,9 +4936,9 @@ export default function CurrentPage() {
                 variant="outline"
                 size="sm"
                 onClick={handleAddCaptaincyDocumentUrl}
-                className="w-full rounded-lg"
+                className="h-8 w-full rounded-md text-xs"
               >
-                <PlusCircle className="mr-2 h-4 w-4" />
+                <PlusCircle className="mr-2 h-3.5 w-3.5" />
                 Add Another Document
               </Button>
               <p className="text-xs text-muted-foreground">
@@ -5008,13 +4947,13 @@ export default function CurrentPage() {
             </div>
             <DialogFooter className="pt-4 gap-2">
               <DialogClose asChild>
-                <Button type="button" variant="ghost" className="rounded-xl">Cancel</Button>
+                <Button type="button" variant="ghost" className="h-8 rounded-md text-xs">Cancel</Button>
               </DialogClose>
               <Button 
                 type="button" 
                 onClick={handleRequestCaptaincyFromLookup} 
                 disabled={isRequestingCaptaincy}
-                className="rounded-lg"
+                className="h-8 rounded-md text-xs"
               >
                 {isRequestingCaptaincy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Submit Request

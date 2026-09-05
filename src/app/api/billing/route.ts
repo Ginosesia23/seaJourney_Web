@@ -8,6 +8,7 @@ import {
 import { syncSupabaseUserFromStripeSubscription } from '@/lib/sync-user-stripe-billing';
 import { extractTierFromSubscription } from '@/lib/stripe-subscription-helpers';
 import { expireCompGrantIfNeeded } from '@/lib/partner-promo';
+import { shouldSyncSubscriptionFromStripe } from '@/lib/subscription-tier-labels';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,7 +52,17 @@ export async function GET(req: Request) {
         user?.id &&
         user.email?.toLowerCase() === email.trim().toLowerCase()
       ) {
-        if (subscriptionData?.subscription) {
+        const { data: profileRow } = await supabaseAdmin
+          .from('users')
+          .select(
+            'is_testing, stripe_subscription_id, subscription_tier, subscription_status',
+          )
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const maySyncFromStripe = shouldSyncSubscriptionFromStripe(profileRow);
+
+        if (subscriptionData?.subscription && maySyncFromStripe) {
           try {
             await syncSupabaseUserFromStripeSubscription(
               user.id,
@@ -60,12 +71,17 @@ export async function GET(req: Request) {
           } catch (syncErr) {
             console.error('[API /api/billing] Profile sync from Stripe failed:', syncErr);
           }
-        } else {
+        } else if (!subscriptionData?.subscription) {
           try {
             await expireCompGrantIfNeeded(user.id);
           } catch (expireErr) {
             console.error('[API /api/billing] Comp expiry failed:', expireErr);
           }
+        } else if (subscriptionData?.subscription && !maySyncFromStripe) {
+          console.log(
+            '[API /api/billing] Skipping Stripe tier sync — manual/demo account',
+            { userId: user.id, isTesting: profileRow?.is_testing },
+          );
         }
       }
     }

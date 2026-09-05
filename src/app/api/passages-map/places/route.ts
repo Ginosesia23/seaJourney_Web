@@ -10,9 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { hasPassagesMapAccess } from '@/supabase/database/subscription-helpers';
 import { getCrewVesselFeatureBoost } from '@/lib/crew-vessel-feature-boost.server';
-import { isFeatureEnabledServer } from '@/lib/feature-flags/server';
+import { isFeatureAccessibleServer } from '@/lib/feature-flags/server';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
 import {
   CLOSE_MATCH_NM,
@@ -83,7 +82,12 @@ async function assertAccess(userId: string): Promise<
     return { error: NextResponse.json({ error: 'Profile not found' }, { status: 404 }) };
   }
   const isAdmin = String(profile.role || '').toLowerCase() === 'admin';
-  const mapOn = await isFeatureEnabledServer('passages_map', { isAdmin });
+  const vesselBoost = await getCrewVesselFeatureBoost(userId);
+  const mapOn = await isFeatureAccessibleServer('passages_map', {
+    isAdmin,
+    profile,
+    vesselBoost,
+  });
   if (!mapOn) {
     return {
       error: NextResponse.json(
@@ -91,10 +95,6 @@ async function assertAccess(userId: string): Promise<
         { status: 403 },
       ),
     };
-  }
-  const vesselBoost = await getCrewVesselFeatureBoost(userId);
-  if (!hasPassagesMapAccess(profile as any, vesselBoost) && !isAdmin) {
-    return { error: NextResponse.json({ error: 'Upgrade required' }, { status: 403 }) };
   }
   return { profile: profile as Record<string, unknown> };
 }

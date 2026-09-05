@@ -380,7 +380,7 @@ export function DateComparisonView({
                 </div>
                 <div>
                   <div className="text-muted-foreground">Standby</div>
-                  <div className="font-semibold text-purple-600 dark:text-purple-400">{comparison.crewStandbyDays}</div>
+                  <div className="font-semibold text-[#7629BB] dark:text-purple-400">{comparison.crewStandbyDays}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Yard</div>
@@ -416,7 +416,7 @@ export function DateComparisonView({
                 </div>
                 <div>
                   <div className="text-muted-foreground">Standby</div>
-                  <div className="font-semibold text-purple-600 dark:text-purple-400">{comparison.vesselStandbyDays}</div>
+                  <div className="font-semibold text-[#7629BB] dark:text-purple-400">{comparison.vesselStandbyDays}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Yard</div>
@@ -705,7 +705,7 @@ export function DateComparisonView({
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Standby:</span>
-              <span className="font-medium text-purple-600 dark:text-purple-400">{testimonial?.standby_days || 0}</span>
+              <span className="font-medium text-[#7629BB] dark:text-purple-400">{testimonial?.standby_days || 0}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Yard:</span>
@@ -727,7 +727,7 @@ export function DateComparisonView({
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Standby:</span>
-                <span className="font-medium text-purple-600 dark:text-purple-400">{comparison.crewStandbyDays}</span>
+                <span className="font-medium text-[#7629BB] dark:text-purple-400">{comparison.crewStandbyDays}</span>
               </div>
               {comparison.crewPartOfActivePassageDays > 0 && (
                 <div className="flex justify-between">

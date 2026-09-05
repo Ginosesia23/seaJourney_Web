@@ -14,6 +14,7 @@ import type { FeatureFlagKey } from '@/lib/feature-flags/catalog';
 export const VESSEL_LINKED_FEATURE_KEYS = [
   'testimonials',
   'apply_tickets',
+  'career_progress',
   'passage_logbook',
   'passages_map',
   'bridge_watch_log',
@@ -68,6 +69,7 @@ export const VESSEL_LINKED_CORE_FEATURES: Array<{ label: string; description: st
   { label: 'Daily log', description: 'Vessel daily state log' },
   { label: 'Calendar', description: 'Month view of vessel state' },
   { label: 'Inbox', description: 'Sign-offs and messages' },
+  { label: 'Past vessels', description: 'Assignment history and resume past service' },
   { label: 'Profile', description: 'This linked login’s account' },
   { label: 'Career documents', description: 'Documents generated for them' },
   { label: 'Signature', description: 'Sign documents for the vessel', captainOnly: true },
@@ -84,6 +86,7 @@ export const VESSEL_LINKED_CORE_HREFS = [
   '/dashboard/feedback',
   '/dashboard/career-documents',
   '/dashboard/subscription',
+  '/dashboard/vessel-history',
 ] as const;
 
 /**
@@ -99,6 +102,7 @@ export const CREW_LIMITED_ALLOWED_HREFS = [
   '/dashboard/feedback',
   '/dashboard/career-documents',
   '/dashboard/subscription',
+  '/dashboard/vessel-history',
 ] as const;
 
 /** Extra pages for linked captains (users.role = captain). */
@@ -126,6 +130,15 @@ export const VESSEL_LINKED_FEATURES: VesselLinkedFeatureDefinition[] = [
     defaultGranted: false,
     group: 'documents',
     platformFlagKey: 'apply_tickets',
+  },
+  {
+    key: 'career_progress',
+    label: 'Career progress',
+    description: 'Career ladder and next-ticket requirement tracking.',
+    hrefs: ['/dashboard/career-progress'],
+    defaultGranted: false,
+    group: 'documents',
+    platformFlagKey: 'career_progress',
   },
   {
     key: 'certificates',

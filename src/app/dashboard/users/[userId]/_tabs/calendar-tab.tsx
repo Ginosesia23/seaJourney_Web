@@ -113,44 +113,46 @@ export function CalendarTab({ userId }: Props) {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+      <Card className="rounded-md border-border shadow-none">
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 border-b border-border bg-muted/40 px-4 py-2.5">
           <div>
-            <CardTitle>State calendar</CardTitle>
-            <CardDescription>Daily vessel states for this user</CardDescription>
+            <CardTitle className="text-xs font-medium">State calendar</CardTitle>
+            <CardDescription className="text-[11px]">
+              Daily vessel states for this user
+            </CardDescription>
           </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8"
+              className="h-7 w-7 rounded-md border-border"
               aria-label="Previous year"
               onClick={() => setYear((y) => y - 1)}
               disabled={!yearOptions.includes(year - 1)}
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
-            <span className="min-w-[60px] text-center text-lg font-semibold">
+            <span className="min-w-[52px] text-center font-mono text-sm tabular-nums text-foreground">
               {year}
             </span>
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8"
+              className="h-7 w-7 rounded-md border-border"
               aria-label="Next year"
               onClick={() => setYear((y) => y + 1)}
               disabled={year >= new Date().getFullYear()}
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
+        <CardContent className="space-y-4 px-4 py-3">
+          <div className="flex flex-wrap gap-1.5">
             {CALENDAR_ALL_STATES.map((s) => (
               <div
                 key={s}
-                className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs"
+                className="inline-flex items-center gap-1.5 rounded border border-border bg-background px-2 py-0.5 text-[11px]"
               >
                 <span
                   className="h-2.5 w-2.5 rounded-full"

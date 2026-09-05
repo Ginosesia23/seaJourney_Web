@@ -1,31 +1,38 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { format, parse, startOfDay, differenceInDays } from 'date-fns';
+import {
+  ArrowUpRight,
+  Loader2,
+  LogIn,
+  Mail,
+  Search,
+} from 'lucide-react';
+
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { 
-  Users, 
-  LogIn,
-  Clock,
-  Loader2,
-  Search,
-  UserCheck,
-  UserX,
-  Calendar,
-  Mail,
-  TrendingUp,
-  TrendingDown
-} from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { UserProfile } from '@/lib/types';
-import { format, parse, isAfter, isBefore, startOfDay, subDays, differenceInDays } from 'date-fns';
-import { useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
 
 interface CrewLoginActivity {
   id: string;
@@ -41,6 +48,8 @@ interface CrewLoginActivity {
   loginCount: number | null;
 }
 
+type ActivityFilter = 'all' | 'active' | 'inactive' | 'never';
+
 export default function LoginActivityPage() {
   const { user } = useUser();
   const { supabase } = useSupabase();
@@ -48,44 +57,32 @@ export default function LoginActivityPage() {
   const [crewActivity, setCrewActivity] = useState<CrewLoginActivity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterBy, setFilterBy] = useState<'all' | 'active' | 'inactive' | 'never'>('all');
-  const [sortBy, setSortBy] = useState<'lastLogin' | 'accountCreation' | 'name'>('lastLogin');
+  const [filterBy, setFilterBy] = useState<ActivityFilter>('all');
+  const [sortBy, setSortBy] = useState<'lastLogin' | 'accountCreation' | 'name'>(
+    'lastLogin',
+  );
 
-  // Fetch user profile to check if admin
-  const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
-  
+  const { data: userProfileRaw, isLoading: isLoadingProfile } =
+    useDoc<UserProfile>('users', user?.id);
+
   const userProfile = useMemo(() => {
     if (!userProfileRaw) return null;
-    // Handle both snake_case and camelCase role fields
-    const role = (userProfileRaw as any).role || (userProfileRaw as any).role || userProfileRaw.role || 'crew';
+    const role =
+      (userProfileRaw as any).role || userProfileRaw.role || 'crew';
     return {
       ...userProfileRaw,
-      role: role,
+      role,
     } as UserProfile;
   }, [userProfileRaw]);
 
   const isAdmin = userProfile?.role === 'admin';
-  
-  // Debug logging
-  useEffect(() => {
-    if (userProfileRaw) {
-      console.log('[LOGIN ACTIVITY] User profile:', {
-        role: userProfile?.role,
-        isAdmin,
-        rawRole: (userProfileRaw as any).role,
-        hasUserProfile: !!userProfile,
-      });
-    }
-  }, [userProfileRaw, userProfile, isAdmin]);
 
-  // Redirect if not admin (only after profile has loaded)
   useEffect(() => {
     if (!isLoadingProfile && userProfile && !isAdmin) {
       router.push('/dashboard');
     }
   }, [isAdmin, isLoadingProfile, userProfile, router]);
 
-  // Fetch crew login activity
   useEffect(() => {
     if (!isAdmin || !user?.id) {
       setIsLoading(false);
@@ -95,11 +92,11 @@ export default function LoginActivityPage() {
     const fetchLoginActivity = async () => {
       setIsLoading(true);
       try {
-        // Fetch all crew users (excluding vessel accounts and admins)
-        // Include last_sign_in_at which is synced from auth.users via database trigger
         const { data: allCrew, error: crewError } = await supabase
           .from('users')
-          .select('id, first_name, last_name, username, email, role, created_at, last_sign_in_at')
+          .select(
+            'id, first_name, last_name, username, email, role, created_at, last_sign_in_at',
+          )
           .in('role', ['crew', 'captain'])
           .order('created_at', { ascending: false });
 
@@ -110,33 +107,36 @@ export default function LoginActivityPage() {
           return;
         }
 
-        // Map crew data to activity format
-        const crewActivityData: CrewLoginActivity[] = (allCrew || []).map(crewMember => {
-          const lastSignInAt = crewMember.last_sign_in_at || null;
-          const createdAt = new Date(crewMember.created_at);
-          const today = startOfDay(new Date());
-          const daysSinceAccountCreation = differenceInDays(today, createdAt);
+        const crewActivityData: CrewLoginActivity[] = (allCrew || []).map(
+          (crewMember) => {
+            const lastSignInAt = crewMember.last_sign_in_at || null;
+            const createdAt = new Date(crewMember.created_at);
+            const today = startOfDay(new Date());
+            const daysSinceAccountCreation = differenceInDays(today, createdAt);
 
-          let daysSinceLastLogin: number | null = null;
-          if (lastSignInAt) {
-            const lastLogin = new Date(lastSignInAt);
-            daysSinceLastLogin = differenceInDays(today, lastLogin);
-          }
+            let daysSinceLastLogin: number | null = null;
+            if (lastSignInAt) {
+              const lastLogin = new Date(lastSignInAt);
+              daysSinceLastLogin = differenceInDays(today, lastLogin);
+            }
 
-          return {
-            id: crewMember.id,
-            firstName: crewMember.first_name || '',
-            lastName: crewMember.last_name || '',
-            username: crewMember.username || '',
-            email: crewMember.email || '',
-            role: crewMember.role || 'crew',
-            lastSignInAt: lastSignInAt ? format(new Date(lastSignInAt), 'yyyy-MM-dd HH:mm:ss') : null,
-            createdAt: crewMember.created_at,
-            daysSinceLastLogin,
-            daysSinceAccountCreation,
-            loginCount: null, // Would need additional tracking
-          };
-        });
+            return {
+              id: crewMember.id,
+              firstName: crewMember.first_name || '',
+              lastName: crewMember.last_name || '',
+              username: crewMember.username || '',
+              email: crewMember.email || '',
+              role: crewMember.role || 'crew',
+              lastSignInAt: lastSignInAt
+                ? format(new Date(lastSignInAt), 'yyyy-MM-dd HH:mm:ss')
+                : null,
+              createdAt: crewMember.created_at,
+              daysSinceLastLogin,
+              daysSinceAccountCreation,
+              loginCount: null,
+            };
+          },
+        );
 
         setCrewActivity(crewActivityData);
       } catch (error) {
@@ -147,39 +147,38 @@ export default function LoginActivityPage() {
       }
     };
 
-    fetchLoginActivity();
+    void fetchLoginActivity();
   }, [isAdmin, user?.id, supabase]);
 
-  // Filter and sort crew
   const filteredAndSortedCrew = useMemo(() => {
     let filtered = crewActivity;
 
-    // Filter by search term
     if (searchTerm.trim()) {
       const search = searchTerm.toLowerCase();
-      filtered = filtered.filter(crew => 
-        crew.firstName.toLowerCase().includes(search) ||
-        crew.lastName.toLowerCase().includes(search) ||
-        crew.username.toLowerCase().includes(search) ||
-        crew.email.toLowerCase().includes(search)
+      filtered = filtered.filter(
+        (crew) =>
+          crew.firstName.toLowerCase().includes(search) ||
+          crew.lastName.toLowerCase().includes(search) ||
+          crew.username.toLowerCase().includes(search) ||
+          crew.email.toLowerCase().includes(search),
       );
     }
 
-    // Filter by status
     if (filterBy === 'active') {
-      filtered = filtered.filter(crew => 
-        crew.daysSinceLastLogin !== null && crew.daysSinceLastLogin <= 30
+      filtered = filtered.filter(
+        (crew) =>
+          crew.daysSinceLastLogin !== null && crew.daysSinceLastLogin <= 30,
       );
     } else if (filterBy === 'inactive') {
-      filtered = filtered.filter(crew => 
-        crew.daysSinceLastLogin === null || crew.daysSinceLastLogin > 30
+      filtered = filtered.filter(
+        (crew) =>
+          crew.daysSinceLastLogin === null || crew.daysSinceLastLogin > 30,
       );
     } else if (filterBy === 'never') {
-      filtered = filtered.filter(crew => crew.lastSignInAt === null);
+      filtered = filtered.filter((crew) => crew.lastSignInAt === null);
     }
 
-    // Sort
-    filtered.sort((a, b) => {
+    filtered = [...filtered].sort((a, b) => {
       if (sortBy === 'lastLogin') {
         if (a.daysSinceLastLogin === null && b.daysSinceLastLogin === null) {
           return b.daysSinceAccountCreation - a.daysSinceAccountCreation;
@@ -187,14 +186,13 @@ export default function LoginActivityPage() {
         if (a.daysSinceLastLogin === null) return 1;
         if (b.daysSinceLastLogin === null) return -1;
         return a.daysSinceLastLogin - b.daysSinceLastLogin;
-      } else if (sortBy === 'accountCreation') {
-        return b.daysSinceAccountCreation - a.daysSinceAccountCreation;
-      } else {
-        // Sort by name
-        const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
-        const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
-        return nameA.localeCompare(nameB);
       }
+      if (sortBy === 'accountCreation') {
+        return b.daysSinceAccountCreation - a.daysSinceAccountCreation;
+      }
+      const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+      const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+      return nameA.localeCompare(nameB);
     });
 
     return filtered;
@@ -202,247 +200,400 @@ export default function LoginActivityPage() {
 
   const stats = useMemo(() => {
     const total = crewActivity.length;
-    const active = crewActivity.filter(c => 
-      c.daysSinceLastLogin !== null && c.daysSinceLastLogin <= 30
+    const active = crewActivity.filter(
+      (c) => c.daysSinceLastLogin !== null && c.daysSinceLastLogin <= 30,
     ).length;
-    const inactive = crewActivity.filter(c => 
-      c.daysSinceLastLogin === null || c.daysSinceLastLogin > 30
+    const inactive = crewActivity.filter(
+      (c) => c.daysSinceLastLogin === null || c.daysSinceLastLogin > 30,
     ).length;
-    const neverLoggedIn = crewActivity.filter(c => c.lastSignInAt === null).length;
-    const avgDaysSinceLogin = crewActivity
-      .filter(c => c.daysSinceLastLogin !== null)
-      .reduce((sum, c) => sum + (c.daysSinceLastLogin || 0), 0) / 
-      (crewActivity.filter(c => c.daysSinceLastLogin !== null).length || 1);
+    const neverLoggedIn = crewActivity.filter(
+      (c) => c.lastSignInAt === null,
+    ).length;
+    const withLogin = crewActivity.filter((c) => c.daysSinceLastLogin !== null);
+    const avgDaysSinceLogin =
+      withLogin.length === 0
+        ? 0
+        : Math.round(
+            withLogin.reduce(
+              (sum, c) => sum + (c.daysSinceLastLogin || 0),
+              0,
+            ) / withLogin.length,
+          );
 
-    return { total, active, inactive, neverLoggedIn, avgDaysSinceLogin: Math.round(avgDaysSinceLogin) };
+    return { total, active, inactive, neverLoggedIn, avgDaysSinceLogin };
   }, [crewActivity]);
 
-  if (isLoadingProfile || isLoading) {
+  if (isLoadingProfile) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Login Activity</h1>
-          <p className="text-muted-foreground">
-            Track crew member login activity and engagement.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map(i => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <Skeleton className="h-4 w-24" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-48 w-full rounded-md" />
       </div>
     );
   }
 
-  if (!isAdmin) {
-    return null;
-  }
+  if (!isAdmin) return null;
+
+  const filterTabs: Array<{
+    id: ActivityFilter;
+    label: string;
+    count: number;
+  }> = [
+    { id: 'all', label: 'All', count: stats.total },
+    { id: 'active', label: 'Active', count: stats.active },
+    { id: 'inactive', label: 'Inactive', count: stats.inactive },
+    { id: 'never', label: 'Never', count: stats.neverLoggedIn },
+  ];
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Login Activity</h1>
-        <p className="text-muted-foreground">
-          Track crew member login activity and engagement.
-        </p>
-        {stats.neverLoggedIn === stats.total && stats.total > 0 && (
-          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
-            <strong>Note:</strong> No login data available. If you've just set up the login sync trigger, login data will appear after users sign in. 
-            Make sure the database trigger <code>sync_last_sign_in_trigger</code> is active on the <code>auth.users</code> table.
+      {/* Page header — Supabase Studio style */}
+      <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <LogIn className="h-3.5 w-3.5" />
+            <span>Platform</span>
+            <span className="text-border">/</span>
+            <span className="text-foreground">Login activity</span>
           </div>
-        )}
+          <h1 className="text-xl font-medium tracking-tight text-foreground">
+            Login activity
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Track crew and captain sign-ins, inactivity, and never-used
+            accounts.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="hidden items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {stats.active} active (30d)
+            </span>
+            <span className="h-3 w-px bg-border" />
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              {stats.inactive} inactive
+            </span>
+            <span className="h-3 w-px bg-border" />
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+              {stats.neverLoggedIn} never signed in
+            </span>
+            {stats.avgDaysSinceLogin > 0 ? (
+              <>
+                <span className="h-3 w-px bg-border" />
+                <span className="font-mono tabular-nums">
+                  ~{stats.avgDaysSinceLogin}d avg
+                </span>
+              </>
+            ) : null}
+          </div>
+        </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Crew</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">
-              All crew and captain accounts
-            </p>
-          </CardContent>
-        </Card>
+      {stats.neverLoggedIn === stats.total && stats.total > 0 ? (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-amber-900 dark:text-amber-200">
+          <span className="font-medium">No login data yet.</span> After the{' '}
+          <code className="font-mono text-[11px]">sync_last_sign_in_trigger</code>{' '}
+          is active on <code className="font-mono text-[11px]">auth.users</code>,
+          timestamps appear when crew sign in.
+        </div>
+      ) : null}
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-            <UserCheck className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.active}</div>
-            <p className="text-xs text-muted-foreground">
-              Logged in within last 30 days
-            </p>
-          </CardContent>
-        </Card>
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+            {filterTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFilterBy(tab.id)}
+                className={cn(
+                  'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-xs transition-colors',
+                  filterBy === tab.id
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {tab.label}
+                <span
+                  className={cn(
+                    'rounded px-1 font-mono text-[10px] tabular-nums',
+                    filterBy === tab.id
+                      ? 'bg-muted text-muted-foreground'
+                      : 'text-muted-foreground/70',
+                  )}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inactive Users</CardTitle>
-            <UserX className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.inactive}</div>
-            <p className="text-xs text-muted-foreground">
-              No login in 30+ days
-            </p>
-          </CardContent>
-        </Card>
+          <div className="relative w-full lg:w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search name, username, email…"
+              className="h-8 rounded-md border-border bg-background pl-8 text-xs shadow-none"
+            />
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Never Logged In</CardTitle>
-            <LogIn className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.neverLoggedIn}</div>
-            <p className="text-xs text-muted-foreground">
-              Accounts never used
-            </p>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Select
+            value={sortBy}
+            onValueChange={(v) =>
+              setSortBy(v as 'lastLogin' | 'accountCreation' | 'name')
+            }
+          >
+            <SelectTrigger className="h-8 w-full rounded-md border-border text-xs sm:w-[180px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="lastLogin" className="text-xs">
+                Sort: last login
+              </SelectItem>
+              <SelectItem value="accountCreation" className="text-xs">
+                Sort: account age
+              </SelectItem>
+              <SelectItem value="name" className="text-xs">
+                Sort: name
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground sm:ml-auto">
+            <span className="font-mono tabular-nums">
+              {filteredAndSortedCrew.length}
+            </span>
+            {' of '}
+            <span className="font-mono tabular-nums">{crewActivity.length}</span>
+            {' shown'}
+          </p>
+        </div>
       </div>
 
-      {/* Activity Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Crew Login Activity</CardTitle>
-          <CardDescription>
-            {filteredAndSortedCrew.length} of {crewActivity.length} crew members
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, username, or email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8"
+      {/* Data table */}
+      <div className="overflow-hidden rounded-md border border-border bg-muted/40">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border hover:bg-transparent">
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Name
+              </TableHead>
+              <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground md:table-cell">
+                Email
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Role
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Last login
+              </TableHead>
+              <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground lg:table-cell">
+                Days since
+              </TableHead>
+              <TableHead className="hidden h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground xl:table-cell">
+                Account age
+              </TableHead>
+              <TableHead className="h-9 bg-muted/40 text-[11px] font-normal text-muted-foreground">
+                Status
+              </TableHead>
+              <TableHead
+                className="h-9 w-10 bg-muted/40 text-right text-[11px] font-normal text-muted-foreground"
+                aria-label="Open"
               />
-            </div>
-            <Select value={filterBy} onValueChange={(value: any) => setFilterBy(value)}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Users</SelectItem>
-                <SelectItem value="active">Active (30 days)</SelectItem>
-                <SelectItem value="inactive">Inactive (30+ days)</SelectItem>
-                <SelectItem value="never">Never Logged In</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="lastLogin">Last Login</SelectItem>
-                <SelectItem value="accountCreation">Account Creation</SelectItem>
-                <SelectItem value="name">Name</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Last Login</TableHead>
-                  <TableHead>Days Since</TableHead>
-                  <TableHead>Account Age</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredAndSortedCrew.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      {searchTerm || filterBy !== 'all' 
-                        ? 'No crew members found matching your filters.' 
-                        : 'No crew members found.'}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={8} className="h-36 bg-background">
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading login activity…
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : filteredAndSortedCrew.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={8} className="h-36 bg-background">
+                  <div className="flex flex-col items-center justify-center gap-1 text-center">
+                    <p className="text-sm text-foreground">No crew found</p>
+                    <p className="text-xs text-muted-foreground">
+                      {searchTerm || filterBy !== 'all'
+                        ? 'Try another filter or search term.'
+                        : 'No crew or captain accounts yet.'}
+                    </p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredAndSortedCrew.map((crew) => {
+                const fullName =
+                  `${crew.firstName} ${crew.lastName}`.trim() ||
+                  crew.username ||
+                  '—';
+                return (
+                  <TableRow
+                    key={crew.id}
+                    className="cursor-pointer border-border bg-background hover:bg-muted/40"
+                    onClick={() => router.push(`/dashboard/users/${crew.id}`)}
+                  >
+                    <TableCell className="py-2.5 align-middle">
+                      <div className="min-w-0 max-w-[220px]">
+                        <span className="truncate text-sm text-foreground">
+                          {fullName}
+                        </span>
+                        {crew.username ? (
+                          <div className="truncate font-mono text-[11px] text-muted-foreground">
+                            @{crew.username}
+                          </div>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden py-2.5 align-middle md:table-cell">
+                      <span className="inline-flex max-w-[200px] items-center gap-1.5 truncate text-xs text-foreground">
+                        <Mail className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{crew.email || '—'}</span>
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      <RoleChip role={crew.role} />
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      {crew.lastSignInAt ? (
+                        <div className="flex flex-col">
+                          <span className="text-xs tabular-nums text-foreground">
+                            {format(
+                              parse(
+                                crew.lastSignInAt,
+                                'yyyy-MM-dd HH:mm:ss',
+                                new Date(),
+                              ),
+                              'd MMM yyyy',
+                            )}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {format(
+                              parse(
+                                crew.lastSignInAt,
+                                'yyyy-MM-dd HH:mm:ss',
+                                new Date(),
+                              ),
+                              'HH:mm',
+                            )}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                          Never
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden py-2.5 align-middle lg:table-cell">
+                      {crew.daysSinceLastLogin !== null ? (
+                        <span
+                          className={cn(
+                            'font-mono text-xs tabular-nums',
+                            crew.daysSinceLastLogin > 30
+                              ? 'text-destructive'
+                              : 'text-emerald-600',
+                          )}
+                        >
+                          {crew.daysSinceLastLogin}d
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden py-2.5 align-middle xl:table-cell">
+                      <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                        {crew.daysSinceAccountCreation}d
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-2.5 align-middle">
+                      <StatusChip
+                        lastSignInAt={crew.lastSignInAt}
+                        daysSinceLastLogin={crew.daysSinceLastLogin}
+                      />
+                    </TableCell>
+                    <TableCell className="py-2.5 text-right align-middle">
+                      <Link
+                        href={`/dashboard/users/${crew.id}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Open user profile"
+                      >
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </Link>
                     </TableCell>
                   </TableRow>
-                ) : (
-                  filteredAndSortedCrew.map((crew) => (
-                    <TableRow key={crew.id}>
-                      <TableCell className="font-medium">
-                        {crew.firstName} {crew.lastName}
-                      </TableCell>
-                      <TableCell>{crew.username}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-3 w-3 text-muted-foreground" />
-                          {crew.email}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={crew.role === 'captain' ? 'default' : 'secondary'}>
-                          {crew.role}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {crew.lastSignInAt ? (
-                          <div className="flex flex-col">
-                            <span>{format(parse(crew.lastSignInAt, 'yyyy-MM-dd HH:mm:ss', new Date()), 'MMM d, yyyy')}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {format(parse(crew.lastSignInAt, 'yyyy-MM-dd HH:mm:ss', new Date()), 'h:mm a')}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">Never</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {crew.daysSinceLastLogin !== null ? (
-                          <span className={crew.daysSinceLastLogin > 30 ? 'text-destructive font-medium' : 'text-green-600'}>
-                            {crew.daysSinceLastLogin} days
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {crew.daysSinceAccountCreation} days
-                      </TableCell>
-                      <TableCell>
-                        {crew.lastSignInAt === null ? (
-                          <Badge variant="destructive">Never</Badge>
-                        ) : crew.daysSinceLastLogin !== null && crew.daysSinceLastLogin <= 7 ? (
-                          <Badge variant="default" className="bg-green-600">Active</Badge>
-                        ) : crew.daysSinceLastLogin !== null && crew.daysSinceLastLogin <= 30 ? (
-                          <Badge variant="secondary">Recent</Badge>
-                        ) : (
-                          <Badge variant="destructive">Inactive</Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }
 
+function RoleChip({ role }: { role: string }) {
+  return (
+    <span
+      className={cn(
+        'rounded border px-1.5 py-0.5 text-[10px] capitalize',
+        role === 'captain'
+          ? 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400'
+          : 'border-border bg-muted/60 text-muted-foreground',
+      )}
+    >
+      {role}
+    </span>
+  );
+}
+
+function StatusChip({
+  lastSignInAt,
+  daysSinceLastLogin,
+}: {
+  lastSignInAt: string | null;
+  daysSinceLastLogin: number | null;
+}) {
+  if (lastSignInAt === null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+        Never
+      </span>
+    );
+  }
+  if (daysSinceLastLogin !== null && daysSinceLastLogin <= 7) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        Active
+      </span>
+    );
+  }
+  if (daysSinceLastLogin !== null && daysSinceLastLogin <= 30) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
+        <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+        Recent
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      Inactive
+    </span>
+  );
+}

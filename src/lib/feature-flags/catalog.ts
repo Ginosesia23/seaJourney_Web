@@ -19,6 +19,7 @@ export type FeatureFlagKey =
   | 'crew_rotation'
   | 'testimonials'
   | 'apply_tickets'
+  | 'career_progress'
   | 'vessel_document_generator'
   | 'certificates'
   | 'proof_of_service'
@@ -35,6 +36,10 @@ export type FeatureFlagDefinition = {
   routes: string[];
   /** Default when no DB row exists. */
   defaultEnabled: boolean;
+  /** Lowest crew tier with access when globally enabled (higher tiers inherit). */
+  defaultMinCrewTier?: string | null;
+  /** Lowest vessel tier with access when globally enabled (higher tiers inherit). */
+  defaultMinVesselTier?: string | null;
 };
 
 export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
@@ -46,6 +51,8 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'both',
     routes: ['/dashboard/passages-map'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
+    defaultMinVesselTier: 'vessel_basic',
   },
   {
     key: 'passage_logbook',
@@ -54,6 +61,8 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'both',
     routes: ['/dashboard/passage-logbook'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
+    defaultMinVesselTier: 'vessel_lite',
   },
   {
     key: 'ais_history_import',
@@ -62,6 +71,8 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'both',
     routes: ['/dashboard/ais-import'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
+    defaultMinVesselTier: 'vessel_basic',
   },
   {
     key: 'ais_live_tracking',
@@ -71,6 +82,8 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'both',
     routes: [],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
+    defaultMinVesselTier: 'vessel_basic',
   },
   {
     key: 'visa_tracker',
@@ -79,6 +92,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'crew',
     routes: ['/dashboard/visa-tracker'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
   },
   {
     key: 'bridge_watch_log',
@@ -87,6 +101,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'crew',
     routes: ['/dashboard/bridge-watch-log'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
   },
   {
     key: 'watch_schedule',
@@ -95,6 +110,8 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'both',
     routes: ['/dashboard/watch-schedule', '/dashboard/my-watch-schedule'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
+    defaultMinVesselTier: 'vessel_basic',
   },
   {
     key: 'crew_rotation',
@@ -103,6 +120,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'vessel',
     routes: ['/dashboard/crew-rotation'],
     defaultEnabled: true,
+    defaultMinVesselTier: 'vessel_basic',
   },
   {
     key: 'testimonials',
@@ -111,6 +129,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'crew',
     routes: ['/dashboard/career-documents', '/dashboard/applications'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
   },
   {
     key: 'apply_tickets',
@@ -119,6 +138,17 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'crew',
     routes: ['/dashboard/apply'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
+  },
+  {
+    key: 'career_progress',
+    label: 'Career progress',
+    description:
+      'Crew career ladder — next-ticket requirements and milestone tracking.',
+    audience: 'crew',
+    routes: ['/dashboard/career-progress'],
+    defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
   },
   {
     key: 'vessel_document_generator',
@@ -127,6 +157,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'vessel',
     routes: ['/dashboard/documents'],
     defaultEnabled: true,
+    defaultMinVesselTier: 'vessel_basic',
   },
   {
     key: 'certificates',
@@ -135,6 +166,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'crew',
     routes: ['/dashboard/certificates'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
   },
   {
     key: 'proof_of_service',
@@ -143,6 +175,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'crew',
     routes: ['/dashboard/career-documents', '/dashboard/proof-of-service'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
   },
   {
     key: 'sea_time_request',
@@ -151,6 +184,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'crew',
     routes: ['/dashboard/sea-time-request'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
   },
   {
     key: 'export_reports',
@@ -159,6 +193,8 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'both',
     routes: ['/dashboard/export'],
     defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
+    defaultMinVesselTier: 'vessel_lite',
   },
   {
     key: 'vessel_team_accounts',
@@ -167,6 +203,7 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     audience: 'vessel',
     routes: ['/dashboard/vessel-roles'],
     defaultEnabled: true,
+    defaultMinVesselTier: 'vessel_basic',
   },
 ];
 
@@ -178,16 +215,39 @@ export function getFeatureDefinition(
   return FEATURE_FLAG_CATALOG.find((f) => f.key === key);
 }
 
+function normalizeDashboardPath(pathname: string): string {
+  return pathname.split('?')[0].replace(/\/$/, '') || pathname;
+}
+
+function routeMatchesPath(pathname: string, route: string): boolean {
+  const path = normalizeDashboardPath(pathname);
+  return path === route || path.startsWith(`${route}/`);
+}
+
+/** First matching feature flag for a route (legacy / single-flag callers). */
 export function featureFlagForRoute(pathname: string): FeatureFlagKey | null {
-  const path = pathname.split('?')[0].replace(/\/$/, '') || pathname;
   for (const feature of FEATURE_FLAG_CATALOG) {
     for (const route of feature.routes) {
-      if (path === route || path.startsWith(`${route}/`)) {
+      if (routeMatchesPath(pathname, route)) {
         return feature.key;
       }
     }
   }
   return null;
+}
+
+/** All feature flags that gate a dashboard route (some routes map to multiple flags). */
+export function featureFlagsForRoute(pathname: string): FeatureFlagKey[] {
+  const keys: FeatureFlagKey[] = [];
+  for (const feature of FEATURE_FLAG_CATALOG) {
+    for (const route of feature.routes) {
+      if (routeMatchesPath(pathname, route)) {
+        keys.push(feature.key);
+        break;
+      }
+    }
+  }
+  return keys;
 }
 
 /** Resolve enabled map from catalog defaults + DB overrides. */

@@ -44,9 +44,9 @@ const TONE: Record<
     accent: 'bg-orange-500',
   },
   purple: {
-    container: 'border-purple-200/70 bg-purple-50/60 dark:border-purple-900/60 dark:bg-purple-950/30',
-    value: 'text-purple-700 dark:text-purple-300',
-    accent: 'bg-purple-500',
+    container: 'border-[#7629BB]/25 bg-[#7629BB]/5 dark:border-purple-900/60 dark:bg-purple-950/30',
+    value: 'text-[#7629BB] dark:text-purple-300',
+    accent: 'bg-[#7629BB]',
   },
   muted: {
     container: 'border-border bg-muted/40',

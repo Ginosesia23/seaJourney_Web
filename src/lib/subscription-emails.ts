@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { EMAIL_PRIMARY_BLUE } from "@/lib/email-colors";
+import { formatSubscriptionTierLabel } from '@/lib/subscription-tier-labels';
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 const SITE_URL = process.env.SITE_URL || "https://www.seajourney.co.uk";
@@ -10,12 +11,7 @@ const BILLING_FROM =
  * Format tier name for display
  */
 export function formatTierName(tier: string | null | undefined): string {
-  if (!tier) return "Free";
-  const cleaned = tier.replace(/^(sj_|sea_journey_)/i, "").trim();
-  return cleaned
-    .split("_")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(" ");
+  return formatSubscriptionTierLabel(tier);
 }
 
 /**
@@ -492,6 +488,8 @@ function billingEmailShell(args: {
   title: string;
   introHtml: string;
   rows: Array<{ label: string; value: string }>;
+  ctaHref?: string;
+  ctaLabel?: string;
 }): string {
   const rowsHtml = args.rows
     .map(
@@ -502,6 +500,8 @@ function billingEmailShell(args: {
                 </tr>`,
     )
     .join("");
+  const ctaHref = args.ctaHref || `${SITE_URL}/dashboard/subscription`;
+  const ctaLabel = args.ctaLabel || 'View subscription';
 
   return `
 <!DOCTYPE html>
@@ -536,7 +536,7 @@ function billingEmailShell(args: {
           </tr>
           <tr>
             <td align="center" style="padding:16px 24px 10px;">
-              <a href="${SITE_URL}/dashboard/subscription" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">View subscription</a>
+              <a href="${ctaHref}" style="display:inline-block;padding:12px 26px;background-color:${EMAIL_PRIMARY_BLUE};color:#ffffff;text-decoration:none;border-radius:999px;font-size:14px;font-weight:600;">${ctaLabel}</a>
             </td>
           </tr>
           <tr>
@@ -643,6 +643,104 @@ export async function sendPersonalPlanResumedAfterVesselEmail(args: {
       rows: [
         { label: "Resumed plan:", value: planName },
         { label: "Status:", value: "Active" },
+      ],
+    }),
+  });
+}
+
+/** Vessel account: crew asked to fall under this vessel's subscription. */
+export async function sendVesselPlanCoverageRequestEmail(args: {
+  toEmail: string;
+  vesselName: string;
+  crewName: string;
+  crewEmail?: string | null;
+}) {
+  const greeting = "Hi,";
+  const crewLine = args.crewEmail
+    ? `${args.crewName} (${args.crewEmail})`
+    : args.crewName;
+  return sendBillingHtmlEmail({
+    toEmail: args.toEmail,
+    logLabel: "vessel-plan-coverage-request",
+    subject: `${args.crewName} requested to join your SeaJourney vessel plan`,
+    html: billingEmailShell({
+      eyebrow: "Plan coverage request",
+      title: "Approve crew plan coverage",
+      introHtml: `
+              <p style="margin:0 0 10px;">${greeting}</p>
+              <p style="margin:0 0 10px;">
+                <strong>${crewLine}</strong> has an active assignment on
+                <strong>${args.vesselName}</strong> and asked to pause their personal SeaJourney
+                plan while using your vessel subscription.
+              </p>
+              <p style="margin:0 0 10px;">
+                Approve the request in your Inbox only if this person is actually on your vessel.
+                Until you approve, their personal billing stays active.
+              </p>`,
+      rows: [
+        { label: "Crew:", value: crewLine },
+        { label: "Vessel:", value: args.vesselName },
+      ],
+      ctaHref: `${SITE_URL}/dashboard/inbox`,
+      ctaLabel: "Open Inbox",
+    }),
+  });
+}
+
+/** Crew: vessel approved or rejected plan coverage. */
+export async function sendVesselPlanCoverageDecisionEmail(args: {
+  toEmail: string;
+  firstName?: string | null;
+  vesselName: string;
+  approved: boolean;
+  rejectionReason?: string | null;
+}) {
+  const greeting = args.firstName?.trim() ? `Hi ${args.firstName.trim()},` : "Hi,";
+  if (args.approved) {
+    return sendBillingHtmlEmail({
+      toEmail: args.toEmail,
+      logLabel: "vessel-plan-coverage-approved",
+      subject: `${args.vesselName} approved your SeaJourney plan coverage`,
+      html: billingEmailShell({
+        eyebrow: "Plan coverage approved",
+        title: "You are covered by the vessel plan",
+        introHtml: `
+              <p style="margin:0 0 10px;">${greeting}</p>
+              <p style="margin:0 0 10px;">
+                <strong>${args.vesselName}</strong> approved your request. Your personal plan will
+                pause while you are assigned to that vessel, and you will use the vessel&apos;s
+                SeaJourney access instead.
+              </p>`,
+        rows: [
+          { label: "Vessel:", value: args.vesselName },
+          { label: "Status:", value: "Approved" },
+        ],
+      }),
+    });
+  }
+
+  const reason = args.rejectionReason?.trim();
+  return sendBillingHtmlEmail({
+    toEmail: args.toEmail,
+    logLabel: "vessel-plan-coverage-rejected",
+    subject: `${args.vesselName} declined your SeaJourney plan coverage request`,
+    html: billingEmailShell({
+      eyebrow: "Plan coverage declined",
+      title: "Vessel plan coverage declined",
+      introHtml: `
+              <p style="margin:0 0 10px;">${greeting}</p>
+              <p style="margin:0 0 10px;">
+                <strong>${args.vesselName}</strong> declined your request to fall under their
+                vessel subscription. Your personal plan stays active.
+              </p>
+              ${
+                reason
+                  ? `<p style="margin:0 0 10px;"><strong>Reason:</strong> ${reason}</p>`
+                  : ""
+              }`,
+      rows: [
+        { label: "Vessel:", value: args.vesselName },
+        { label: "Status:", value: "Declined" },
       ],
     }),
   });
