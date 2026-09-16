@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   canonicalizeVesselTier,
   hasAisHistoryImportTier,
+  hasCrewAisLiveTrackingTier,
 } from '@/supabase/database/subscription-helpers';
 import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-tier';
 
@@ -236,6 +237,98 @@ export async function authenticateAisTrackingStatusReader(
       vesselId,
       supabaseAdmin,
     );
+  }
+
+  return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+}
+
+/**
+ * Read central vessel AIS: vessel managers, assigned premium crew, linked team, admin.
+ * Does not require AIS tracking to be enabled — callers may show last-known position.
+ */
+export async function authenticateVesselAisReader(
+  request: Request,
+  supabaseAdmin: SupabaseClient,
+  vesselId: string,
+): Promise<{ vessel: VesselAisRow; userId: string } | { error: NextResponse }> {
+  const authResult = await authenticateBearerUser(request, supabaseAdmin);
+  if ('error' in authResult) return authResult;
+
+  const role = String(authResult.auth.profile.role || '').toLowerCase();
+  const tier = String(
+    authResult.auth.profile.subscription_tier ||
+      authResult.auth.profile.subscriptionTier ||
+      '',
+  ).toLowerCase();
+
+  if (role === 'admin') {
+    const { data: vessel, error } = await supabaseAdmin
+      .from('vessels')
+      .select(
+        'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
+      )
+      .eq('id', vesselId)
+      .maybeSingle();
+    if (error || !vessel) {
+      return { error: NextResponse.json({ error: 'Vessel not found' }, { status: 404 }) };
+    }
+    return { vessel: vessel as VesselAisRow, userId: authResult.auth.userId };
+  }
+
+  if (role === 'vessel') {
+    if (!hasVesselAisTrackingTier(authResult.auth.profile)) {
+      return {
+        error: NextResponse.json(
+          {
+            error:
+              'Live AIS tracking requires Vessel Premium, Professional, or Fleet.',
+          },
+          { status: 402 },
+        ),
+      };
+    }
+    const vesselResult = await assertVesselManagerForVessel(
+      authResult.auth,
+      vesselId,
+      supabaseAdmin,
+    );
+    if ('error' in vesselResult) return vesselResult;
+    return { ...vesselResult, userId: authResult.auth.userId };
+  }
+
+  if (tier === 'vessel_linked') {
+    const vesselResult = await assertVesselLinkedViewerForVessel(
+      authResult.auth,
+      vesselId,
+      supabaseAdmin,
+    );
+    if ('error' in vesselResult) return vesselResult;
+    return { ...vesselResult, userId: authResult.auth.userId };
+  }
+
+  if (role === 'crew' || role === 'captain') {
+    const { getCrewVesselFeatureBoost } = await import(
+      '@/lib/crew-vessel-feature-boost.server'
+    );
+    const vesselBoost = await getCrewVesselFeatureBoost(authResult.auth.userId);
+    if (!hasCrewAisLiveTrackingTier(authResult.auth.profile, vesselBoost)) {
+      return {
+        error: NextResponse.json(
+          {
+            error:
+              'Live AIS tracking requires Crew Premium or Professional.',
+          },
+          { status: 402 },
+        ),
+      };
+    }
+    const vesselResult = await assertAisHistoryVesselAccess(
+      authResult.auth,
+      vesselId,
+      supabaseAdmin,
+    );
+    if ('error' in vesselResult) return vesselResult;
+    return { ...vesselResult, userId: authResult.auth.userId };
   }
 
   return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };

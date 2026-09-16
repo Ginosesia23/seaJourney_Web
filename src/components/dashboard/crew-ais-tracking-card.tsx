@@ -15,16 +15,11 @@ import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-hel
 import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import type { DailyStatus } from '@/lib/types';
 
-/** Auto-sync at most once per hour while this page is open. */
-const CREW_AIS_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
-
-function shouldRunAutoSync(lastSyncAt: string | null | undefined): boolean {
-  if (!lastSyncAt) return true;
-  const t = Date.parse(lastSyncAt);
-  if (!Number.isFinite(t)) return true;
-  return Date.now() - t >= CREW_AIS_AUTO_SYNC_INTERVAL_MS;
-}
-
+import {
+  AIS_REFRESH_INTERVAL_UNDERWAY_MS,
+  isAisCacheFresh,
+} from '@/lib/ais/constants';
+import { useCentralVesselAis } from '@/lib/ais/use-central-vessel-ais';
 type CrewSample = {
   id: string;
   state: string;
@@ -81,6 +76,13 @@ export function CrewAisTrackingCard({
   const [toggling, setToggling] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
+  const activeVesselId = status?.activeVessel?.vesselId ?? null;
+  const { ais: centralAis, refresh: refreshCentralAis } = useCentralVesselAis({
+    vesselId: activeVesselId,
+    accessToken,
+    enabled: eligible && !!status?.enabled && !!activeVesselId,
+  });
+
   const onStateUpdatedRef = useRef(onStateUpdated);
   useEffect(() => {
     onStateUpdatedRef.current = onStateUpdated;
@@ -126,6 +128,9 @@ export function CrewAisTrackingCard({
       if (!accessToken || !status?.enabled || onLeaveToday) return false;
       setSyncing(true);
       try {
+        if (activeVesselId) {
+          await refreshCentralAis(true);
+        }
         const res = await fetch('/api/ais/crew-tracking', {
           method: 'POST',
           headers: {
@@ -170,10 +175,10 @@ export function CrewAisTrackingCard({
         setSyncing(false);
       }
     },
-    [accessToken, loadStatus, status?.enabled, onLeaveToday],
+    [accessToken, activeVesselId, loadStatus, onLeaveToday, refreshCentralAis, status?.enabled],
   );
 
-  // Auto-sync on page load if stale + every hour while open.
+  // Sea-service sync: check every 5 min; only run when adaptive window expired.
   const runSyncRef = useRef(runSync);
   useEffect(() => {
     runSyncRef.current = runSync;
@@ -184,19 +189,31 @@ export function CrewAisTrackingCard({
     let cancelled = false;
     const autoSync = async () => {
       if (cancelled) return;
+      const state = centralAis?.state;
+      const fetchedAt = centralAis?.fetchedAt ?? status?.lastSyncAt;
+      if (fetchedAt && isAisCacheFresh(fetchedAt, state)) {
+        return;
+      }
       await runSyncRef.current({ silent: true });
     };
-    if (shouldRunAutoSync(status?.lastSyncAt)) {
+    if (!status?.lastSyncAt && !centralAis?.fetchedAt) {
       void autoSync();
     }
     const interval = window.setInterval(() => {
       void autoSync();
-    }, CREW_AIS_AUTO_SYNC_INTERVAL_MS);
+    }, AIS_REFRESH_INTERVAL_UNDERWAY_MS);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [trackingActive, status?.lastSyncAt, accessToken, loading]);
+  }, [
+    trackingActive,
+    status?.lastSyncAt,
+    centralAis?.fetchedAt,
+    centralAis?.state,
+    accessToken,
+    loading,
+  ]);
 
   const handleToggle = async (enabled: boolean) => {
     if (!accessToken) return;
@@ -271,17 +288,23 @@ export function CrewAisTrackingCard({
   const underwayHours = underwayHoursMatch ? underwayHoursMatch[1] : null;
   const liveBits = [
     active?.vesselName || null,
-    latestSample?.navStatus || null,
-    latestSample?.speedKn != null
-      ? `${Number(latestSample.speedKn).toFixed(1)} kn`
+    centralAis?.rawNavigationStatus ?? latestSample?.navStatus ?? null,
+    (centralAis?.speed ?? latestSample?.speedKn) != null
+      ? `${Number(centralAis?.speed ?? latestSample?.speedKn).toFixed(1)} kn`
       : null,
     resolvedState
       ? `today ${STATE_LABELS[resolvedState] || resolvedState}`
       : null,
     underwayHours ? `${underwayHours}h underway` : null,
-    status?.lastSyncAt
-      ? `synced ${format(parseISO(status.lastSyncAt), 'd MMM · HH:mm')}`
-      : null,
+    centralAis?.fetchedAt
+      ? `updated ${format(parseISO(centralAis.fetchedAt), 'd MMM · HH:mm')}${
+          centralAis.stale && centralAis.ageMinutes != null
+            ? ` · AIS data last updated ${centralAis.ageMinutes} minutes ago`
+            : ''
+        }`
+      : status?.lastSyncAt
+        ? `synced ${format(parseISO(status.lastSyncAt), 'd MMM · HH:mm')}`
+        : null,
   ].filter(Boolean);
 
   return (

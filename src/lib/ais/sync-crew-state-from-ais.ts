@@ -23,10 +23,11 @@
  * pass so multiple crew on the same vessel only cost one API call.
  */
 
-import { fetchVesselPosition, type DatalasticVesselPosition } from '@/lib/datalastic/client';
+import { getLatestAIS, getVesselAIS } from '@/lib/ais/ais-service';
+import { isAisCacheFresh } from '@/lib/ais/constants';
+import type { DatalasticVesselPosition } from '@/lib/datalastic/client';
 import {
   buildAisStateNote,
-  getNormalizedAisNavStatus,
   isAisPositionStale,
   logDateForLiveAisSync,
 } from '@/lib/ais/map-ais-to-state';
@@ -38,11 +39,8 @@ import {
 import type { AisAnalyzeOptions } from '@/lib/ais/analyze-daily-state';
 import {
   LIVE_SAMPLE_THRESHOLDS,
-  resolveLiveSampleState,
-  type PreviousSample,
 } from '@/lib/ais/resolve-live-sample-state';
 import {
-  findPlaceMemoryHint,
   recordPlaceMemoryVisit,
 } from '@/lib/ais/place-memory';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
@@ -74,10 +72,13 @@ export type CrewAisSyncResult = {
 };
 
 /**
- * Cached-per-cron-run Datalastic position, keyed by vessel id.
- * Prevents duplicate API calls for multiple crew on the same vessel.
+ * Cached-per-cron-run central AIS snapshot, keyed by vessel id.
+ * Prevents duplicate provider calls for multiple crew on the same vessel.
  */
-type PositionCache = Map<string, DatalasticVesselPosition | null>;
+type PositionCache = Map<
+  string,
+  Awaited<ReturnType<typeof getVesselAIS>> | null
+>;
 
 type CrewCandidate = {
   userId: string;
@@ -97,8 +98,8 @@ const SAMPLE_RETENTION_DAYS = 8;
 export async function syncCrewStateFromAis(
   candidate: CrewCandidate,
   options?: {
-    /** Precomputed position (skips Datalastic). Pass `null` to reject the sync. */
-    position?: DatalasticVesselPosition | null;
+    /** Precomputed central AIS snapshot (skips provider). Pass `null` to reject. */
+    position?: Awaited<ReturnType<typeof getVesselAIS>> | null;
     /** Override log date (defaults to server-side today). */
     logDate?: string | null;
   },
@@ -196,20 +197,27 @@ export async function syncCrewStateFromAis(
       };
     }
 
-    const position =
+    const aisSnapshot =
       options?.position !== undefined
         ? options.position
-        : await fetchVesselPosition({ mmsi, imo });
+        : await getVesselAIS(vesselId, {
+            refreshIfStale: true,
+            triggerSource: 'crew-sync',
+          });
 
-    if (!position) {
+    if (!aisSnapshot?.rawPosition) {
       return recordUserSyncError(userId, {
         ok: false,
         skipped: true,
-        reason: 'AIS provider returned no position for this vessel.',
+        reason:
+          aisSnapshot?.refreshError ??
+          'AIS provider returned no position for this vessel.',
         userId,
         vesselId,
       });
     }
+
+    const position = aisSnapshot.rawPosition;
 
     if (isAisPositionStale(position)) {
       return recordUserSyncError(userId, {
@@ -221,104 +229,51 @@ export async function syncCrewStateFromAis(
       });
     }
 
-    const navStatus = getNormalizedAisNavStatus(position) || null;
-    const speedKn = typeof position.speed === 'number' ? position.speed : null;
-    const lat = typeof position.lat === 'number' ? position.lat : null;
-    const lon = typeof position.lon === 'number' ? position.lon : null;
+    const navStatus = aisSnapshot.rawNavigationStatus;
+    const speedKn = aisSnapshot.speedKn;
+    const lat = aisSnapshot.latitude;
+    const lon = aisSnapshot.longitude;
 
-    // 0. Load the previous most-recent sample BEFORE inserting the new one.
-    //    We need its state AND its coordinates so `resolveLiveSampleState`
-    //    can run its position-stability check (the primary anti-flip-flop
-    //    heuristic). See resolve-live-sample-state.ts for the algorithm.
+    // Use the vessel-level classified state from the central AIS service.
+    const state = aisSnapshot.state;
+
+    const locationContext = await loadLocationContext(lat, lon);
+    const previousDay = await loadPreviousDayContext(userId, vesselId, logDate);
+
     const { data: prevSampleRow } = await supabaseAdmin
       .from('crew_ais_state_samples')
-      .select('state, sampled_at, nav_status, lat, lon')
+      .select('state')
       .eq('user_id', userId)
       .eq('vessel_id', vesselId)
       .order('sampled_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    const previousSample: PreviousSample | null = prevSampleRow
-      ? {
-          state: prevSampleRow.state as DailyStatus,
-          lat: (prevSampleRow.lat as number) ?? null,
-          lon: (prevSampleRow.lon as number) ?? null,
-          sampledAt: prevSampleRow.sampled_at as string,
-        }
-      : null;
-    const previousSampleState = previousSample?.state ?? null;
-
-    // Reverse-geocode the current position up front. The resolver uses it
-    // as a tie-breaker when AIS is ambiguous and position stability isn't
-    // enough (e.g. very first sample for a user, or after a big passage).
-    const locationContext = await loadLocationContext(lat, lon);
-
-    // Load yesterday's resolved state + last known coords BEFORE the
-    // per-sample resolver so we can pass it in as the "yesterday anchor".
-    // This is what lets the resolver lock today's samples to yesterday's
-    // state when the vessel hasn't actually moved from yesterday's spot,
-    // bypassing intra-day previous-sample flip-flops. Also reused as the
-    // analyzer's `previousDay` context further down — one query, two uses.
-    const previousDay = await loadPreviousDayContext(userId, vesselId, logDate);
-
-    const placeMemory = await findPlaceMemoryHint({
-      vesselId,
-      lat,
-      lon,
-    });
-
-    // Resolve the stabilized state for this fix. Unlike `mapAisToDailyStatus`
-    // (which is a pure single-fix mapping) this considers previous position,
-    // anchor-swing tolerance, geocoded context, yesterday's anchor, and
-    // historical place memory to filter out drift noise.
-    const resolution = resolveLiveSampleState({
-      position,
-      previousSample,
-      yesterdayAnchor: previousDay
-        ? {
-            state: previousDay.state,
-            lat: previousDay.lastLatitude,
-            lon: previousDay.lastLongitude,
-          }
-        : null,
-      placeMemory,
-      locationContext,
-    });
+    const previousSampleState = (prevSampleRow?.state as DailyStatus) ?? null;
 
     if (
-      resolution.state === 'at-anchor' ||
-      resolution.state === 'in-port' ||
-      resolution.state === 'in-yard'
+      state === 'at-anchor' ||
+      state === 'in-port' ||
+      state === 'in-yard'
     ) {
       void recordPlaceMemoryVisit({
         vesselId,
         lat,
         lon,
-        state: resolution.state,
+        state,
         placeName: locationContext?.endOfDayPlaceName ?? null,
       });
     }
-    const state = resolution.state;
 
-    console.log('[crew-ais-sync] resolved sample state', {
+    console.log('[crew-ais-sync] central AIS sample state', {
       userId,
       resolvedState: state,
-      confidence: resolution.confidence,
-      reason: resolution.reason,
-      distanceNm: resolution.distanceFromPreviousNm,
-      positionChangedMeaningfully: resolution.positionChangedMeaningfully,
-      previousState: previousSampleState,
+      source: aisSnapshot.source,
+      stale: aisSnapshot.stale,
       speedKn,
       navStatus,
     });
 
-    // 1. Insert an hourly sample. The `(user_id, date_trunc('hour', sampled_at))`
-    //    unique index makes duplicate runs within the same hour raise 23505 —
-    //    we treat that as a *soft* skip for the insert (samples are append-only
-    //    and we never want to overwrite the historical record), but we still
-    //    fall through to steps 2–4 so a manual "Sync now" ALWAYS re-aggregates
-    //    and refreshes today's daily_state_log, even if we can't add a new
-    //    hourly sample.
+    // 1. Insert a 30-minute sample. Duplicate bucket → soft skip (23505).
     const { data: sample, error: sampleError } = await supabaseAdmin
       .from('crew_ais_state_samples')
       .insert({
@@ -492,17 +447,7 @@ export async function syncCrewStateFromAis(
       })
       .eq('id', userId);
 
-    // 5. State-change detection → push notification.
-    //    Only when:
-    //      * the RESOLVED state (position-stability aware) differs from the
-    //        previous sample's state — not the raw single-fix mapping, so
-    //        anchor-drift SOG noise never triggers a notification;
-    //      * we actually recorded a new sample this hour (no notification
-    //        on re-aggregation-only "Sync now" refreshes);
-    //      * we had a previous sample to compare against;
-    //      * `shouldNotifyForTransition` agrees — this suppresses label
-    //        flips that aren't backed by real vessel movement (see below).
-    //    Fire-and-forget — notification failures don't fail the sync.
+    // 5. State-change detection → push notification (central AIS state transitions).
     if (
       !alreadySampledThisHour &&
       previousSampleState &&
@@ -510,8 +455,8 @@ export async function syncCrewStateFromAis(
       shouldNotifyForTransition({
         previousState: previousSampleState,
         newState: state,
-        resolutionConfidence: resolution.confidence,
-        distanceNm: resolution.distanceFromPreviousNm,
+        resolutionConfidence: 'explicit-ais',
+        distanceNm: null,
         speedKn,
       })
     ) {
@@ -532,8 +477,6 @@ export async function syncCrewStateFromAis(
         userId,
         transition: `${previousSampleState} → ${state}`,
         reason: 'below movement/confidence threshold',
-        confidence: resolution.confidence,
-        distanceNm: resolution.distanceFromPreviousNm,
       });
     }
 
@@ -775,26 +718,52 @@ export async function syncAllEnabledCrewAis(): Promise<CrewAisSyncResult[]> {
 
   for (const candidate of candidates) {
     const cacheKey = candidate.vesselId;
-    let position = positionCache.get(cacheKey);
-    if (position === undefined) {
+    let aisSnapshot = positionCache.get(cacheKey);
+    if (aisSnapshot === undefined) {
       try {
-        position = await fetchVesselPosition({
-          mmsi: candidate.mmsi,
-          imo: candidate.imo,
-        });
+        const latest = await getLatestAIS(candidate.vesselId);
+        // Cron ticks every 5 min; only refresh when the adaptive window expired.
+        if (latest && isAisCacheFresh(latest.fetched_at, latest.seajourney_state)) {
+          aisSnapshot = await getVesselAIS(candidate.vesselId, {
+            refreshIfStale: false,
+            triggerSource: 'crew-cron:cache',
+          });
+        } else {
+          aisSnapshot = await getVesselAIS(candidate.vesselId, {
+            refreshIfStale: true,
+            triggerSource: 'crew-cron',
+          });
+        }
       } catch (err) {
         console.warn(
-          '[crew-ais-cron] Datalastic fetch failed for vessel',
+          '[crew-ais-cron] central AIS fetch failed for vessel',
           candidate.vesselId,
           err,
         );
-        position = null;
+        aisSnapshot = null;
       }
-      positionCache.set(cacheKey, position);
+      positionCache.set(cacheKey, aisSnapshot);
+    }
+
+    // No new provider data needed — skip sample/aggregate work this tick.
+    if (
+      aisSnapshot &&
+      aisSnapshot.source === 'cache' &&
+      !aisSnapshot.stale &&
+      isAisCacheFresh(aisSnapshot.fetchedAt, aisSnapshot.state)
+    ) {
+      results.push({
+        ok: true,
+        skipped: true,
+        reason: `AIS cache still fresh for ${aisSnapshot.state} (adaptive interval)`,
+        userId: candidate.userId,
+        vesselId: candidate.vesselId,
+      });
+      continue;
     }
 
     results.push(
-      await syncCrewStateFromAis(candidate, { position }),
+      await syncCrewStateFromAis(candidate, { position: aisSnapshot }),
     );
   }
 

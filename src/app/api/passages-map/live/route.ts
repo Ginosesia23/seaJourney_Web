@@ -5,11 +5,10 @@
  * is underway, the active in-progress passage track built from recent
  * hourly samples.
  *
- * Cache / Datalastic:
- *   Crew — READ-ONLY against `crew_ais_state_samples` (hourly cron writes).
+ * Cache / central AIS:
+ *   Crew — READ from `crew_ais_state_samples` (cron writes via central service).
  *   Vessel — READ from `vessel_ais_state_samples`. With `?refresh=1`
- *   (map page first load), also hits Datalastic once per managed vessel
- *   that has AIS tracking enabled so the live pin is fresh.
+ *   (map page first load), calls the central AIS service (not Datalastic directly).
  *
  * Scope:
  *   Crew — one row per vessel with an ACTIVE assignment.
@@ -29,12 +28,9 @@ import {
 } from '@/lib/passages-map/build-live-track';
 import { assignOrderedVesselColors } from '@/lib/passages-map/vessel-colors';
 import { resolveLinkedVesselScope } from '@/lib/passages-map/linked-vessel-scope';
-import { fetchVesselPosition } from '@/lib/datalastic/client';
-import {
-  getNormalizedAisNavStatus,
-  isAisPositionStale,
-  mapAisToDailyStatus,
-} from '@/lib/ais/map-ais-to-state';
+import { getVesselAIS } from '@/lib/ais/ais-service';
+import { getAisRefreshIntervalMs } from '@/lib/ais/constants';
+import { isAisPositionStale } from '@/lib/ais/map-ais-to-state';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -43,8 +39,13 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 /** How far back we look for samples to build the active track. */
 const ACTIVE_TRACK_LOOKBACK_MS = 72 * 60 * 60 * 1000;
-/** On refresh, skip Datalastic if we already have a fresher sample. */
-const REFRESH_IF_SAMPLE_OLDER_MS = 30 * 60 * 1000;
+/** On refresh, skip central AIS if we already have a fresher sample for that state. */
+function shouldRefreshLiveSample(latest: SampleRow | null, nowMs: number): boolean {
+  if (!latest) return true;
+  const fixMs = Date.parse(latest.ais_position_at ?? latest.sampled_at);
+  if (!Number.isFinite(fixMs)) return true;
+  return nowMs - fixMs >= getAisRefreshIntervalMs(latest.state);
+}
 
 type LivePosition = {
   lat: number;
@@ -285,56 +286,53 @@ export async function GET(req: NextRequest) {
       list.push(row);
     }
 
-    // Vessel accounts: on map load (`refresh=1`), pull a fresh AIS fix
-    // when tracking is on and samples are missing/old.
+    // Vessel accounts: on map load (`refresh=1`), refresh via central AIS service.
     if (isVesselAccount && refreshLive) {
       const nowMs = Date.now();
       await Promise.all(
         vesselIds.map(async (vesselId) => {
           const meta = vesselMetaById.get(vesselId);
           if (!meta?.ais_tracking_enabled) return;
-          if (!meta.mmsi && !meta.imo) return;
 
           const existing = samplesByVessel.get(vesselId) ?? [];
           const latest = existing.length > 0 ? existing[existing.length - 1]! : null;
-          if (latest) {
-            const fixMs = Date.parse(latest.ais_position_at ?? latest.sampled_at);
-            if (Number.isFinite(fixMs) && nowMs - fixMs < REFRESH_IF_SAMPLE_OLDER_MS) {
-              return;
-            }
+          if (!shouldRefreshLiveSample(latest, nowMs)) {
+            return;
           }
 
           try {
-            const position = await fetchVesselPosition({
-              mmsi: meta.mmsi,
-              imo: meta.imo,
+            const aisSnapshot = await getVesselAIS(vesselId, {
+              refreshIfStale: true,
+              triggerSource: 'passages-map:live',
             });
-            const lat = position.lat ?? null;
-            const lon = position.lon ?? null;
+            const lat = aisSnapshot.latitude;
+            const lon = aisSnapshot.longitude;
             if (lat == null || lon == null) return;
-            if (isAisPositionStale(position)) return;
+            if (aisSnapshot.rawPosition && isAisPositionStale(aisSnapshot.rawPosition)) {
+              return;
+            }
 
-            const sampledAt = new Date().toISOString();
-            const aisPositionAt = position.last_position_UTC ?? sampledAt;
-            const navStatus = getNormalizedAisNavStatus(position) || null;
-            const state = mapAisToDailyStatus(position);
+            const sampledAt = aisSnapshot.fetchedAt;
+            const aisPositionAt =
+              aisSnapshot.providerTimestamp ?? sampledAt;
             const synthetic: SampleRow = {
               vessel_id: vesselId,
               lat,
               lon,
-              speed_kn: position.speed ?? null,
-              state,
-              nav_status: navStatus,
+              speed_kn: aisSnapshot.speedKn,
+              state: aisSnapshot.state,
+              nav_status: aisSnapshot.rawNavigationStatus,
               ais_position_at: aisPositionAt,
               sampled_at: sampledAt,
-              raw_position: position as unknown as Record<string, unknown>,
+              raw_position: (aisSnapshot.rawPosition ??
+                {}) as unknown as Record<string, unknown>,
             };
             const list = samplesByVessel.get(vesselId) ?? [];
             list.push(synthetic);
             samplesByVessel.set(vesselId, list);
           } catch (err) {
             console.warn(
-              '[passages-map/live] vessel AIS refresh failed',
+              '[passages-map/live] central AIS refresh failed',
               vesselId,
               err instanceof Error ? err.message : err,
             );

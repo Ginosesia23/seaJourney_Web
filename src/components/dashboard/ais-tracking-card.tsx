@@ -19,16 +19,12 @@ import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-
 import { AisWrongStateReportButton } from '@/components/dashboard/ais-wrong-state-report-button';
 import type { DailyStatus } from '@/lib/types';
 
-/** Minimum time between automatic AIS syncs (page load + background). */
-const AIS_AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000;
-
-function shouldRunAutoSync(lastSyncAt: string | null | undefined): boolean {
-  if (!lastSyncAt) return true;
-  const t = Date.parse(lastSyncAt);
-  if (!Number.isFinite(t)) return true;
-  return Date.now() - t >= AIS_AUTO_SYNC_INTERVAL_MS;
-}
-
+import {
+  AIS_REFRESH_INTERVAL_UNDERWAY_MS,
+  getAisRefreshIntervalMs,
+  isAisCacheFresh,
+} from '@/lib/ais/constants';
+import { useCentralVesselAis } from '@/lib/ais/use-central-vessel-ais';
 type AisTrackingStatus = {
   enabled: boolean;
   mmsi: string | null;
@@ -69,6 +65,13 @@ export function AisTrackingCard({
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  const trackingEnabled = !!status?.enabled;
+  const { ais: centralAis, refresh: refreshCentralAis } = useCentralVesselAis({
+    vesselId,
+    accessToken,
+    enabled: eligible && trackingEnabled,
+  });
 
   const localLogDate = format(new Date(), 'yyyy-MM-dd');
 
@@ -121,6 +124,8 @@ export function AisTrackingCard({
       if (readOnly || !accessToken || !status?.enabled) return false;
       setSyncing(true);
       try {
+        // Refresh central AIS + apply today's sea-service state (server-side).
+        await refreshCentralAis(true);
         const res = await fetch('/api/ais/sync', {
           method: 'POST',
           headers: {
@@ -165,10 +170,11 @@ export function AisTrackingCard({
         setSyncing(false);
       }
     },
-    [accessToken, loadStatus, readOnly, status?.enabled, vesselId],
+    [accessToken, loadStatus, localLogDate, readOnly, refreshCentralAis, status?.enabled, vesselId],
   );
 
-  // Sync on page load (if stale) and at most once per hour while this page stays open.
+  // Sea-service sync: poll on the shortest tick; only run when the adaptive
+  // AIS window for the current state has expired (5 min underway / 45 min else).
   const runSyncRef = useRef(runSync);
   useEffect(() => {
     runSyncRef.current = runSync;
@@ -181,22 +187,36 @@ export function AisTrackingCard({
 
     const autoSync = async () => {
       if (cancelled) return;
+      const state = centralAis?.state ?? status.lastNavStatus;
+      const fetchedAt = centralAis?.fetchedAt ?? status.lastSyncAt;
+      if (fetchedAt && isAisCacheFresh(fetchedAt, state === 'underway' ? 'underway' : state)) {
+        return;
+      }
       await runSyncRef.current({ silent: true });
     };
 
-    if (shouldRunAutoSync(status.lastSyncAt)) {
+    if (!status.lastSyncAt && !centralAis?.fetchedAt) {
       void autoSync();
     }
 
     const interval = window.setInterval(() => {
       void autoSync();
-    }, AIS_AUTO_SYNC_INTERVAL_MS);
+    }, AIS_REFRESH_INTERVAL_UNDERWAY_MS);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [status?.enabled, status?.lastSyncAt, accessToken, loading, readOnly]);
+  }, [
+    status?.enabled,
+    status?.lastSyncAt,
+    status?.lastNavStatus,
+    centralAis?.fetchedAt,
+    centralAis?.state,
+    accessToken,
+    loading,
+    readOnly,
+  ]);
 
   const handleToggle = async (enabled: boolean) => {
     if (readOnly || !accessToken) return;
@@ -271,11 +291,23 @@ export function AisTrackingCard({
   }
 
   const hasIdentifier = !!(mmsi || imo || status?.mmsi || status?.imo);
+  const displayNav =
+    centralAis?.rawNavigationStatus ?? status?.lastNavStatus ?? null;
+  const displaySpeed =
+    centralAis?.speed ?? status?.lastSpeed ?? null;
+  const displayFetchedAt = centralAis?.fetchedAt ?? status?.lastSyncAt ?? null;
+  const staleHint =
+    centralAis?.stale && centralAis.ageMinutes != null
+      ? ` · AIS data last updated ${centralAis.ageMinutes} minutes ago`
+      : centralAis?.refreshError
+        ? ` · ${centralAis.refreshError}`
+        : '';
+
   const liveBits = [
-    status?.lastNavStatus || null,
-    status?.lastSpeed != null ? `${Number(status.lastSpeed).toFixed(1)} kn` : null,
-    status?.lastSyncAt
-      ? `synced ${format(parseISO(status.lastSyncAt), 'd MMM · HH:mm')}`
+    displayNav,
+    displaySpeed != null ? `${Number(displaySpeed).toFixed(1)} kn` : null,
+    displayFetchedAt
+      ? `updated ${format(parseISO(displayFetchedAt), 'd MMM · HH:mm')}${staleHint}`
       : null,
   ].filter(Boolean);
 
@@ -323,7 +355,7 @@ export function AisTrackingCard({
                 <p className="text-xs leading-relaxed text-muted-foreground">
                   {readOnly
                     ? 'Daily state is set from this vessel’s live AIS.'
-                    : 'Hourly background sync sets each day automatically when enabled.'}
+                    : `Background sync every ${Math.round(getAisRefreshIntervalMs(centralAis?.state ?? 'at-anchor') / 60_000)} minutes (5 min while underway) when enabled.`}
                 </p>
               )}
             </div>
@@ -336,8 +368,8 @@ export function AisTrackingCard({
                 accountType="vessel"
                 aisEnabled={!!status.enabled}
                 detectedState={todayState}
-                aisNavStatus={status.lastNavStatus}
-                aisSpeedKn={status.lastSpeed}
+                aisNavStatus={displayNav}
+                aisSpeedKn={displaySpeed}
               />
             )}
             {!readOnly && (

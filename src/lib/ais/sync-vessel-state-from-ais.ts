@@ -12,24 +12,20 @@
  *   5. Around midnight UTC, also finalizes yesterday from stored samples
  */
 
-import { fetchVesselPosition, type DatalasticVesselPosition } from '@/lib/datalastic/client';
+import type { DatalasticVesselPosition } from '@/lib/datalastic/client';
+import { getLatestAIS, getVesselAIS } from '@/lib/ais/ais-service';
+import { isAisCacheFresh } from '@/lib/ais/constants';
 import {
   buildAisStateNote,
   getNormalizedAisNavStatus,
   isAisPositionStale,
   logDateForLiveAisSync,
-  mapAisToDailyStatus,
 } from '@/lib/ais/map-ais-to-state';
 import {
   aggregateCrewDailyState,
   type CrewAisSample,
 } from '@/lib/ais/aggregate-crew-daily-state';
 import {
-  resolveLiveSampleState,
-  type PreviousSample,
-} from '@/lib/ais/resolve-live-sample-state';
-import {
-  findPlaceMemoryHint,
   recordPlaceMemoryVisit,
 } from '@/lib/ais/place-memory';
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
@@ -262,10 +258,72 @@ export async function syncVesselStateFromAis(
   }
 
   try {
-    const position = await fetchVesselPosition({
-      mmsi: vessel.mmsi,
-      imo: vessel.imo,
+    const logDate = logDateForLiveAisSync(options?.logDate);
+
+    const { data: prevSampleRow } = await supabaseAdmin
+      .from('vessel_ais_state_samples')
+      .select('state, lat, lon, sampled_at')
+      .eq('vessel_id', vesselId)
+      .order('sampled_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const previousSample = prevSampleRow
+      ? {
+          state: prevSampleRow.state as DailyStatus,
+          lat: (prevSampleRow.lat as number) ?? null,
+          lon: (prevSampleRow.lon as number) ?? null,
+          sampledAt: prevSampleRow.sampled_at as string,
+        }
+      : null;
+
+    const previousDay = await loadPreviousDayContext(
+      vesselId,
+      managerUserId,
+      logDate,
+    );
+
+    // Central AIS service — one provider fetch per vessel (deduped + cached).
+    const aisSnapshot = await getVesselAIS(vesselId, {
+      force: options?.force,
+      refreshIfStale: true,
+      triggerSource: options?.force ? 'vessel-sync:manual' : 'vessel-sync:cron',
+      classificationContext: {
+        previousSample,
+        yesterdayAnchor: previousDay
+          ? {
+              state: previousDay.state,
+              lat: previousDay.lastLatitude,
+              lon: previousDay.lastLongitude,
+            }
+          : null,
+      },
     });
+
+    const position = aisSnapshot.rawPosition;
+    if (
+      !position ||
+      aisSnapshot.latitude == null ||
+      aisSnapshot.longitude == null
+    ) {
+      const message =
+        aisSnapshot.refreshError ??
+        'AIS provider returned no position for this vessel.';
+      await supabaseAdmin
+        .from('vessels')
+        .update({
+          ais_last_sync_at: new Date().toISOString(),
+          ais_last_sync_error: message,
+        })
+        .eq('id', vesselId);
+
+      return {
+        ok: false,
+        skipped: true,
+        reason: message,
+        vesselId,
+      };
+    }
 
     if (isAisPositionStale(position)) {
       const normalisedStatus = getNormalizedAisNavStatus(position) || null;
@@ -291,34 +349,11 @@ export async function syncVesselStateFromAis(
       };
     }
 
-    const logDate = logDateForLiveAisSync(options?.logDate);
-    const lat = position.lat ?? null;
-    const lon = position.lon ?? null;
-    const speedKn = position.speed ?? null;
-    const navStatus = getNormalizedAisNavStatus(position) || null;
-
-    const { data: prevSampleRow } = await supabaseAdmin
-      .from('vessel_ais_state_samples')
-      .select('state, lat, lon, sampled_at')
-      .eq('vessel_id', vesselId)
-      .order('sampled_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const previousSample: PreviousSample | null = prevSampleRow
-      ? {
-          state: prevSampleRow.state as DailyStatus,
-          lat: (prevSampleRow.lat as number) ?? null,
-          lon: (prevSampleRow.lon as number) ?? null,
-          sampledAt: prevSampleRow.sampled_at as string,
-        }
-      : null;
-
-    const previousDay = await loadPreviousDayContext(
-      vesselId,
-      managerUserId,
-      logDate,
-    );
+    const lat = aisSnapshot.latitude;
+    const lon = aisSnapshot.longitude;
+    const speedKn = aisSnapshot.speedKn;
+    const navStatus = aisSnapshot.rawNavigationStatus;
+    const sampleState = aisSnapshot.state;
 
     let locationContext:
       | {
@@ -340,41 +375,19 @@ export async function syncVesselStateFromAis(
       }
     }
 
-    const placeMemory = await findPlaceMemoryHint({
-      vesselId,
-      lat,
-      lon,
-    });
-
-    const resolution = resolveLiveSampleState({
-      position,
-      previousSample,
-      yesterdayAnchor: previousDay
-        ? {
-            state: previousDay.state,
-            lat: previousDay.lastLatitude,
-            lon: previousDay.lastLongitude,
-          }
-        : null,
-      placeMemory,
-      locationContext,
-    });
-
     if (
-      resolution.state === 'at-anchor' ||
-      resolution.state === 'in-port' ||
-      resolution.state === 'in-yard'
+      sampleState === 'at-anchor' ||
+      sampleState === 'in-port' ||
+      sampleState === 'in-yard'
     ) {
       void recordPlaceMemoryVisit({
         vesselId,
         lat,
         lon,
-        state: resolution.state,
+        state: sampleState,
         placeName: locationContext?.endOfDayPlaceName ?? null,
       });
     }
-
-    const sampleState = resolution.state || mapAisToDailyStatus(position);
 
     const { error: sampleError } = await supabaseAdmin
       .from('vessel_ais_state_samples')
@@ -497,6 +510,18 @@ export async function syncAllEnabledAisVessels(): Promise<AisSyncResult[]> {
 
   const results: AisSyncResult[] = [];
   for (const vessel of vessels ?? []) {
+    // Cron ticks every 5 min; skip vessels still inside their adaptive window
+    // (underway 5 min / stationary 45 min) so we don't burn API quota.
+    const latest = await getLatestAIS(vessel.id);
+    if (latest && isAisCacheFresh(latest.fetched_at, latest.seajourney_state)) {
+      results.push({
+        ok: true,
+        skipped: true,
+        reason: `AIS cache still fresh for ${latest.seajourney_state} (adaptive interval)`,
+        vesselId: vessel.id,
+      });
+      continue;
+    }
     results.push(await syncVesselStateFromAis(vessel));
   }
   return results;
