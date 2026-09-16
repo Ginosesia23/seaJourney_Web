@@ -526,8 +526,50 @@ export interface NavWatchApplication {
         totalDays: number;
         daysAtSea: number;
     }>;
+    supporting_evidence?: Record<string, boolean | undefined>;
     created_at: string;                // ISO timestamp
     updated_at: string;                 // ISO timestamp
+}
+export interface OOWApplication {
+    id: string;
+    user_id: string;
+    certificate_type: string;
+    training_route: 'examination' | 'foundation_degree' | 'hnc_hnd' | 'amet' | 'other';
+    personal_details: {
+        title?: string;
+        surname: string;
+        forenames: string;
+        dateOfBirth?: string;
+        placeOfBirth?: string;
+        countryOfBirth?: string;
+        nationality?: string;
+        telephone?: string;
+        email?: string;
+        homeAddress?: {
+            line1: string;
+            line2?: string;
+            townCity: string;
+            countyState?: string;
+            postCode: string;
+            country: string;
+        };
+        signatureDataUrl?: string | null;
+    };
+    sea_service_records: Array<{
+        vesselName: string;
+        imoNumber?: string;
+        type?: string;
+        grossTonnage?: number;
+        voyage?: string;
+        rankCapacity: string;
+        fromDate: string;
+        toDate: string;
+        months: number;
+        days: number;
+    }>;
+    supporting_evidence?: Record<string, boolean | undefined>;
+    created_at: string;
+    updated_at: string;
 }
 
 

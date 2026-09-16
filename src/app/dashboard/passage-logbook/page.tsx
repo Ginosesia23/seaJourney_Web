@@ -31,6 +31,10 @@ import {
   PassageLogbookSection,
   PassageLogbookStatTiles,
 } from '@/components/dashboard/passage-logbook-page-ui';
+import {
+  PassageLogTrackMap,
+  resolvePassageTrackCoordinates,
+} from '@/components/dashboard/passage-log-track-map';
 import { useUser, useSupabase } from '@/supabase';
 import { useCollection, useDoc } from '@/supabase/database';
 import { useToast } from '@/hooks/use-toast';
@@ -103,10 +107,14 @@ function trackEndpointCoord(
   trackData: unknown,
   which: 'start' | 'end',
 ): [number, number] | null {
-  const coords = (trackData as { coordinates?: [number, number][] } | null)
-    ?.coordinates;
-  if (!coords || coords.length < 2) return null;
-  return which === 'start' ? coords[0]! : coords[coords.length - 1]!;
+  const coords = (trackData as { coordinates?: unknown } | null)?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const pick = which === 'start' ? coords[0] : coords[coords.length - 1];
+  if (!Array.isArray(pick) || pick.length < 2) return null;
+  const lon = typeof pick[0] === 'number' ? pick[0] : Number(pick[0]);
+  const lat = typeof pick[1] === 'number' ? pick[1] : Number(pick[1]);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  return [lon, lat];
 }
 
 const passageSchema = z.object({
@@ -2591,7 +2599,33 @@ export default function PassageLogbookPage() {
                           colSpan={colSpan}
                           className="bg-muted/20 border-b p-0"
                         >
-                          <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 lg:grid-cols-3">
+                          <div className="space-y-4 px-4 py-4">
+                            <div className="space-y-1.5">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Passage chart
+                                </div>
+                                {passagesMapHrefForLog(passage) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 gap-1.5 px-2 text-xs"
+                                    asChild
+                                  >
+                                    <Link href={passagesMapHrefForLog(passage)!}>
+                                      <MapIcon className="h-3.5 w-3.5" />
+                                      Open on Passage Tracks
+                                      <ExternalLink className="h-3 w-3 opacity-70" />
+                                    </Link>
+                                  </Button>
+                                )}
+                              </div>
+                              <PassageLogTrackMap
+                                key={passage.id}
+                                coordinates={resolvePassageTrackCoordinates(passage)}
+                              />
+                            </div>
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                             <div className="space-y-1">
                               <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                 Route detail
@@ -2673,6 +2707,7 @@ export default function PassageLogbookPage() {
                               <p className="text-sm whitespace-pre-wrap">
                                 {passage.notes?.trim() || 'No notes yet.'}
                               </p>
+                            </div>
                             </div>
                           </div>
                         </TableCell>

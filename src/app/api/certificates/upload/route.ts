@@ -5,6 +5,7 @@ import {
   CERTIFICATES_BUCKET,
   buildCertificateFilePath,
 } from '@/lib/certificates/storage';
+import { assertCanViewCrewSharedData } from '@/lib/vessel-crew-access.server';
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const ALLOWED = new Set([
@@ -17,7 +18,7 @@ const ALLOWED = new Set([
 
 /**
  * POST /api/certificates/upload
- * Multipart: file — stores under certificates/<userId>/...
+ * Multipart: file, optional crewUserId — stores under certificates/<ownerId>/...
  * Returns { path, fileName, contentType, size }
  */
 export async function POST(req: NextRequest) {
@@ -43,7 +44,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const filePath = buildCertificateFilePath(auth.userId, file.name);
+    const crewUserIdRaw = form.get('crewUserId');
+    const crewUserId =
+      typeof crewUserIdRaw === 'string' && crewUserIdRaw.trim()
+        ? crewUserIdRaw.trim()
+        : null;
+
+    let ownerId = auth.userId;
+    if (crewUserId && crewUserId !== auth.userId) {
+      const access = await assertCanViewCrewSharedData(auth.userId, crewUserId);
+      if ('error' in access) return access.error;
+      ownerId = crewUserId;
+    }
+
+    const filePath = buildCertificateFilePath(ownerId, file.name);
     const buffer = Buffer.from(await file.arrayBuffer());
     const { error: uploadError } = await supabaseAdmin.storage
       .from(CERTIFICATES_BUCKET)
@@ -62,6 +76,7 @@ export async function POST(req: NextRequest) {
       fileName: file.name,
       contentType: file.type,
       size: file.size,
+      ownerId,
     });
   } catch (e) {
     console.error('[certificates/upload POST]', e);

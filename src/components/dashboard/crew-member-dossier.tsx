@@ -9,6 +9,7 @@
 import type { ReactNode } from 'react';
 import {
   AlertTriangle,
+  Award,
   CalendarDays,
   Clock,
   FileText,
@@ -23,6 +24,7 @@ import { Button } from '@/components/ui/button';
 export type CrewDossierSection =
   | 'overview'
   | 'calendar'
+  | 'career'
   | 'documents'
   | 'leave'
   | 'watches'
@@ -57,6 +59,7 @@ const SECTIONS: {
 }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { id: 'career', label: 'Career', icon: Award },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'leave', label: 'Leave', icon: CalendarDays },
   { id: 'watches', label: 'Watches', icon: Clock },

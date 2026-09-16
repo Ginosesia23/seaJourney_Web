@@ -2,7 +2,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Inbox, Loader2 } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Inbox, Loader2 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -186,25 +186,44 @@ export function InboxViewTabs({
     <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
       {tabs.map((tab) => {
         const active = activeView === tab.id;
+        const isIncoming = tab.id === 'incoming';
+        const Icon = isIncoming ? ArrowDownLeft : ArrowUpRight;
         return (
           <button
             key={tab.id}
             type="button"
             onClick={() => onViewChange(tab.id)}
             className={cn(
-              'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-xs transition-colors',
+              'inline-flex h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-xs transition-colors',
               active
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {tab.label}
+            <Icon
+              className={cn(
+                'h-3.5 w-3.5 shrink-0',
+                active
+                  ? isIncoming
+                    ? 'text-sky-600 dark:text-sky-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                  : isIncoming
+                    ? 'text-sky-600/70 dark:text-sky-400/70'
+                    : 'text-amber-600/70 dark:text-amber-400/70',
+              )}
+              aria-hidden
+            />
+            <span>{tab.label}</span>
             <span
               className={cn(
-                'rounded px-1 font-mono text-[10px] tabular-nums',
-                active
-                  ? 'bg-muted text-muted-foreground'
-                  : 'text-muted-foreground/70',
+                'rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums',
+                isIncoming
+                  ? active
+                    ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                    : 'bg-sky-500/10 text-sky-700/80 dark:text-sky-300/80'
+                  : active
+                    ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
+                    : 'bg-amber-500/10 text-amber-800/80 dark:text-amber-300/80',
               )}
             >
               {tab.count}

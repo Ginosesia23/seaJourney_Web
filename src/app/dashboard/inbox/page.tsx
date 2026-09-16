@@ -494,8 +494,66 @@ export default function InboxPage() {
             setPlanCoverageRequests([]);
           }
 
-          // Set testimonials to empty for admins/vessel accounts
-          setTestimonials([]);
+          // Vessel managers can also receive testimonial sign-off requests
+          // addressed to them (captain_user_id) when crew has no assigned captain.
+          if (isVesselAccount && user?.id) {
+            const captainFilter = user.email
+              ? `captain_user_id.eq.${user.id},captain_email.ilike.${user.email}`
+              : `captain_user_id.eq.${user.id}`;
+
+            const [pendingResult, approvedResult] = await Promise.all([
+              supabase
+                .from('testimonials')
+                .select('*')
+                .eq('status', 'pending_captain')
+                .or(captainFilter)
+                .order('created_at', { ascending: false }),
+              supabase
+                .from('testimonials')
+                .select('*')
+                .eq('status', 'approved')
+                .or(captainFilter)
+                .order('updated_at', { ascending: false }),
+            ]);
+
+            const fetchUserProfiles = async (testimonialsList: any[]) => {
+              return await Promise.all(
+                testimonialsList.map(async (testimonial) => {
+                  const { data: userData } = await supabase
+                    .from('users')
+                    .select('email, first_name, last_name, username')
+                    .eq('id', testimonial.user_id)
+                    .maybeSingle();
+
+                  return {
+                    ...testimonial,
+                    user: userData || undefined,
+                  };
+                })
+              );
+            };
+
+            if (pendingResult.error) {
+              console.error('[INBOX] Error fetching vessel-manager pending testimonials:', pendingResult.error);
+              setTestimonials([]);
+            } else if (pendingResult.data) {
+              setTestimonials((await fetchUserProfiles(pendingResult.data)) as any);
+            } else {
+              setTestimonials([]);
+            }
+
+            if (approvedResult.error) {
+              console.error('[INBOX] Error fetching vessel-manager approved testimonials:', approvedResult.error);
+              setApprovedTestimonials([]);
+            } else if (approvedResult.data) {
+              setApprovedTestimonials((await fetchUserProfiles(approvedResult.data)) as any);
+            } else {
+              setApprovedTestimonials([]);
+            }
+          } else {
+            setTestimonials([]);
+            setApprovedTestimonials([]);
+          }
         } else {
           // Captains/vessel managers see testimonials addressed to them
           // Build base query filter for captain matching
@@ -1926,7 +1984,8 @@ export default function InboxPage() {
 
       toast({
         title: 'Request Approved',
-        description: 'The vessel manager can now view your sea time data.',
+        description:
+          'The vessel manager can now view your sea time, certificates, and career progress.',
       });
 
       setVesselSeaTimeAccessRequests(prev => prev.filter(r => r.id !== selectedVesselAccessRequest.id));
@@ -2111,7 +2170,10 @@ export default function InboxPage() {
   };
 
   const vesselIncomingCount =
-    seaTimeRequests.length + planCoverageRequests.length + captaincyRequests.length;
+    seaTimeRequests.length +
+    planCoverageRequests.length +
+    captaincyRequests.length +
+    testimonials.length;
 
   const totalPendingCount = useMemo(() => {
     if (isAdmin) {
@@ -2140,7 +2202,7 @@ export default function InboxPage() {
   const inboxDescription = isAdmin
     ? 'Review and approve captaincy requests for vessels.'
     : isVesselAccount
-      ? 'Incoming requests to action, and sent testimonials or sea-time access waiting on others.'
+      ? 'Incoming requests to action (including testimonial sign-offs), and sent testimonials or sea-time access waiting on others.'
       : isCaptain
         ? 'Review and respond to testimonial sign-off requests from crew members.'
         : 'Review and respond to vessel sea time access requests and offers.';
@@ -2177,6 +2239,12 @@ export default function InboxPage() {
           tone: 'amber' as const,
         },
         {
+          label: 'Testimonials',
+          value: testimonials.length,
+          hint: 'Sign-off requests',
+          tone: 'sky' as const,
+        },
+        {
           label: 'Sent pending',
           value: vesselSentPendingCount,
           hint: 'Waiting on others',
@@ -2187,12 +2255,6 @@ export default function InboxPage() {
           value: seaTimeRequests.length,
           hint: 'Copy log requests',
           tone: 'default' as const,
-        },
-        {
-          label: 'Plan coverage',
-          value: planCoverageRequests.length,
-          hint: 'Subscription pause',
-          tone: 'emerald' as const,
         },
       ];
     }
@@ -2826,8 +2888,8 @@ export default function InboxPage() {
           {/* Vessel Sea Time Access Requests Section (Crew members only) */}
           {vesselSeaTimeAccessRequests.length > 0 && !isAdmin && userProfile?.role?.toLowerCase() !== 'vessel' && (
             <InboxSection
-              title="Vessel sea time access requests"
-              description="Vessel managers are requesting permission to view your sea time data."
+              title="Vessel data access requests"
+              description="Vessel managers are requesting permission to view your sea time, certificates, and career progress."
             >
                 <div className="overflow-x-auto">
                   <Table>
@@ -4216,12 +4278,12 @@ export default function InboxPage() {
         <DialogContent className="rounded-md max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {action === 'approve' ? 'Approve Sea Time Access Request' : 'Reject Sea Time Access Request'}
+              {action === 'approve' ? 'Approve data access request' : 'Reject data access request'}
             </DialogTitle>
             <DialogDescription>
               {action === 'approve'
-                ? 'By approving this request, the vessel manager will be able to view your sea time data and breakdown.'
-                : 'Please provide a reason for rejecting this sea time access request.'}
+                ? 'By approving, the vessel manager can view your sea time, certificates, career progress toward tickets, and related documents for applications.'
+                : 'Please provide a reason for rejecting this data access request.'}
             </DialogDescription>
           </DialogHeader>
           {selectedVesselAccessRequest && (

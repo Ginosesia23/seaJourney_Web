@@ -5,7 +5,7 @@ import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
 import { useCollection } from '@/supabase/database';
 import { format as formatDate, differenceInDays } from 'date-fns';
-import { FileText, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2, LayoutTemplate, Sparkles, Eye, ExternalLink, UserRoundPen, AlertTriangle, RotateCcw } from 'lucide-react';
+import { FileText, Loader2, Calendar, ChevronRight, Clock, Download, CheckCircle2, Send, ShieldCheck, Table2, LayoutTemplate, Sparkles, Eye, ExternalLink, UserRoundPen, AlertTriangle, RotateCcw, Navigation } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -20,19 +20,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  DocumentCrewPicker,
+  type DocumentCrewOption,
+} from '@/components/dashboard/document-crew-picker';
 import { toast } from '@/hooks/use-toast';
 import Link from 'next/link';
-import type { UserProfile, VesselAssignment, Vessel, VesselGeneratedTestimonial, StateLog, Testimonial } from '@/lib/types';
-import { getActiveVesselAssignmentsByVessel, getVesselStateLogs } from '@/supabase/database/queries';
+import type { UserProfile, Vessel, VesselGeneratedTestimonial, StateLog, Testimonial } from '@/lib/types';
+import { getVesselStateLogs } from '@/supabase/database/queries';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
+import { notifyCrewOfDocumentCreated } from '@/lib/notify-crew-document-created';
+import {
+  buildAndGenerateNavWatchApplication,
+  navWatchApplicationDefaultValues,
+  type NavWatchApplicationFormValues,
+} from '@/lib/nav-watch-application';
 import {
   getVesselCalculationCategory,
   isAllDaysExceptLeaveCountAsSea,
@@ -74,11 +83,6 @@ import {
   downloadBlob,
   type FillableField,
 } from '@/lib/fill-scanned-document';
-
-interface CrewOption {
-  profile: UserProfile;
-  assignment: VesselAssignment;
-}
 
 type DocCrewDetails = {
   firstName: string;
@@ -141,6 +145,12 @@ const DOCUMENT_TYPES = [
     icon: ShieldCheck,
   },
   {
+    value: 'nav_watch',
+    label: 'Nav Watch application',
+    description: 'MCA Watch Rating / Able Seafarer Deck (MSF 4371)',
+    icon: Navigation,
+  },
+  {
     value: 'sea_service_breakdown',
     label: 'Sea service breakdown',
     description: 'Day counts to fill other forms',
@@ -180,10 +190,17 @@ export default function DocumentsGeneratorPage() {
     [vesselsCollection, activeVesselId]
   );
 
-  const [crewList, setCrewList] = useState<CrewOption[]>([]);
+  const [crewList, setCrewList] = useState<DocumentCrewOption[]>([]);
   const [loadingCrew, setLoadingCrew] = useState(true);
   const [documentType, setDocumentType] = useState<string>('testimonial');
   const [selectedCrewId, setSelectedCrewId] = useState<string>('');
+  const [navWatchCertificateType, setNavWatchCertificateType] = useState<
+    NavWatchApplicationFormValues['certificate_type']
+  >(navWatchApplicationDefaultValues.certificate_type);
+  const [navWatchPaymentRegion, setNavWatchPaymentRegion] = useState<
+    NonNullable<NavWatchApplicationFormValues['paymentRegion']> | ''
+  >(navWatchApplicationDefaultValues.paymentRegion ?? '');
+  const [isSavingNavWatch, setIsSavingNavWatch] = useState(false);
   const [documentStartDate, setDocumentStartDate] = useState<Date | undefined>(undefined);
   const [documentEndDate, setDocumentEndDate] = useState<Date | undefined>(undefined);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -257,8 +274,20 @@ export default function DocumentsGeneratorPage() {
   );
 
   useEffect(() => {
-    setDocCrewDetails(detailsFromProfile(selectedCrew?.profile));
-  }, [selectedCrew?.profile.id]);
+    if (!selectedCrew) {
+      setDocCrewDetails({ ...EMPTY_DOC_CREW_DETAILS });
+      return;
+    }
+    const fromProfile = detailsFromProfile(selectedCrew.profile);
+    setDocCrewDetails({
+      ...fromProfile,
+      position:
+        selectedCrew.assignment.position ||
+        selectedCrew.positionLabel ||
+        fromProfile.position ||
+        '',
+    });
+  }, [selectedCrew?.profile.id, selectedCrew?.assignment.id]);
 
   /** Required-for-document fields that are still empty on the saved profile. */
   const missingDocFieldKeys = useMemo((): MissingDocFieldKey[] => {
@@ -277,16 +306,6 @@ export default function DocumentsGeneratorPage() {
     return fromDetails || selectedCrew?.profile.username || 'Crew member';
   }, [docCrewDetails.firstName, docCrewDetails.lastName, selectedCrew?.profile.username]);
 
-  const crewSelectOptions = useMemo(
-    () =>
-      crewList.map((c) => {
-        const name = [c.profile.firstName, c.profile.lastName].filter(Boolean).join(' ') || c.profile.username || c.profile.email || 'Unknown';
-        const email = c.profile.email ? ` (${c.profile.email})` : '';
-        return { value: c.profile.id, label: `${name}${email}` };
-      }),
-    [crewList]
-  );
-
   useEffect(() => {
     if (currentUserProfile?.role !== 'vessel' && currentUserProfile?.role !== 'admin') return;
     const vesselId = currentUserProfile.role === 'vessel' ? activeVesselId : null;
@@ -300,48 +319,29 @@ export default function DocumentsGeneratorPage() {
       setLoadingCrew(false);
       return;
     }
+    if (!session?.access_token) {
+      setCrewList([]);
+      setLoadingCrew(false);
+      return;
+    }
     let cancelled = false;
     setLoadingCrew(true);
     (async () => {
       try {
-        const assignments = await getActiveVesselAssignmentsByVessel(supabase, vesselId!);
-        if (cancelled || assignments.length === 0) {
-          setCrewList([]);
-          return;
-        }
-        const userIds = assignments.map((a) => a.userId);
-        const { data: profiles, error } = await supabase.from('users').select('*').in('id', userIds);
-        if (error || !profiles?.length) {
-          setCrewList([]);
-          return;
-        }
-        const filtered = profiles.filter((p: any) => p.role !== 'vessel');
-        const profileMap = new Map(
-          filtered.map((profile: any) => [
-            profile.id,
-            {
-              ...profile,
-              id: profile.id,
-              email: profile.email ?? '',
-              username: profile.username ?? '',
-              firstName: profile.first_name ?? profile.firstName,
-              lastName: profile.last_name ?? profile.lastName,
-              role: profile.role ?? 'crew',
-              position: profile.position ?? null,
-              nationality: profile.nationality ?? null,
-              dischargeBookNumber: profile.discharge_book_number ?? profile.dischargeBookNumber ?? null,
-              dateOfBirth: profile.date_of_birth ?? profile.dateOfBirth ?? null,
-            } as UserProfile,
-          ])
+        // Service-role API so past members are included. Client RLS on users
+        // historically only exposed profiles with end_date IS NULL.
+        const res = await fetch(
+          `/api/vessel-crew/list?vesselId=${encodeURIComponent(vesselId!)}`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } },
         );
-        const options: CrewOption[] = assignments
-          .map((a) => {
-            const profile = profileMap.get(a.userId);
-            if (!profile) return null;
-            return { profile, assignment: a };
-          })
-          .filter((x): x is CrewOption => x !== null);
-        if (!cancelled) setCrewList(options);
+        if (!res.ok) {
+          if (!cancelled) setCrewList([]);
+          return;
+        }
+        const data = (await res.json()) as { crew?: DocumentCrewOption[] };
+        if (!cancelled) setCrewList(Array.isArray(data.crew) ? data.crew : []);
+      } catch {
+        if (!cancelled) setCrewList([]);
       } finally {
         if (!cancelled) setLoadingCrew(false);
       }
@@ -349,7 +349,21 @@ export default function DocumentsGeneratorPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, currentUserProfile?.role, activeVesselId]);
+  }, [session?.access_token, currentUserProfile?.role, activeVesselId]);
+
+  // Deep-link from Manage Crew: /dashboard/documents?type=nav_watch&crewId=…
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const type = params.get('type');
+    const crewId = params.get('crewId');
+    if (type && DOCUMENT_TYPES.some((t) => t.value === type)) {
+      setDocumentType(type);
+    }
+    if (crewId && crewList.some((c) => c.profile.id === crewId)) {
+      setSelectedCrewId(crewId);
+    }
+  }, [crewList]);
 
   // Pull the list of form-builder templates for this vessel so we can offer
   // them in the "Document type" dropdown. Premium+ only.
@@ -1293,6 +1307,12 @@ export default function DocumentsGeneratorPage() {
           ? 'Proof of Service saved and PDF archived for the crew member.'
           : 'Proof of Service saved to the crew profile. The PDF will be archived on first download.',
       });
+      void notifyCrewOfDocumentCreated(supabase, {
+        crewUserId: selectedCrew.profile.id,
+        documentKind: 'proof_of_service',
+        documentLabel: 'Proof of Service',
+        vesselId: activeVesselId,
+      });
       setCalculatedSeaTime(null);
       setDocumentStartDate(undefined);
       setDocumentEndDate(undefined);
@@ -1300,6 +1320,68 @@ export default function DocumentsGeneratorPage() {
       toast({ title: 'Error', description: e?.message ?? 'Failed to save Proof of Service.', variant: 'destructive' });
     } finally {
       setIsSavingProofOfService(false);
+    }
+  };
+
+  const handleGenerateNavWatch = async () => {
+    if (!selectedCrew || !supabase || !vesselsCollection) {
+      toast({
+        title: 'Error',
+        description: 'Select a crew member first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setIsSavingNavWatch(true);
+    try {
+      const formData: NavWatchApplicationFormValues = {
+        ...navWatchApplicationDefaultValues,
+        certificate_type: navWatchCertificateType,
+        paymentRegion: navWatchPaymentRegion || undefined,
+      };
+      await buildAndGenerateNavWatchApplication(supabase, {
+        userId: selectedCrew.profile.id,
+        userProfile: {
+          ...selectedCrew.profile,
+          firstName: docCrewDetails.firstName || selectedCrew.profile.firstName,
+          lastName: docCrewDetails.lastName || selectedCrew.profile.lastName,
+          position: docCrewDetails.position || selectedCrew.profile.position,
+          dischargeBookNumber:
+            docCrewDetails.dischargeBookNumber ||
+            selectedCrew.profile.dischargeBookNumber,
+          nationality: docCrewDetails.nationality || selectedCrew.profile.nationality,
+          mobile: docCrewDetails.mobile || selectedCrew.profile.mobile,
+          dateOfBirth:
+            docCrewDetails.dateOfBirth ||
+            (selectedCrew.profile as { dateOfBirth?: string | null }).dateOfBirth ||
+            null,
+        },
+        formData,
+        allVessels: vesselsCollection,
+        vesselId: activeVesselId ?? undefined,
+        vesselUserId: user?.id ?? undefined,
+      });
+      toast({
+        title: 'Success',
+        description:
+          'Nav Watch document saved and downloaded. It also appears on the crew member’s Documents tab.',
+      });
+      void notifyCrewOfDocumentCreated(supabase, {
+        crewUserId: selectedCrew.profile.id,
+        documentKind: 'nav_watch',
+        documentLabel: 'Nav Watch / Able Seafarer Deck application (MSF 4371)',
+        vesselId: activeVesselId,
+      });
+    } catch (error: unknown) {
+      console.error('[documents] Nav Watch generate error:', error);
+      toast({
+        title: 'Error',
+        description:
+          error instanceof Error ? error.message : 'Failed to generate PDF. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingNavWatch(false);
     }
   };
 
@@ -1780,6 +1862,12 @@ export default function DocumentsGeneratorPage() {
         title: 'Sent to Captain',
         description: `Testimonial request has been sent to ${activeCaptain.name}'s inbox. They will be notified by email. Once approved, it will receive a verification code (SJ-XXX).`,
       });
+      void notifyCrewOfDocumentCreated(supabase, {
+        crewUserId: selectedCrew.profile.id,
+        documentKind: 'testimonial',
+        documentLabel: 'Sea service testimonial (pending captain sign-off)',
+        vesselId: activeVesselId,
+      });
       setCalculatedSeaTime(null);
       setDocumentStartDate(undefined);
       setDocumentEndDate(undefined);
@@ -1855,6 +1943,12 @@ export default function DocumentsGeneratorPage() {
       if (!tokenRes.ok || !tokenData.token) throw new Error(tokenData.error || 'Failed to create sign-off link');
       await requestCaptainSignoff(supabase, { ...(createdTestimonial as Testimonial), vessel_name: v.name, signoffToken: tokenData.token }, toast);
       toast({ title: 'Sent', description: 'Captain will receive an email with a secure link to approve the testimonial.' });
+      void notifyCrewOfDocumentCreated(supabase, {
+        crewUserId: selectedCrew.profile.id,
+        documentKind: 'testimonial',
+        documentLabel: 'Sea service testimonial (pending captain sign-off)',
+        vesselId: activeVesselId,
+      });
       setSendTestimonialByEmailOpen(false);
       setSendTestimonialByEmailValue('');
       setCalculatedSeaTime(null);
@@ -2101,7 +2195,7 @@ export default function DocumentsGeneratorPage() {
           forceMount
           className="mt-6 space-y-5 data-[state=inactive]:hidden"
         >
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
         {DOCUMENT_TYPES.map((opt) => {
           const selected = documentType === opt.value;
           return (
@@ -2161,27 +2255,18 @@ export default function DocumentsGeneratorPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-1.5 sm:max-w-md">
-        <Label className="text-xs">Crew member</Label>
-        {loadingCrew ? (
-          <div className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading crew…
-          </div>
-        ) : (
-          <SearchableSelect
-            options={crewSelectOptions}
-            value={selectedCrewId}
-            onValueChange={(v) => {
-              setSelectedCrewId(v);
-              setCalculatedSeaTime(null);
-              setLeavePeriods([]);
-              setLeavePeriodsFromLogs([]);
-            }}
-            placeholder="Select crew member"
-            searchPlaceholder="Search by name or email…"
-          />
-        )}
+      <div className="sm:max-w-lg">
+        <DocumentCrewPicker
+          crewList={crewList}
+          value={selectedCrewId}
+          loading={loadingCrew}
+          onValueChange={(v) => {
+            setSelectedCrewId(v);
+            setCalculatedSeaTime(null);
+            setLeavePeriods([]);
+            setLeavePeriodsFromLogs([]);
+          }}
+        />
       </div>
 
       {selectedCrew && missingDocFieldKeys.length > 0 && (
@@ -2514,6 +2599,92 @@ export default function DocumentsGeneratorPage() {
           </Card>
         </div>
         </>
+      )}
+
+      {selectedCrew && documentType === 'nav_watch' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Navigation className="h-5 w-5" />
+              Nav Watch application
+            </CardTitle>
+            <CardDescription>
+              Generate an MCA Watch Rating (MSF 4371) PDF for{' '}
+              {resolvedCrewName}. Sea service is taken from their approved
+              testimonials and vessel assignments — no date range needed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Certificate type</Label>
+                <Select
+                  value={navWatchCertificateType}
+                  onValueChange={(v) =>
+                    setNavWatchCertificateType(
+                      v as NavWatchApplicationFormValues['certificate_type'],
+                    )
+                  }
+                >
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue placeholder="Select certificate type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="navigational_ii4">
+                      Navigational Watch Rating Certificate II/4
+                    </SelectItem>
+                    <SelectItem value="navigational_iii4">
+                      Engine Room Watch Rating Certificate III/4
+                    </SelectItem>
+                    <SelectItem value="electro_technical">
+                      Electro-technical Rating III/7
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Payment region (optional)</Label>
+                <Select
+                  value={navWatchPaymentRegion || 'none'}
+                  onValueChange={(v) =>
+                    setNavWatchPaymentRegion(
+                      v === 'none'
+                        ? ''
+                        : (v as NonNullable<
+                            NavWatchApplicationFormValues['paymentRegion']
+                          >),
+                    )
+                  }
+                >
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue placeholder="Select region" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not specified</SelectItem>
+                    <SelectItem value="uk">UK</SelectItem>
+                    <SelectItem value="eu">EU</SelectItem>
+                    <SelectItem value="row">Rest of World</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                onClick={() => void handleGenerateNavWatch()}
+                disabled={isSavingNavWatch}
+                className="rounded-xl"
+              >
+                {isSavingNavWatch ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Navigation className="mr-2 h-4 w-4" />
+                )}
+                Generate &amp; download PDF
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {selectedCrew &&
@@ -3097,7 +3268,7 @@ export default function DocumentsGeneratorPage() {
       {crewList.length === 0 && !loadingCrew && (
         <Card>
           <CardContent className="pt-6">
-            <p className="text-muted-foreground">No active crew members on your vessel. Add crew from the Crew page first.</p>
+            <p className="text-muted-foreground">No past or present crew members on your vessel. Add crew from the Crew page first.</p>
             <Button asChild variant="outline" className="mt-4">
               <Link href="/dashboard/crew">
                 Go to Crew

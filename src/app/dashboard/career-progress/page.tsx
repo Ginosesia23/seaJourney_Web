@@ -26,7 +26,6 @@ import {
   CareerProgressSection,
   CareerProgressStatTiles,
 } from '@/components/dashboard/career-progress-page-ui';
-import { CareerCertificateGapsPanel } from '@/components/dashboard/career-certificate-gaps-panel';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabase } from '@/supabase';
@@ -34,14 +33,16 @@ import { bearerHeaders } from '@/lib/applications/client';
 import type { CareerStep } from '@/lib/applications/career-path';
 import type { CareerMilestone } from '@/lib/applications/milestones';
 import type {
-  CertificateValidityStatus,
   RequirementEvaluation,
 } from '@/lib/applications/types';
-import type { CareerCertificateGap } from '@/lib/applications/career-certificate-gaps';
+import { dedupeCertificateEvaluations } from '@/lib/applications/career-certificate-gaps';
 import {
-  collectCertificateGaps,
-  dedupeCertificateEvaluations,
-} from '@/lib/applications/career-certificate-gaps';
+  certificateStatusClasses,
+  certificateStatusLabel,
+  requirementDetailToneClasses,
+  requirementRowTone,
+  requirementRowToneClasses,
+} from '@/lib/applications/requirement-status-ui';
 import { cn } from '@/lib/utils';
 
 type MilestoneWithProgress = CareerMilestone & {
@@ -74,7 +75,6 @@ type ProgressResponse = {
       allRequiredMet: boolean;
     };
   } | null;
-  certificateGaps?: CareerCertificateGap[];
   documentedSea?: DocumentedSea;
   approvedTestimonialCount?: number;
 };
@@ -90,33 +90,6 @@ type SeaTimeSummary = {
 };
 
 type DetailProgress = NonNullable<ProgressResponse['nextProgress']>['progress'];
-
-function certificateStatusClasses(status?: CertificateValidityStatus): string {
-  if (status === 'valid' || status === 'no_expiry') {
-    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
-  }
-  if (status === 'expiring_soon') {
-    return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
-  }
-  return 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300';
-}
-
-function certificateStatusLabel(status?: CertificateValidityStatus): string {
-  switch (status) {
-    case 'valid':
-      return 'Valid';
-    case 'no_expiry':
-      return 'On file';
-    case 'expiring_soon':
-      return 'Renew soon';
-    case 'expired':
-      return 'Expired';
-    case 'missing':
-      return 'Missing';
-    default:
-      return 'Check';
-  }
-}
 
 function milestoneState(
   m: MilestoneWithProgress,
@@ -353,7 +326,7 @@ export default function CareerProgressPage() {
     );
   }
 
-  const { career, milestones, nextMilestone, nextProgress, certificateGaps = [], documentedSea, approvedTestimonialCount = 0 } = data;
+  const { career, milestones, nextMilestone, nextProgress, documentedSea, approvedTestimonialCount = 0 } = data;
   const selected = milestones.find((m) => m.id === selectedId);
   const isViewingNext = selected?.id === nextMilestone?.id;
 
@@ -368,18 +341,6 @@ export default function CareerProgressPage() {
   const metRequiredItems = dedupedEvaluations.filter((e) => e.isRequired && e.met);
   const optionalItems = dedupedEvaluations.filter((e) => !e.isRequired);
   const metOptional = optionalItems.filter((e) => e.met);
-
-  const selectedCertificateGaps =
-    !activeEvaluations.length || !selected
-      ? []
-      : collectCertificateGaps([
-          { milestoneLabel: selected.label, evaluations: activeEvaluations },
-        ]);
-
-  const displayCertificateGaps =
-    isViewingNext || selectedCertificateGaps.length === 0
-      ? certificateGaps
-      : selectedCertificateGaps;
 
   const seaTimeSummary = resolveSeaTimeSummary(
     dedupedEvaluations,
@@ -463,13 +424,6 @@ export default function CareerProgressPage() {
         />
       ) : null}
 
-      {displayCertificateGaps.length > 0 ? (
-        <CareerCertificateGapsPanel
-          gaps={displayCertificateGaps}
-          nextMilestoneLabel={isViewingNext ? nextMilestone?.label : selected?.label}
-        />
-      ) : null}
-
       <div className="grid gap-6 lg:grid-cols-[minmax(240px,272px)_minmax(0,1fr)]">
         <CareerProgressSection
           title="Career ladder"
@@ -524,7 +478,7 @@ export default function CareerProgressPage() {
                 title="Requirements checklist"
                 description={
                   selected.description ||
-                  'Everything needed for this ticket — ticked items are already on file in SeaJourney.'
+                  'Everything needed for this ticket — certificates, sea time, profile details, and more. Items already on file are listed under Verified.'
                 }
                 action={
                   detailProgress ? (
@@ -580,7 +534,7 @@ export default function CareerProgressPage() {
                         <h3 className="text-xs font-medium text-amber-700 dark:text-amber-300">
                           Still needed ({unmetRequired.length})
                         </h3>
-                        <ul className="divide-y overflow-hidden rounded-md border border-amber-500/20 bg-amber-500/[0.03]">
+                        <ul className="divide-y overflow-hidden rounded-md border border-border">
                           {unmetRequired.map((item) => (
                             <RequirementChecklistRow
                               key={item.requirementId}
@@ -602,7 +556,7 @@ export default function CareerProgressPage() {
                         <p className="text-[11px] text-muted-foreground">
                           Matched from your profile, certificates, and testimonials only.
                         </p>
-                        <ul className="divide-y overflow-hidden rounded-md border bg-muted/10">
+                        <ul className="divide-y overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/[0.04]">
                           {metRequiredItems.map((item) => (
                             <RequirementChecklistRow
                               key={item.requirementId}
@@ -903,11 +857,13 @@ function RequirementChecklistRow({
   const isSeaTime = item.requirementType === 'sea_time_min';
   const isCert = item.requirementType === 'certificate';
   const certStatus = item.certificateStatus;
+  const tone = requirementRowTone(item, complete);
   const needsAttention =
     isCert &&
     (certStatus === 'expiring_soon' ||
       certStatus === 'expired' ||
       certStatus === 'missing' ||
+      certStatus === 'insufficient_hold' ||
       !item.met);
 
   const isMet = item.met && (!isCert || certStatus === 'valid' || certStatus === 'no_expiry' || certStatus === undefined);
@@ -916,8 +872,7 @@ function RequirementChecklistRow({
     <li
       className={cn(
         'flex gap-3 px-3 py-3 sm:items-start sm:px-4',
-        outstanding && !complete && 'bg-amber-500/[0.04]',
-        complete && 'bg-emerald-500/[0.02]',
+        requirementRowToneClasses(tone),
       )}
     >
       <div className="mt-0.5 shrink-0">
@@ -941,9 +896,12 @@ function RequirementChecklistRow({
           <div
             className={cn(
               'flex h-4 w-4 items-center justify-center rounded-full border-2',
-              outstanding
-                ? 'border-amber-500/50 bg-background'
-                : 'border-muted-foreground/30 bg-background',
+              tone === 'expired' && 'border-red-500/50 bg-background',
+              tone === 'expiring' && 'border-orange-500/50 bg-background',
+              tone === 'on_file_hold' && 'border-sky-500/50 bg-background',
+              tone === 'outstanding' && 'border-amber-500/50 bg-background',
+              (tone === 'neutral' || tone === 'verified') &&
+                'border-muted-foreground/30 bg-background',
             )}
           >
             <Circle className="h-1.5 w-1.5 fill-muted-foreground/40 text-transparent" />
@@ -975,8 +933,18 @@ function RequirementChecklistRow({
           {typeof item.current === 'number' &&
           typeof item.target === 'number' &&
           !isSeaTime ? (
-            <Badge variant="secondary" className="text-[10px] tabular-nums">
+            <Badge
+              variant="outline"
+              className={cn(
+                'text-[10px] tabular-nums',
+                tone === 'on_file_hold' &&
+                  'border-sky-500/30 bg-sky-500/10 text-sky-800 dark:text-sky-300',
+                tone === 'verified' &&
+                  'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+              )}
+            >
               {item.current}/{item.target}
+              {item.config.minMonthsHeld || item.config.minMonths ? ' mo' : ''}
             </Badge>
           ) : null}
         </div>
@@ -984,9 +952,9 @@ function RequirementChecklistRow({
         {isSeaTime &&
         typeof item.current === 'number' &&
         typeof item.target === 'number' ? (
-          <SeaTimeProgressInline item={item} complete={complete} />
+          <SeaTimeProgressInline item={item} complete={complete} tone={tone} />
         ) : complete ? (
-          <div className="text-xs text-emerald-700/90 dark:text-emerald-300/90">
+          <div className={cn('text-xs', requirementDetailToneClasses(tone))}>
             <p>{item.detail}</p>
             {item.matchedCertificates && item.matchedCertificates.length > 0 ? (
               <p className="mt-1 text-[11px] text-muted-foreground">
@@ -1006,12 +974,7 @@ function RequirementChecklistRow({
             {item.description ? (
               <p className="text-xs text-muted-foreground">{item.description}</p>
             ) : null}
-            <p
-              className={cn(
-                'text-xs',
-                outstanding ? 'text-amber-900/80 dark:text-amber-100/80' : 'text-muted-foreground',
-              )}
-            >
+            <p className={cn('text-xs', requirementDetailToneClasses(tone))}>
               {item.detail}
             </p>
           </>
@@ -1034,12 +997,13 @@ function RequirementChecklistRow({
             className="h-7 rounded-md text-xs"
           >
             <Link href={item.href || '/dashboard/certificates?add=1'}>
-              {needsAttention &&
-              (certStatus === 'missing' || !item.met)
-                ? 'Add'
-                : certStatus === 'expired' || certStatus === 'expiring_soon'
-                  ? 'Renew'
-                  : 'View'}
+              {certStatus === 'insufficient_hold'
+                ? 'View'
+                : needsAttention && (certStatus === 'missing' || !item.met)
+                  ? 'Add'
+                  : certStatus === 'expired' || certStatus === 'expiring_soon'
+                    ? 'Renew'
+                    : 'View'}
               <ArrowRight className="ml-1 h-3 w-3" />
             </Link>
           </Button>
@@ -1059,6 +1023,14 @@ function RequirementChecklistRow({
         {complete ? (
           <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
             Verified
+          </span>
+        ) : tone === 'on_file_hold' ? (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-sky-700 dark:text-sky-300">
+            On file
+          </span>
+        ) : tone === 'expired' ? (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-red-600 dark:text-red-400">
+            Out of date
           </span>
         ) : null}
       </div>
@@ -1151,9 +1123,11 @@ function SeaTimeProgressPanel({
 function SeaTimeProgressInline({
   item,
   complete,
+  tone,
 }: {
   item: RequirementEvaluation;
   complete?: boolean;
+  tone?: 'verified' | 'on_file_hold' | 'expired' | 'expiring' | 'outstanding' | 'neutral';
 }) {
   const current = item.current ?? 0;
   const target = item.target ?? 0;
@@ -1163,6 +1137,7 @@ function SeaTimeProgressInline({
   const sourceLabel =
     item.config.source === 'tracked' ? 'tracked logs' : 'approved testimonials';
   const isStandby = item.config.metric === 'standbyDays';
+  const rowTone = tone || (complete ? 'verified' : 'outstanding');
 
   return (
     <div className="mt-1 space-y-2">
@@ -1172,6 +1147,10 @@ function SeaTimeProgressInline({
             'font-mono font-medium',
             complete && 'text-emerald-700 dark:text-emerald-300',
             isStandby && !complete && 'text-[#7629BB]',
+            !isStandby &&
+              !complete &&
+              rowTone === 'on_file_hold' &&
+              'text-sky-800 dark:text-sky-300',
           )}
         >
           {current.toLocaleString()} / {target.toLocaleString()} days
@@ -1184,16 +1163,10 @@ function SeaTimeProgressInline({
           'h-1.5',
           complete && '[&>div]:bg-emerald-500',
           isStandby && !complete && '[&>div]:bg-[#7629BB]',
+          !isStandby && !complete && rowTone === 'on_file_hold' && '[&>div]:bg-sky-500',
         )}
       />
-      <p
-        className={cn(
-          'text-[11px]',
-          complete
-            ? 'text-emerald-700/90 dark:text-emerald-300/90'
-            : 'text-muted-foreground',
-        )}
-      >
+      <p className={cn('text-[11px]', requirementDetailToneClasses(rowTone))}>
         {complete
           ? `Requirement met from ${sourceLabel}.`
           : remaining > 0

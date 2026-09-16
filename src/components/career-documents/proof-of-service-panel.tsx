@@ -7,7 +7,6 @@ import { useDoc } from '@/supabase/database';
 import { isVesselLinkedAccount } from '@/supabase/database/subscription-helpers';
 import { isVesselLinkedFeatureGranted } from '@/lib/vessel-linked-features';
 import type { UserProfile } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -244,136 +243,144 @@ export function ProofOfServicePanel({ embedded = false }: { embedded?: boolean }
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {!embedded ? (
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Proof of Service</h1>
-          <p className="text-muted-foreground mt-1">
-            Your saved proof of service entries from vessels you have worked on. Download one file per entry or choose which entries to include in a single download.
-          </p>
-        </div>
-        ) : (
-          <div>
+          <div className="min-w-0 space-y-1 border-b border-border pb-4 sm:border-0 sm:pb-0">
+            <h1 className="text-xl font-medium tracking-tight">Proof of service</h1>
             <p className="text-sm text-muted-foreground">
-              Saved proof of service entries from vessels you have worked on. Download one file or combine several into a single PDF.
+              Saved entries from vessels you have worked on. Download one file or combine several.
             </p>
           </div>
-        )}
-        {entries.length > 0 && (
+        ) : null}
+        {entries.length > 0 ? (
           <Button
-            className="shrink-0 rounded-lg"
+            className="h-8 shrink-0 rounded-md text-xs"
             onClick={() => setDownloadDialogOpen(true)}
           >
-            <Download className="h-4 w-4 mr-2" />
+            <Download className="mr-1.5 h-3.5 w-3.5" />
             Download selected
           </Button>
-        )}
+        ) : null}
       </div>
 
       {isLoading ? (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <Card key={i}>
-              <CardHeader>
-                <Skeleton className="h-5 w-1/3" />
-                <Skeleton className="h-4 w-1/2 mt-2" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-10 w-32" />
-              </CardContent>
-            </Card>
+            <div
+              key={i}
+              className="overflow-hidden rounded-md border border-border bg-background"
+            >
+              <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+                <Skeleton className="h-4 w-1/3" />
+              </div>
+              <div className="space-y-2 px-4 py-4">
+                <Skeleton className="h-3 w-1/2" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            </div>
           ))}
         </div>
       ) : entries.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <ShieldCheck className="h-14 w-14 text-muted-foreground mb-4 opacity-50" />
-            <h3 className="text-lg font-semibold mb-2">No proof of service yet</h3>
-            <p className="text-sm text-muted-foreground max-w-md mb-4">
-              When you leave a vessel, the vessel can generate a Proof of Service for your time on board and save it to your profile. You can then download or print it here. Ask your vessel manager to create one for you from Generator → Documents.
+        <div className="overflow-hidden rounded-md border border-border bg-background">
+          <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+            <p className="text-xs font-medium text-foreground">No proof of service yet</p>
+          </div>
+          <div className="flex flex-col items-center justify-center px-4 py-14 text-center">
+            <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+            <p className="mt-3 max-w-md text-xs text-muted-foreground">
+              When you leave a vessel, the vessel can generate a Proof of Service for your time on
+              board and save it to your profile. Ask your vessel manager to create one from
+              Generator → Documents.
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {entries.map((entry, index) => (
-            <Card key={entry.id ?? `entry-${index}`} className="overflow-hidden">
-              <CardHeader className="pb-2">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <Ship className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg">{entry.vesselName}</CardTitle>
-                      <CardDescription className="mt-0.5">
-                        {format(parse(entry.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – {format(parse(entry.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}
-                        {entry.vesselType && ` · ${entry.vesselType}`}
-                      </CardDescription>
-                    </div>
+            <div
+              key={entry.id ?? `entry-${index}`}
+              className="overflow-hidden rounded-md border border-border bg-background"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+                    <Ship className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl shrink-0"
-                    onClick={() => handleDownload(entry)}
-                    disabled={downloadingId === entry.id}
-                  >
-                    {downloadingId === entry.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <Download className="h-4 w-4 mr-2" />
-                    )}
-                    Download
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Total days</span>
-                    <p className="font-semibold">{entry.totalDays}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">At sea</span>
-                    <p className="font-semibold">{entry.atSeaDays}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Standby</span>
-                    <p className="font-semibold text-[#7629BB] dark:text-purple-400">{entry.standbyDays}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Yard</span>
-                    <p className="font-semibold">{entry.yardDays}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Leave</span>
-                    <p className="font-semibold">{entry.leaveDays}</p>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{entry.vesselName}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {format(parse(entry.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} –{' '}
+                      {format(parse(entry.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}
+                      {entry.vesselType && ` · ${entry.vesselType}`}
+                    </p>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 rounded-md border-border text-xs"
+                  onClick={() => handleDownload(entry)}
+                  disabled={downloadingId === entry.id}
+                >
+                  {downloadingId === entry.id ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Download
+                </Button>
+              </div>
+              <div className="px-4 py-3 sm:px-5">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">Total days</p>
+                    <p className="font-mono text-sm font-medium tabular-nums">{entry.totalDays}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">At sea</p>
+                    <p className="font-mono text-sm font-medium tabular-nums text-sky-600">
+                      {entry.atSeaDays}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">Standby</p>
+                    <p className="font-mono text-sm font-medium tabular-nums text-[#7629BB]">
+                      {entry.standbyDays}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">Yard</p>
+                    <p className="font-mono text-sm font-medium tabular-nums">{entry.yardDays}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">Leave</p>
+                    <p className="font-mono text-sm font-medium tabular-nums">{entry.leaveDays}</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-[11px] text-muted-foreground">
                   Generated by {entry.generatedByName}
-                  {entry.createdAt && ` on ${format(new Date(entry.createdAt), 'dd MMM yyyy')}`}
+                  {entry.createdAt &&
+                    ` on ${format(new Date(entry.createdAt), 'dd MMM yyyy')}`}
                 </p>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ))}
         </div>
       )}
 
       <Dialog open={downloadDialogOpen} onOpenChange={setDownloadDialogOpen}>
-        <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+        <DialogContent className="flex max-h-[85vh] max-w-md flex-col rounded-md">
           <DialogHeader>
-            <DialogTitle>Download Proof of Service</DialogTitle>
+            <DialogTitle className="text-base font-medium">Download proof of service</DialogTitle>
             <DialogDescription>
               Select which entries to include. You can download all or choose specific vessels.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground border-b pb-2">
+          <div className="flex items-center gap-2 border-b border-border pb-2 text-xs text-muted-foreground">
             <button
               type="button"
-              className="text-primary hover:underline font-medium"
+              className="font-medium text-foreground hover:underline"
               onClick={selectAll}
             >
               Select all
@@ -381,30 +388,31 @@ export function ProofOfServicePanel({ embedded = false }: { embedded?: boolean }
             <span>·</span>
             <button
               type="button"
-              className="text-primary hover:underline font-medium"
+              className="font-medium text-foreground hover:underline"
               onClick={clearAll}
             >
               Clear all
             </button>
-            <span className="ml-auto">
+            <span className="ml-auto font-mono tabular-nums">
               {selectedForDownload.size} of {entries.length} selected
             </span>
           </div>
-          <div className="overflow-y-auto flex-1 min-h-0 space-y-2 pr-1 -mr-1">
+          <div className="-mr-1 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {entries.map((entry, index) => (
               <label
                 key={entry.id ?? `entry-${index}`}
-                className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
+                className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3 transition-colors hover:bg-muted/40"
               >
                 <Checkbox
                   checked={selectedForDownload.has(entry.id)}
                   onCheckedChange={() => toggleSelected(entry.id)}
                   onPointerDown={(e) => e.preventDefault()}
                 />
-                <div className="flex-1 min-w-0">
-                  <span className="font-medium">{entry.vesselName}</span>
-                  <span className="text-muted-foreground text-sm block">
-                    {format(parse(entry.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – {format(parse(entry.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-medium">{entry.vesselName}</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {format(parse(entry.startDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} –{' '}
+                    {format(parse(entry.endDate, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}
                     {entry.vesselType && ` · ${entry.vesselType}`}
                   </span>
                 </div>
@@ -414,19 +422,21 @@ export function ProofOfServicePanel({ embedded = false }: { embedded?: boolean }
           <DialogFooter>
             <Button
               variant="outline"
+              className="h-8 rounded-md text-xs"
               onClick={() => setDownloadDialogOpen(false)}
               disabled={downloadingSelected}
             >
               Cancel
             </Button>
             <Button
+              className="h-8 rounded-md text-xs"
               onClick={handleDownloadSelected}
               disabled={noneSelected || downloadingSelected}
             >
               {downloadingSelected ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Download className="h-4 w-4 mr-2" />
+                <Download className="mr-1.5 h-3.5 w-3.5" />
               )}
               Download
             </Button>

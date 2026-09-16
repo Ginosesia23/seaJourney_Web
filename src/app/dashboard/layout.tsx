@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import { useUser, useSupabase } from '@/supabase';
 import { useDoc } from '@/supabase/database';
@@ -20,6 +21,18 @@ import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import type { UserProfile } from '@/lib/types';
 
+/** Lazy so non-crew dashboard pages don't pay for this bundle until first visit. */
+const ManageCrewPage = dynamic(
+  () => import('@/components/dashboard/manage-crew-page'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[40vh] w-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  },
+);
 
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { user, isUserLoading } = useUser();
@@ -55,7 +68,12 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
   // Paid (or vessel-managed) entitlement — free / inactive accounts stay on /offers
   const hasActiveSubscription = checkDashboardAccess(userProfile);
-  const isLoading = isUserLoading || isProfileLoading;
+
+  // Only block the shell on the *first* auth/profile load. Background refetches
+  // must not unmount SidebarProvider / page children (that feels like a full
+  // dashboard reload on every navigation or tab focus).
+  const isInitialBoot =
+    isUserLoading || (!!user && !userProfile && isProfileLoading);
 
   useEffect(() => {
     if (!user || !userProfile || expiredCompRef.current) return;
@@ -98,7 +116,7 @@ useEffect(() => {
     // Prevent multiple redirects
     if (redirectingRef.current) return;
     
-    if (isLoading) return;
+    if (isInitialBoot) return;
 
     if (!user) {
       router.push('/login');
@@ -133,12 +151,12 @@ useEffect(() => {
 
     // Vessel managers can now see the dashboard summary (no redirect)
     // They can navigate to crew page if needed
-  }, [user, isLoading, hasActiveSubscription, pathname, userProfile, router]);
+  }, [user, isInitialBoot, hasActiveSubscription, pathname, userProfile, router]);
 
   // Platform feature flags: hide disabled product routes for non-admins.
   // Sidebar already omits the links; this covers typed/bookmarked URLs.
   useEffect(() => {
-    if (isLoading || isFlagsLoading || isAdmin) return;
+    if (isInitialBoot || isFlagsLoading || isAdmin) return;
     if (!user || !hasActiveSubscription) return;
     if (pathname === '/dashboard') return;
     if (!isRouteEnabled(pathname)) {
@@ -160,7 +178,7 @@ useEffect(() => {
       router.replace('/dashboard');
     }
   }, [
-    isLoading,
+    isInitialBoot,
     isFlagsLoading,
     isAdmin,
     user,
@@ -176,7 +194,15 @@ useEffect(() => {
   const isMapPage =
     pathname === '/dashboard/world-map' || pathname === '/dashboard/passages-map';
 
-  if (isLoading) {
+  // Keep Manage Crew mounted after first visit so leaving/returning doesn't
+  // remount the dossier (which felt like a full page reload).
+  const isCrewRoute = pathname === '/dashboard/crew';
+  const [keepCrewAlive, setKeepCrewAlive] = useState(isCrewRoute);
+  if (isCrewRoute && !keepCrewAlive) {
+    setKeepCrewAlive(true);
+  }
+
+  if (isInitialBoot) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -192,8 +218,11 @@ useEffect(() => {
     );
   }
 
-  // Avoid flashing a disabled feature page before redirect.
-  if (
+  // Once bootstrapped, keep SidebarProvider mounted. Swapping the whole shell for a
+  // spinner (feature gates / flag refresh) remounts every page and feels like a
+  // full dashboard reload on navigation.
+  const gateContent =
+    !!userProfile &&
     !isAdmin &&
     !isFlagsLoading &&
     pathname !== '/dashboard' &&
@@ -205,14 +234,7 @@ useEffect(() => {
         userProfile,
         vesselContext,
         featureGate,
-      ))
-  ) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
-  }
+      ));
 
   return (
     <SidebarProvider
@@ -232,13 +254,44 @@ useEffect(() => {
             isMapPage ? 'bg-[#070e1a]' : 'bg-content-background',
           )}
         >
-          <div className={cn(
-            'flex-1 overflow-y-auto overscroll-contain',
-            !isMapPage && 'px-8 py-4',
-            isMapPage && 'h-full'
-          )}>
-            {children}
-          </div>
+          {gateContent ? (
+            <div className="flex min-h-[40vh] w-full flex-1 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              {keepCrewAlive && (
+                <div
+                  className={cn(
+                    'flex-1 min-h-0 overflow-y-auto overscroll-contain px-8 py-4',
+                    !isCrewRoute && 'hidden',
+                  )}
+                  aria-hidden={!isCrewRoute}
+                >
+                  <Suspense
+                    fallback={
+                      <div className="flex min-h-[40vh] w-full items-center justify-center">
+                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                      </div>
+                    }
+                  >
+                    <ManageCrewPage />
+                  </Suspense>
+                </div>
+              )}
+              {!isCrewRoute && (
+                <div
+                  className={cn(
+                    'flex-1 min-h-0 overflow-y-auto overscroll-contain',
+                    !isMapPage && 'px-8 py-4',
+                    isMapPage && 'h-full',
+                  )}
+                >
+                  {children}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>

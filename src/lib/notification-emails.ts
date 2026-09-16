@@ -430,3 +430,121 @@ export async function sendTestimonialDecisionEmail(
     return { success: false, error: err };
   }
 }
+
+export type CrewDocumentKind =
+  | 'certificate'
+  | 'testimonial'
+  | 'nav_watch'
+  | 'proof_of_service'
+  | 'application';
+
+export type CrewDocumentCreatedEmailArgs = {
+  to: string;
+  recipientFirstName?: string | null;
+  vesselName: string;
+  generatedByName?: string | null;
+  documentKind: CrewDocumentKind;
+  /** Human label, e.g. certificate name or "Nav Watch application". */
+  documentLabel: string;
+};
+
+const CREW_DOCUMENT_KIND_META: Record<
+  CrewDocumentKind,
+  { heading: string; subjectPrefix: string; ctaLabel: string; ctaPath: string }
+> = {
+  certificate: {
+    heading: 'Certificate added to your account',
+    subjectPrefix: 'Certificate added',
+    ctaLabel: 'Open certificates',
+    ctaPath: '/dashboard/certificates',
+  },
+  testimonial: {
+    heading: 'Sea service document ready',
+    subjectPrefix: 'Document generated',
+    ctaLabel: 'Open career documents',
+    ctaPath: '/dashboard/career-documents?tab=testimonials',
+  },
+  nav_watch: {
+    heading: 'Nav Watch application generated',
+    subjectPrefix: 'Nav Watch application',
+    ctaLabel: 'Open career documents',
+    ctaPath: '/dashboard/career-documents',
+  },
+  proof_of_service: {
+    heading: 'Proof of Service generated',
+    subjectPrefix: 'Proof of Service',
+    ctaLabel: 'Open career documents',
+    ctaPath: '/dashboard/career-documents',
+  },
+  application: {
+    heading: 'Application generated for you',
+    subjectPrefix: 'Application generated',
+    ctaLabel: 'Open career documents',
+    ctaPath: '/dashboard/career-documents',
+  },
+};
+
+/**
+ * Notify a crew member that a vessel manager uploaded or generated a
+ * document / application on their behalf.
+ */
+export async function sendCrewDocumentCreatedEmail(
+  args: CrewDocumentCreatedEmailArgs,
+): Promise<{ success: boolean; error?: unknown }> {
+  if (!resend) {
+    console.warn('[CREW DOCUMENT EMAIL] Resend API key not configured – skipping');
+    return { success: false, error: new Error('Resend not configured') };
+  }
+
+  const { to, recipientFirstName, vesselName, generatedByName, documentKind, documentLabel } =
+    args;
+  const meta = CREW_DOCUMENT_KIND_META[documentKind];
+  const greeting = recipientFirstName
+    ? `Hi ${escapeHtml(recipientFirstName)},`
+    : 'Hi there,';
+  const byLine = generatedByName?.trim()
+    ? escapeHtml(generatedByName.trim())
+    : 'your vessel manager';
+  const subject = `${meta.subjectPrefix} – ${vesselName}`;
+  const ctaHref = `${SITE_URL}${meta.ctaPath}`;
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">${greeting}</p>
+    <p style="margin:0 0 16px;">
+      <strong>${byLine}</strong> on <strong>${escapeHtml(vesselName)}</strong> has added
+      a document to your SeaJourney account:
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;background:#f4f7fb;border-radius:8px;">
+      <tr>
+        <td style="padding:14px 16px;color:#374151;font-size:14px;">
+          <div style="margin-bottom:6px;"><strong>Document:</strong> ${escapeHtml(documentLabel)}</div>
+          <div><strong>Vessel:</strong> ${escapeHtml(vesselName)}</div>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 16px;">
+      You can view and download it from your dashboard whenever you need it.
+    </p>
+  `;
+
+  const html = emailShell({
+    heading: meta.heading,
+    bodyHtml,
+    ctaLabel: meta.ctaLabel,
+    ctaHref,
+  });
+
+  try {
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject,
+      html,
+    });
+    console.log('[CREW DOCUMENT EMAIL] Sent to', to, documentKind);
+    return { success: true };
+  } catch (err) {
+    console.error('[CREW DOCUMENT EMAIL] Failed to send to', to, err);
+    return { success: false, error: err };
+  }
+}

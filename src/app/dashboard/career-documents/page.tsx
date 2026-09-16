@@ -7,7 +7,6 @@ import {
   FileSignature,
   FolderOpen,
   Loader2,
-  Award,
 } from 'lucide-react';
 
 import { useUser } from '@/supabase';
@@ -26,6 +25,9 @@ import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { TestimonialsWorkspace } from '@/components/career-documents/testimonials-workspace';
 import { ProofOfServicePanel } from '@/components/career-documents/proof-of-service-panel';
 import { VesselDocumentsArchive } from '@/components/career-documents/vessel-documents-archive';
+import {
+  CareerDocumentsPageHeader,
+} from '@/components/dashboard/career-documents-page-ui';
 
 export type CareerDocumentsTab = 'testimonials' | 'proof' | 'archive';
 
@@ -36,19 +38,22 @@ const TAB_META: Record<
   testimonials: {
     label: 'Testimonials',
     short: 'Request & manage',
-    description: 'Request captain sign-off, track status, and download MCA / AMSA / SeaJourney PDFs.',
+    description:
+      'Request captain sign-off, track status, and download MCA / AMSA / SeaJourney PDFs.',
     icon: FileSignature,
   },
   proof: {
     label: 'Proof of service',
     short: 'Certificates',
-    description: 'Download proof of service entries saved to your profile — one file or combined.',
+    description:
+      'Download proof of service entries saved to your profile — one file or combined.',
     icon: FileCheck,
   },
   archive: {
     label: 'From vessels',
     short: 'Issued to you',
-    description: 'Documents vessels generated for you, with search, filters, and verification codes.',
+    description:
+      'Documents vessels generated for you, with search, filters, and verification codes.',
     icon: FolderOpen,
   },
 };
@@ -65,8 +70,10 @@ function CareerDocumentsHubInner() {
     return {
       ...userProfileRaw,
       role: (p.role as string) || userProfileRaw.role || 'crew',
-      subscriptionTier: (p.subscription_tier as string) || (p.subscriptionTier as string) || 'free',
-      linkedAccountFeatures: (p.linked_account_features as Record<string, boolean>) || undefined,
+      subscriptionTier:
+        (p.subscription_tier as string) || (p.subscriptionTier as string) || 'free',
+      linkedAccountFeatures:
+        (p.linked_account_features as Record<string, boolean>) || undefined,
     } as UserProfile & { linkedAccountFeatures?: Record<string, boolean> };
   }, [userProfileRaw]);
 
@@ -121,69 +128,52 @@ function CareerDocumentsHubInner() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-6">
-        <Skeleton className="h-36 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <div className="space-y-2 border-b border-border pb-5">
+          <Skeleton className="h-3 w-40 rounded-md" />
+          <Skeleton className="h-7 w-56 rounded-md" />
+          <Skeleton className="h-4 w-96 max-w-full rounded-md" />
+        </div>
+        <Skeleton className="h-8 w-72 rounded-md" />
+        <Skeleton className="h-64 w-full rounded-md" />
       </div>
     );
   }
 
   if (availableTabs.length === 0) {
     return (
-      <div className="overflow-hidden rounded-xl border bg-card px-5 py-12 text-center shadow-sm">
-        <FolderOpen className="mx-auto h-10 w-10 text-muted-foreground opacity-50" />
-        <h1 className="mt-4 text-lg font-semibold">No career documents available</h1>
-        <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          Your plan or account permissions don&apos;t include career document tools yet.
-        </p>
+      <div className="flex flex-col gap-6">
+        <CareerDocumentsPageHeader
+          title="Career documents"
+          description="Testimonials, proof of service, and documents vessels have issued for you."
+        />
+        <div className="overflow-hidden rounded-md border border-border bg-background">
+          <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+            <p className="text-xs font-medium text-foreground">
+              No career documents available
+            </p>
+          </div>
+          <div className="flex flex-col items-center justify-center px-4 py-14 text-center">
+            <FolderOpen className="h-5 w-5 text-muted-foreground" />
+            <p className="mt-3 max-w-md text-xs text-muted-foreground">
+              Your plan or account permissions don&apos;t include career document tools yet.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-              <FileSignature className="h-3.5 w-3.5" />
-              Career
-            </div>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">
-              Career documents
-            </h1>
-            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
-              Testimonials, proof of service, and documents vessels have issued for you — in one place.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-            {canTestimonials ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Award className="h-3 w-3" /> Request &amp; track
-              </span>
-            ) : null}
-            {canProof ? (
-              <span className="inline-flex items-center gap-1.5">
-                <FileCheck className="h-3 w-3" /> Proof downloads
-              </span>
-            ) : null}
-            {canArchive ? (
-              <span className="inline-flex items-center gap-1.5">
-                <FolderOpen className="h-3 w-3" /> Vessel archive
-              </span>
-            ) : null}
-          </div>
-        </div>
+      <CareerDocumentsPageHeader
+        title="Career documents"
+        description="Testimonials, proof of service, and documents vessels have issued for you — in one place."
+      />
 
-        <div className="border-t bg-muted/30 px-3 py-2 sm:px-4">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5 w-fit">
           <Tabs value={tab} onValueChange={handleTabChange}>
-            <TabsList
-              className={cn(
-                'grid h-auto w-full gap-1 rounded-xl bg-transparent p-0',
-                availableTabs.length === 1 && 'grid-cols-1',
-                availableTabs.length === 2 && 'grid-cols-2',
-                availableTabs.length >= 3 && 'grid-cols-3',
-              )}
-            >
+            <TabsList className="h-auto bg-transparent p-0">
               {availableTabs.map((id) => {
                 const meta = TAB_META[id];
                 const Icon = meta.icon;
@@ -192,26 +182,18 @@ function CareerDocumentsHubInner() {
                     key={id}
                     value={id}
                     className={cn(
-                      'flex flex-col items-start gap-0.5 rounded-lg border border-transparent px-3 py-2.5 text-left data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:shadow-sm sm:px-4',
+                      'inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-xs data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm',
                     )}
                   >
-                    <span className="flex items-center gap-1.5 text-sm font-semibold">
-                      <Icon className="h-3.5 w-3.5" />
-                      {meta.label}
-                    </span>
-                    <span className="hidden text-[11px] font-normal text-muted-foreground sm:block">
-                      {meta.short}
-                    </span>
+                    <Icon className="h-3.5 w-3.5" />
+                    {meta.label}
                   </TabsTrigger>
                 );
               })}
             </TabsList>
           </Tabs>
         </div>
-      </div>
-
-      <div className="rounded-xl border bg-card px-4 py-3 sm:px-5">
-        <p className="text-xs text-muted-foreground">{TAB_META[tab].description}</p>
+        <p className="text-[11px] text-muted-foreground">{TAB_META[tab].description}</p>
       </div>
 
       <Tabs value={tab} onValueChange={handleTabChange}>
@@ -239,8 +221,9 @@ export default function CareerDocumentsPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[320px] items-center justify-center text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
+        <div className="flex min-h-[220px] items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading career documents…
         </div>
       }
     >

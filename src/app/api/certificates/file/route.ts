@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireUser } from '@/lib/applications/auth';
 import { CERTIFICATES_BUCKET } from '@/lib/certificates/storage';
+import { assertCanViewCrewSharedData } from '@/lib/vessel-crew-access.server';
 
 /**
  * GET /api/certificates/file?path=userId/...
- * Streams a certificate file the caller owns (path must start with their user id).
+ * Streams a certificate file the caller owns, or that a vessel may view
+ * when the crew member has approved data sharing.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -19,14 +21,20 @@ export async function GET(req: NextRequest) {
 
     const ownerPrefix = `${auth.userId}/`;
     if (!path.startsWith(ownerPrefix)) {
-      // Allow admins to download any path
+      const ownerId = path.split('/')[0];
+      if (!ownerId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
       const { data: actor } = await supabaseAdmin
         .from('users')
         .select('role')
         .eq('id', auth.userId)
         .maybeSingle();
+
       if (actor?.role !== 'admin') {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        const access = await assertCanViewCrewSharedData(auth.userId, ownerId);
+        if ('error' in access) return access.error;
       }
     }
 

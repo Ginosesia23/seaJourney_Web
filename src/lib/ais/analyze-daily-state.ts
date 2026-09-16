@@ -18,8 +18,10 @@ import type { DatalasticVesselPosition } from '@/lib/datalastic/client';
 import {
   AIS_NAV_STATUS_LABELS,
   getNormalizedAisNavStatus,
+  isAisUnderwayNavStatus,
   mapAisToDailyStatus,
 } from '@/lib/ais/map-ais-to-state';
+import { geocodeSuggestsMoored } from '@/lib/ais/place-name-hints';
 
 export type AisDailyConfidence = 'high' | 'medium' | 'low';
 
@@ -631,12 +633,52 @@ export function analyzeAisDailyState(
   // 4. Vessel relocated between stationary clusters but the AIS status of the
   // last cluster is missing/unhelpful — use the geocoder hint when available
   // to call in-port vs at-anchor at the destination.
-  if (movedBetweenClusters && lastCluster) {
-    if (options?.locationContext?.endOfDayInPopulatedArea) {
+  //
+  // Guard: the last cluster must be a real HOLD (≥ 45 min). A single transit
+  // ping (duration 0.0 h) while still making way used to fire this rule and
+  // wrongly mark the day "at-anchor" mid-passage.
+  const lastFix = sorted[sorted.length - 1]!;
+  const lastFixSpeed =
+    typeof lastFix.speed === 'number' && Number.isFinite(lastFix.speed)
+      ? Math.abs(lastFix.speed)
+      : 0;
+  const lastFixStatus = getNormalizedAisNavStatus(lastFix);
+  const lastFixClearlyUnderway =
+    lastFixSpeed >= 2 ||
+    (isAisUnderwayNavStatus(lastFixStatus) && lastFixSpeed >= 1.5);
+
+  if (
+    lastFixClearlyUnderway &&
+    (!lastCluster || lastCluster.durationMs < MIN_LAST_CLUSTER_DURATION_MS) &&
+    (movedBetweenClusters ||
+      distanceTraveledNm >= RELOCATION_CLUSTER_GAP_NM ||
+      (avgSpeed ?? 0) >= 2)
+  ) {
+    return {
+      state: 'underway',
+      confidence: underwaySatisfied ? 'high' : 'medium',
+      reason: `Last AIS fix still making way (${lastFixSpeed.toFixed(1)} kn${
+        lastFixStatus ? `, ${lastFixStatus}` : ''
+      }) — not yet a settled hold (${fixedHrs(underwayDurationMs)} h underway so far).`,
+      metrics,
+    };
+  }
+
+  if (
+    movedBetweenClusters &&
+    lastCluster &&
+    lastCluster.durationMs >= MIN_LAST_CLUSTER_DURATION_MS
+  ) {
+    if (
+      geocodeSuggestsMoored({
+        inPopulatedArea: options?.locationContext?.endOfDayInPopulatedArea,
+        placeName: options?.locationContext?.endOfDayPlaceName,
+      })
+    ) {
       return {
         state: 'in-port',
         confidence: 'medium',
-        reason: `Vessel relocated ${clusterTransitionNm.toFixed(2)} NM and ended${placeSuffix} for ${fixedHrs(lastCluster.durationMs)} h — populated coast suggests moored.`,
+        reason: `Vessel relocated ${clusterTransitionNm.toFixed(2)} NM and ended${placeSuffix} for ${fixedHrs(lastCluster.durationMs)} h — harbour / berth evidence suggests moored.`,
         metrics,
       };
     }
@@ -689,23 +731,44 @@ export function analyzeAisDailyState(
   // 7. Heuristic by movement radius — when nav status is missing or unhelpful.
   // Moored vessels have very tight radius (cable + fender). Anchor swing is
   // typically a couple of cable lengths (~0.05–0.5 NM).
+  // IMPORTANT: a tight radius alone is NOT enough to call Moored — vessels
+  // at anchor in a roadstead / marine park often sit inside 16–50 m. Prefer
+  // at-anchor unless AIS says Moored or the place looks like a berth.
   if (radiusOfMovementNm <= 0.05 && distanceTraveledNm <= 0.3) {
+    const endStatus = getNormalizedAisNavStatus(sorted[sorted.length - 1]);
+    const placeName = options?.locationContext?.endOfDayPlaceName ?? null;
+    if (endStatus === moored || geocodeSuggestsMoored({
+      inPopulatedArea: options?.locationContext?.endOfDayInPopulatedArea,
+      placeName,
+    })) {
+      return {
+        state: 'in-port',
+        confidence: 'medium',
+        reason: `Vessel stationary within ${(radiusOfMovementNm * 1852).toFixed(0)} m${placeSuffix} — likely moored.`,
+        metrics,
+      };
+    }
     return {
-      state: 'in-port',
+      state: 'at-anchor',
       confidence: 'medium',
-      reason: `Vessel stationary within ${(radiusOfMovementNm * 1852).toFixed(0)} m${placeSuffix} — likely moored.`,
+      reason: `Vessel stationary within ${(radiusOfMovementNm * 1852).toFixed(0)} m${placeSuffix} — treating as at anchor (no Moored AIS / berth evidence).`,
       metrics,
     };
   }
 
   if (radiusOfMovementNm <= 0.5 && distanceTraveledNm <= 1.5) {
-    // Geocoder tiebreaker — small radius near a populated coast usually means
-    // a moored vessel, not an anchored one.
-    if (options?.locationContext?.endOfDayInPopulatedArea) {
+    // Geocoder tiebreaker — only call Moored when place evidence is berth-like
+    // (not a marine park / nature reserve locality string).
+    if (
+      geocodeSuggestsMoored({
+        inPopulatedArea: options?.locationContext?.endOfDayInPopulatedArea,
+        placeName: options?.locationContext?.endOfDayPlaceName,
+      })
+    ) {
       return {
         state: 'in-port',
         confidence: 'medium',
-        reason: `Vessel held within ${radiusOfMovementNm.toFixed(2)} NM${placeSuffix} — populated coast suggests moored.`,
+        reason: `Vessel held within ${radiusOfMovementNm.toFixed(2)} NM${placeSuffix} — harbour / berth evidence suggests moored.`,
         metrics,
       };
     }
@@ -727,11 +790,12 @@ export function analyzeAisDailyState(
     };
   }
 
-  // 7. Fallback
+  // 7. Fallback — prefer at-anchor over Moored when inconclusive (stale
+  // underway nav + tight radius was historically defaulting to Moored).
   return {
-    state: 'in-port',
+    state: 'at-anchor',
     confidence: 'low',
-    reason: 'Inconclusive AIS data — defaulting to moored.',
+    reason: 'Inconclusive AIS data — defaulting to at anchor.',
     metrics,
   };
 }

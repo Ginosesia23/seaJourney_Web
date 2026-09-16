@@ -1,3 +1,5 @@
+import { placeNameSuggestsOpenWaterOrPark } from '@/lib/ais/place-name-hints';
+
 export type ReverseGeocodeStructured = {
   /** Display label, e.g. "Genoa, Italy" or just "Italy" for offshore points. */
   label: string | null;
@@ -7,6 +9,9 @@ export type ReverseGeocodeStructured = {
    * "vessel is in a populated coastal area" than checking whether `label` has
    * a comma — `principalSubdivision` (state/province) is set even for points
    * many NM offshore.
+   *
+   * Marine parks / nature reserves are forced false — they often come back
+   * with a locality string but are not mooring berths.
    */
   inPopulatedArea: boolean;
 };
@@ -37,9 +42,13 @@ function buildStructuredResult(data: Record<string, unknown>): ReverseGeocodeStr
     label = primary;
   }
 
+  const hasCityOrLocality = Boolean(city || locality);
+  const inPopulatedArea =
+    hasCityOrLocality && !placeNameSuggestsOpenWaterOrPark(label);
+
   return {
     label,
-    inPopulatedArea: Boolean(city || locality),
+    inPopulatedArea,
   };
 }
 

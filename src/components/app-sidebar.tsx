@@ -41,6 +41,8 @@ import {
   Layers,
   Anchor,
   ArrowRightLeft,
+  ArrowDownLeft,
+  ArrowUpRight,
   FileCheck,
   ChevronsUpDown,
   Radar,
@@ -356,7 +358,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const { supabase } = useSupabase()
   const { user } = useUser()
   const { isEnabled: isFeatureEnabled, flags, tierAccess, isAdmin: isFeatureAdmin } = useFeatureFlags()
-  const [inboxCount, setInboxCount] = React.useState<number>(0)
+  const [inboxIncomingCount, setInboxIncomingCount] = React.useState<number>(0)
+  const [inboxSentCount, setInboxSentCount] = React.useState<number>(0)
   const [feedbackCount, setFeedbackCount] = React.useState<number>(0)
   const [requestsCount, setRequestsCount] = React.useState<number>(0)
 
@@ -637,7 +640,8 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           const captaincyCount = captaincyResult.count || 0;
           const applicationsCount = applicationsResult.count || 0;
           console.log('[SIDEBAR] Admin inbox count:', { captaincyCount, applicationsCount, total: captaincyCount + applicationsCount });
-          setInboxCount(captaincyCount + applicationsCount);
+          setInboxIncomingCount(captaincyCount + applicationsCount);
+          setInboxSentCount(0);
         } else if (userRole === 'captain' || userRole === 'vessel') {
           // Captains/vessel managers see testimonials addressed to them
           let testimonialQuery = supabase
@@ -711,16 +715,16 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
             sentTestimonialCount = sentTestimonials.count || 0;
             sentAccessCount = sentAccess.count || 0;
 
-            setInboxCount(
+            setInboxIncomingCount(
               (testimonialCount || 0) +
                 seaTimeCount +
                 captaincyCount +
-                (planCoverageCount || 0) +
-                sentTestimonialCount +
-                sentAccessCount,
+                (planCoverageCount || 0),
             );
+            setInboxSentCount(sentTestimonialCount + sentAccessCount);
           } else {
-            setInboxCount((testimonialCount || 0) + seaTimeCount + captaincyCount);
+            setInboxIncomingCount((testimonialCount || 0) + seaTimeCount + captaincyCount);
+            setInboxSentCount(0);
           }
         } else {
           // Crew: vessel sea time access requests, vessel sea time offers, and pending testimonials (where user is captain)
@@ -753,11 +757,13 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
           const accessCount = accessResult.count ?? 0;
           const offersCount = offersResult.count ?? 0;
           const testimonialCount = testimonialResult.count ?? 0;
-          setInboxCount(accessCount + offersCount + testimonialCount);
+          setInboxIncomingCount(accessCount + offersCount + testimonialCount);
+          setInboxSentCount(0);
         }
       } catch (error) {
         console.error('[SIDEBAR] Error fetching inbox count:', error);
-        setInboxCount(0);
+        setInboxIncomingCount(0);
+        setInboxSentCount(0);
       }
     };
 
@@ -1168,6 +1174,11 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                   const countBadgeClass =
                     'ml-auto h-5 min-w-5 rounded-full border-0 bg-sky-400/20 px-1.5 text-[10px] font-semibold tabular-nums text-sky-100 group-data-[collapsible=icon]:hidden'
 
+                  const inboxIncomingBadgeClass =
+                    'inline-flex h-5 min-w-5 items-center gap-0.5 rounded-full border-0 bg-sky-400/20 px-1.5 text-[10px] font-semibold tabular-nums text-sky-100'
+                  const inboxSentBadgeClass =
+                    'inline-flex h-5 min-w-5 items-center gap-0.5 rounded-full border-0 bg-amber-400/20 px-1.5 text-[10px] font-semibold tabular-nums text-amber-100'
+
                   const iconPresentation = navIconPresentation(groupLabel, {
                     isActive,
                     isLocked: isNavLocked,
@@ -1226,10 +1237,27 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
                               style={iconPresentation.style}
                             />
                             <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
-                          {isInbox && inboxCount > 0 && (
-                            <Badge variant="secondary" className={countBadgeClass}>
-                              {inboxCount > 99 ? '99+' : inboxCount}
-                            </Badge>
+                          {isInbox && (inboxIncomingCount > 0 || inboxSentCount > 0) && (
+                            <span className="ml-auto flex items-center gap-1 group-data-[collapsible=icon]:hidden">
+                              {inboxIncomingCount > 0 ? (
+                                <span
+                                  className={inboxIncomingBadgeClass}
+                                  title="Incoming"
+                                >
+                                  <ArrowDownLeft className="h-3 w-3 shrink-0 opacity-90" aria-hidden />
+                                  {inboxIncomingCount > 99 ? '99+' : inboxIncomingCount}
+                                </span>
+                              ) : null}
+                              {inboxSentCount > 0 ? (
+                                <span
+                                  className={inboxSentBadgeClass}
+                                  title="Sent"
+                                >
+                                  <ArrowUpRight className="h-3 w-3 shrink-0 opacity-90" aria-hidden />
+                                  {inboxSentCount > 99 ? '99+' : inboxSentCount}
+                                </span>
+                              ) : null}
+                            </span>
                           )}
                           {isRequests && requestsCount > 0 && (
                             <Badge variant="secondary" className={countBadgeClass}>

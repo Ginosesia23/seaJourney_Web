@@ -261,22 +261,36 @@ function evaluateOne(
       }
       const durationMet = minMonthsHeld === 0 || monthsHeld >= minMonthsHeld;
       const met = counting.length >= minCount && durationMet;
-      const certificateStatus = met
+      let certificateStatus: CertificateValidityStatus = met
         ? worstStatus(counting.map((c) => c.status))
         : allMatches.length === 0
           ? 'missing'
           : worstStatus(matchedCertificates.map((c) => c.status));
 
+      // Valid (or no-expiry) cert on file, but not held long enough yet.
+      if (
+        !met &&
+        counting.length >= minCount &&
+        minMonthsHeld > 0 &&
+        !durationMet &&
+        certificateStatus !== 'expired' &&
+        certificateStatus !== 'missing'
+      ) {
+        certificateStatus = 'insufficient_hold';
+      }
+
       let detail: string;
       if (allMatches.length === 0) {
         detail = `No matching certificate on your Certificates page — add ${minCount === 1 ? 'one' : `${minCount}`} that matches this requirement`;
-      } else if (!met && mustNotExpired && allMatches.length > 0) {
+      } else if (!met && mustNotExpired && allMatches.length > 0 && counting.length === 0) {
         const expiredOnly = matchedCertificates.every(
           (c) => c.status === 'expired',
         );
         detail = expiredOnly
           ? 'Found on file but expired — renew and update the dates'
           : `${counting.length} of ${minCount} valid matching certificate${minCount === 1 ? '' : 's'}`;
+      } else if (certificateStatus === 'insufficient_hold') {
+        detail = `Certificate on file — held ${monthsHeld} of ${minMonthsHeld} months required`;
       } else if (certificateStatus === 'expiring_soon') {
         const soon = counting.find((c) => c.status === 'expiring_soon');
         const days = soon?.daysUntilExpiry;
@@ -298,7 +312,7 @@ function evaluateOne(
           : `${counting.length} matching certificate${counting.length === 1 ? '' : 's'} on file and valid`;
       }
 
-      if (minMonthsHeld > 0) {
+      if (minMonthsHeld > 0 && certificateStatus !== 'insufficient_hold') {
         detail = durationMet
           ? `${detail} — held ${monthsHeld} months (required ${minMonthsHeld})`
           : counting.length >= minCount

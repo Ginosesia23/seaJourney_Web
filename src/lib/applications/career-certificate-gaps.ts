@@ -44,6 +44,7 @@ export function certificateGapKeyFromEvaluation(
 
 function gapActionLabel(status: CertificateValidityStatus): string {
   if (status === 'expired' || status === 'expiring_soon') return 'Renew / update';
+  if (status === 'insufficient_hold') return 'View certificate';
   return 'Add certificate';
 }
 
@@ -84,6 +85,12 @@ export function collectCertificateGaps(
           existing.certificateStatus !== 'expired'
         ) {
           existing.certificateStatus = 'expiring_soon';
+        } else if (
+          status === 'insufficient_hold' &&
+          existing.certificateStatus !== 'expired' &&
+          existing.certificateStatus !== 'expiring_soon'
+        ) {
+          existing.certificateStatus = 'insufficient_hold';
         }
         existing.actionLabel = gapActionLabel(existing.certificateStatus);
         continue;

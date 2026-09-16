@@ -107,7 +107,9 @@ export type CertificateValidityStatus =
   | 'valid'
   | 'expiring_soon'
   | 'expired'
-  | 'no_expiry';
+  | 'no_expiry'
+  /** Matching certificate on file, but issue date is too recent for minMonthsHeld. */
+  | 'insufficient_hold';
 
 export type MatchedCertificateSummary = {
   id: string;

@@ -8,7 +8,6 @@ import { format, differenceInDays, parse, addYears } from 'date-fns';
 import {
   PlusCircle,
   Loader2,
-  Award,
   Edit,
   Trash2,
   Calendar,
@@ -22,7 +21,6 @@ import {
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Form,
   FormControl,
@@ -63,9 +61,17 @@ import {
 } from '@/lib/certificates/presets';
 import { useCertificateCatalog } from '@/hooks/use-certificate-catalog';
 import { isCertificateStoragePath } from '@/lib/certificates/storage';
+import { mapCertificateRow } from '@/lib/certificates/map';
 import type { CareerCertificateGap } from '@/lib/applications/career-certificate-gaps';
 import { certificateMatchesGap } from '@/lib/applications/career-certificate-gaps';
 import { CareerCertificateGapsPanel } from '@/components/dashboard/career-certificate-gaps-panel';
+import {
+  CertificatesEmptyState,
+  CertificatesLoadingState,
+  CertificatesPageHeader,
+  CertificatesSection,
+  CertificatesStatTiles,
+} from '@/components/dashboard/certificates-page-ui';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,30 +123,45 @@ const commonCertificateTypes = [
   'Other',
 ];
 
+function getCertificateStatus(certificate: Certificate) {
+  if (!certificate.expiryDate) {
+    return {
+      status: 'no-expiry' as const,
+      label: 'No Expiry',
+      badgeClass: 'text-muted-foreground',
+    };
+  }
+
+  const expiryDate = parse(certificate.expiryDate, 'yyyy-MM-dd', new Date());
+  const daysUntilExpiry = differenceInDays(expiryDate, new Date());
+
+  if (daysUntilExpiry < 0) {
+    return {
+      status: 'expired' as const,
+      label: 'Expired',
+      badgeClass: 'border-destructive/30 bg-destructive/10 text-destructive',
+    };
+  }
+  if (daysUntilExpiry <= certificate.renewalNoticeDays) {
+    return {
+      status: 'expiring-soon' as const,
+      label: 'Expiring Soon',
+      badgeClass:
+        'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200',
+    };
+  }
+  return {
+    status: 'valid' as const,
+    label: 'Valid',
+    badgeClass:
+      'border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
+  };
+}
+
 function parseYmd(value: string | null | undefined): Date | null {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const d = parse(value, 'yyyy-MM-dd', new Date());
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function mapCertRow(cert: Record<string, unknown>): Certificate {
-  return {
-    id: cert.id as string,
-    userId: cert.user_id as string,
-    certificateName: cert.certificate_name as string,
-    certificateType: cert.certificate_type as string,
-    presetId: (cert.preset_id as string | null) || null,
-    certificateNumber: (cert.certificate_number as string | null) || null,
-    issuingAuthority: (cert.issuing_authority as string | null) || null,
-    issueDate: cert.issue_date as string,
-    expiryDate: (cert.expiry_date as string | null) || null,
-    renewalRequired: (cert.renewal_required as boolean | null) ?? true,
-    renewalNoticeDays: (cert.renewal_notice_days as number | null) ?? 90,
-    notes: (cert.notes as string | null) || null,
-    documentUrl: (cert.document_url as string | null) || null,
-    createdAt: cert.created_at as string | undefined,
-    updatedAt: cert.updated_at as string | undefined,
-  };
 }
 
 export default function CertificatesPage() {
@@ -240,6 +261,25 @@ export default function CertificatesPage() {
     return certificatePresets.filter((p) => p.category === presetCategory);
   }, [certificatePresets, presetCategory]);
 
+  const certificateStats = useMemo(() => {
+    let valid = 0;
+    let expiring = 0;
+    let expired = 0;
+    for (const certificate of certificates) {
+      const status = getCertificateStatus(certificate);
+      if (status.status === 'expired') expired += 1;
+      else if (status.status === 'expiring-soon') expiring += 1;
+      else valid += 1;
+    }
+    return {
+      total: certificates.length,
+      valid,
+      expiring,
+      expired,
+      gaps: careerCertificateGaps.length,
+    };
+  }, [certificates, careerCertificateGaps.length]);
+
   useEffect(() => {
     if (!user?.id || !hasPremiumAccess) {
       setIsLoadingCertificates(false);
@@ -264,7 +304,7 @@ export default function CertificatesPage() {
           });
           setCertificates([]);
         } else {
-          setCertificates((data || []).map((c) => mapCertRow(c)));
+          setCertificates((data || []).map((c) => mapCertificateRow(c)));
         }
       } catch (error) {
         console.error('[CERTIFICATES] Exception fetching certificates:', error);
@@ -707,544 +747,546 @@ export default function CertificatesPage() {
     }
   };
 
-  const getCertificateStatus = (certificate: Certificate) => {
-    if (!certificate.expiryDate) {
-      return { status: 'no-expiry', label: 'No Expiry', color: 'bg-gray-500' };
-    }
-
-    const expiryDate = parse(certificate.expiryDate, 'yyyy-MM-dd', new Date());
-    const daysUntilExpiry = differenceInDays(expiryDate, new Date());
-
-    if (daysUntilExpiry < 0) {
-      return { status: 'expired', label: 'Expired', color: 'bg-red-500' };
-    } else if (daysUntilExpiry <= certificate.renewalNoticeDays) {
-      return { status: 'expiring-soon', label: 'Expiring Soon', color: 'bg-orange-500' };
-    }
-    return { status: 'valid', label: 'Valid', color: 'bg-green-500' };
-  };
-
   if (isLoadingProfile) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <CertificatesLoadingState />;
   }
 
   if (userProfile && !hasPremiumAccess) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <CertificatesLoadingState />;
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Certificate Tracking</h1>
-          <p className="text-muted-foreground mt-1">
-            Pick a known certificate, upload a copy, and track issue and expiry dates
-          </p>
-        </div>
-        <Dialog
-          open={isFormOpen}
-          onOpenChange={(open) => {
-            if (!open) handleCloseForm();
-            else setIsFormOpen(true);
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button onClick={() => handleOpenForm()} className="rounded-xl">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add Certificate
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="rounded-xl max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {editingCertificate
-                  ? 'Edit Certificate'
-                  : formStep === 'preset'
-                    ? 'Choose a certificate'
-                    : 'Certificate details'}
-              </DialogTitle>
-              <DialogDescription>
-                {editingCertificate
-                  ? 'Update details, or replace the uploaded copy and re-scan dates.'
-                  : formStep === 'preset'
-                    ? 'Start from a common maritime certificate (STCW, EDH, ENG1, and more).'
-                    : 'Upload a copy if you have one, scan for dates, or enter them yourself.'}
-              </DialogDescription>
-            </DialogHeader>
+  const addCertificateDialog = (
+    <Dialog
+      open={isFormOpen}
+      onOpenChange={(open) => {
+        if (!open) handleCloseForm();
+        else setIsFormOpen(true);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button onClick={() => handleOpenForm()} className="h-8 rounded-md text-xs">
+          <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+          Add Certificate
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-md">
+        <DialogHeader>
+          <DialogTitle>
+            {editingCertificate
+              ? 'Edit Certificate'
+              : formStep === 'preset'
+                ? 'Choose a certificate'
+                : 'Certificate details'}
+          </DialogTitle>
+          <DialogDescription>
+            {editingCertificate
+              ? 'Update details, or replace the uploaded copy and re-scan dates.'
+              : formStep === 'preset'
+                ? 'Start from a common maritime certificate (STCW, EDH, ENG1, and more).'
+                : 'Upload a copy if you have one, scan for dates, or enter them yourself.'}
+          </DialogDescription>
+        </DialogHeader>
 
-            {!editingCertificate && formStep === 'preset' ? (
-              <div className="space-y-4">
+        {!editingCertificate && formStep === 'preset' ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={presetCategory === 'all' ? 'default' : 'outline'}
+                className="h-7 rounded-md text-xs"
+                onClick={() => setPresetCategory('all')}
+              >
+                All
+              </Button>
+              {CERTIFICATE_PRESET_CATEGORIES.map((cat) => (
+                <Button
+                  key={cat.id}
+                  type="button"
+                  size="sm"
+                  variant={presetCategory === cat.id ? 'default' : 'outline'}
+                  className="h-7 rounded-md text-xs"
+                  onClick={() => setPresetCategory(cat.id)}
+                >
+                  {cat.label}
+                </Button>
+              ))}
+            </div>
+            <div className="grid max-h-[50vh] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+              {filteredPresets.map((preset) => {
+                const presetGap = careerCertificateGaps.find(
+                  (gap) => gap.presetId === preset.id,
+                );
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className={cn(
+                      'rounded-md border p-3 text-left transition-colors hover:bg-muted/60',
+                      presetGap && 'border-amber-500/40 bg-amber-500/[0.04]',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-sm font-medium">{preset.name}</div>
+                      {presetGap ? (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 gap-0.5 border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-900 dark:text-amber-100"
+                        >
+                          <Target className="h-3 w-3" />
+                          Ticket
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {preset.description}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <Badge variant="outline" className="rounded-md text-[10px]">
+                        {preset.type}
+                      </Badge>
+                      {preset.typicalValidityYears ? (
+                        <Badge variant="secondary" className="rounded-md text-[10px]">
+                          ~{preset.typicalValidityYears}y validity
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+              {!editingCertificate && (
+                <div className="flex items-center justify-between gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 rounded-md text-xs"
+                    onClick={() => setFormStep('preset')}
+                  >
+                    ← Change certificate type
+                  </Button>
+                  {selectedPreset && (
+                    <Badge variant="outline" className="rounded-md">
+                      {selectedPreset.name}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-3 rounded-md border border-border bg-muted/40 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Certificate copy</p>
+                    <p className="text-xs text-muted-foreground">
+                      PDF or photo — optional. Scan to fill issue and expiry dates.
+                    </p>
+                  </div>
+                  {(documentPath || pendingFile) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => {
+                        setPendingFile(null);
+                        setDocumentPath(null);
+                        setDocumentFileName(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf,image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => handleFilePicked(e.target.files?.[0] ?? null)}
+                />
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
-                    size="sm"
-                    variant={presetCategory === 'all' ? 'default' : 'outline'}
-                    className="rounded-xl"
-                    onClick={() => setPresetCategory('all')}
+                    variant="outline"
+                    className="h-8 rounded-md text-xs"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading || isExtracting}
                   >
-                    All
+                    <Upload className="mr-1.5 h-3.5 w-3.5" />
+                    {documentFileName || pendingFile ? 'Replace file' : 'Upload copy'}
                   </Button>
-                  {CERTIFICATE_PRESET_CATEGORIES.map((cat) => (
-                    <Button
-                      key={cat.id}
-                      type="button"
-                      size="sm"
-                      variant={presetCategory === cat.id ? 'default' : 'outline'}
-                      className="rounded-xl"
-                      onClick={() => setPresetCategory(cat.id)}
-                    >
-                      {cat.label}
-                    </Button>
-                  ))}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-8 rounded-md text-xs"
+                    onClick={handleScanDates}
+                    disabled={!pendingFile || isExtracting || isUploading}
+                  >
+                    {isExtracting ? (
+                      <>
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        Scanning…
+                      </>
+                    ) : (
+                      <>
+                        <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+                        Scan for dates
+                      </>
+                    )}
+                  </Button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto pr-1">
-                  {filteredPresets.map((preset) => {
-                    const presetGap = careerCertificateGaps.find(
-                      (gap) => gap.presetId === preset.id,
-                    );
-                    return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => applyPreset(preset)}
-                      className={cn(
-                        'text-left rounded-xl border p-3 hover:bg-muted/60 transition-colors',
-                        presetGap &&
-                          'border-amber-500/40 bg-amber-500/[0.04]',
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="font-medium text-sm">{preset.name}</div>
-                        {presetGap ? (
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 gap-0.5 border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-900 dark:text-amber-100"
-                          >
-                            <Target className="h-3 w-3" />
-                            Ticket
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {preset.description}
-                      </div>
-                      <div className="flex gap-1 mt-2 flex-wrap">
-                        <Badge variant="outline" className="rounded-md text-[10px]">
-                          {preset.type}
-                        </Badge>
-                        {preset.typicalValidityYears ? (
-                          <Badge variant="secondary" className="rounded-md text-[10px]">
-                            ~{preset.typicalValidityYears}y validity
-                          </Badge>
-                        ) : null}
-                      </div>
-                    </button>
-                    );
-                  })}
-                </div>
+                {(documentFileName || pendingFile) && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {pendingFile?.name || documentFileName}
+                      {pendingFile ? ' (will upload on save)' : ''}
+                      {!pendingFile && documentPath ? ' (saved)' : ''}
+                    </span>
+                  </div>
+                )}
+                {!pendingFile && editingCertificate?.documentUrl && (
+                  <p className="text-xs text-muted-foreground">
+                    To scan dates again, choose a new file first.
+                  </p>
+                )}
               </div>
-            ) : (
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                  {!editingCertificate && (
-                    <div className="flex items-center justify-between gap-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="rounded-xl"
-                        onClick={() => setFormStep('preset')}
-                      >
-                        ← Change certificate type
-                      </Button>
-                      {selectedPreset && (
-                        <Badge variant="outline" className="rounded-lg">
-                          {selectedPreset.name}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
 
-                  {/* Upload + scan */}
-                  <div className="rounded-xl border p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium">Certificate copy</p>
-                        <p className="text-xs text-muted-foreground">
-                          PDF or photo — optional. Scan to fill issue and expiry dates.
-                        </p>
-                      </div>
-                      {(documentPath || pendingFile) && (
+              <FormField
+                control={form.control}
+                name="certificateName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Certificate Name *</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="e.g., STCW Basic Safety Training"
+                        className="rounded-md"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="certificateType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Certificate Type *</FormLabel>
+                    <FormControl>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <SelectTrigger className="rounded-md">
+                          <SelectValue placeholder="Select certificate type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {commonCertificateTypes.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {type}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="certificateNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Certificate Number</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="e.g., CERT-12345"
+                          {...field}
+                          className="rounded-md"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="issuingAuthority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Issuing Authority</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="e.g., MCA, USCG"
+                          {...field}
+                          className="rounded-md"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="issueDate"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Issue Date *</FormLabel>
+                      <Popover
+                        open={issueDateCalendarOpen}
+                        onOpenChange={setIssueDateCalendarOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                'w-full rounded-md pl-3 text-left font-normal',
+                                !field.value && 'text-muted-foreground',
+                              )}
+                            >
+                              {field.value ? (
+                                format(field.value, 'PPP')
+                              ) : (
+                                <span>Pick a date</span>
+                              )}
+                              <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={field.value}
+                            onSelect={(date) => {
+                              field.onChange(date);
+                              setIssueDateCalendarOpen(false);
+                            }}
+                            disabled={(date) => date > new Date()}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="expiryDate"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Expiry Date</FormLabel>
+                      <Popover
+                        open={expiryDateCalendarOpen}
+                        onOpenChange={setExpiryDateCalendarOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                'w-full rounded-md pl-3 text-left font-normal',
+                                !field.value && 'text-muted-foreground',
+                              )}
+                            >
+                              {field.value ? (
+                                format(field.value, 'PPP')
+                              ) : (
+                                <span>Pick a date (optional)</span>
+                              )}
+                              <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={field.value || undefined}
+                            onSelect={(date) => {
+                              field.onChange(date);
+                              setExpiryDateCalendarOpen(false);
+                            }}
+                            disabled={(date) => {
+                              const issueDate = form.watch('issueDate');
+                              return issueDate ? date < issueDate : false;
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      {selectedPreset?.typicalValidityYears ? (
                         <Button
                           type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => {
-                            setPendingFile(null);
-                            setDocumentPath(null);
-                            setDocumentFileName(null);
-                            if (fileInputRef.current) fileInputRef.current.value = '';
-                          }}
+                          variant="link"
+                          className="h-auto justify-start p-0 text-xs"
+                          onClick={suggestExpiryFromPreset}
                         >
-                          <X className="h-4 w-4" />
+                          Suggest expiry (+{selectedPreset.typicalValidityYears} years)
                         </Button>
-                      )}
-                    </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="application/pdf,image/png,image/jpeg,image/webp"
-                      className="hidden"
-                      onChange={(e) =>
-                        handleFilePicked(e.target.files?.[0] ?? null)
-                      }
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-xl"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isUploading || isExtracting}
-                      >
-                        <Upload className="mr-2 h-4 w-4" />
-                        {documentFileName || pendingFile ? 'Replace file' : 'Upload copy'}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="rounded-xl"
-                        onClick={handleScanDates}
-                        disabled={!pendingFile || isExtracting || isUploading}
-                      >
-                        {isExtracting ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Scanning…
-                          </>
-                        ) : (
-                          <>
-                            <ScanSearch className="mr-2 h-4 w-4" />
-                            Scan for dates
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                    {(documentFileName || pendingFile) && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <FileText className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">
-                          {pendingFile?.name || documentFileName}
-                          {pendingFile ? ' (will upload on save)' : ''}
-                          {!pendingFile && documentPath ? ' (saved)' : ''}
-                        </span>
+                      ) : null}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="renewalRequired"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <input
+                          type="checkbox"
+                          checked={field.value}
+                          onChange={field.onChange}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>Renewal Required</FormLabel>
+                        <FormDescription>
+                          Check if this certificate requires renewal
+                        </FormDescription>
                       </div>
-                    )}
-                    {!pendingFile && editingCertificate?.documentUrl && (
-                      <p className="text-xs text-muted-foreground">
-                        To scan dates again, choose a new file first.
-                      </p>
-                    )}
-                  </div>
+                    </FormItem>
+                  )}
+                />
 
-                  <FormField
-                    control={form.control}
-                    name="certificateName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Certificate Name *</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="e.g., STCW Basic Safety Training"
-                            className="rounded-xl"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <FormField
+                  control={form.control}
+                  name="renewalNoticeDays"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Renewal Notice (Days)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min="1"
+                          placeholder="90"
+                          {...field}
+                          onChange={(e) =>
+                            field.onChange(parseInt(e.target.value) || 90)
+                          }
+                          className="rounded-md"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Days before expiry to send renewal notice
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
-                  <FormField
-                    control={form.control}
-                    name="certificateType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Certificate Type *</FormLabel>
-                        <FormControl>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <SelectTrigger className="rounded-xl">
-                              <SelectValue placeholder="Select certificate type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {commonCertificateTypes.map((type) => (
-                                <SelectItem key={type} value={type}>
-                                  {type}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+              <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Additional notes about this certificate..."
+                        className="rounded-md"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="certificateNumber"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Certificate Number</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="e.g., CERT-12345"
-                              {...field}
-                              className="rounded-xl"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCloseForm}
+                  disabled={isSaving || isUploading}
+                  className="h-8 rounded-md text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isSaving || isUploading || isExtracting}
+                  className="h-8 rounded-md text-xs"
+                >
+                  {isSaving || isUploading ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      {isUploading ? 'Uploading…' : 'Saving…'}
+                    </>
+                  ) : (
+                    <>
+                      {editingCertificate ? 'Update' : 'Add'} Certificate
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 
-                    <FormField
-                      control={form.control}
-                      name="issuingAuthority"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Issuing Authority</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="e.g., MCA, USCG"
-                              {...field}
-                              className="rounded-xl"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+  return (
+    <div className="space-y-6">
+      <CertificatesPageHeader
+        description="Pick a known certificate, upload a copy, and track issue and expiry dates."
+        actions={addCertificateDialog}
+      />
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="issueDate"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                          <FormLabel>Issue Date *</FormLabel>
-                          <Popover
-                            open={issueDateCalendarOpen}
-                            onOpenChange={setIssueDateCalendarOpen}
-                          >
-                            <PopoverTrigger asChild>
-                              <FormControl>
-                                <Button
-                                  variant="outline"
-                                  className={cn(
-                                    'w-full pl-3 text-left font-normal rounded-xl',
-                                    !field.value && 'text-muted-foreground',
-                                  )}
-                                >
-                                  {field.value ? (
-                                    format(field.value, 'PPP')
-                                  ) : (
-                                    <span>Pick a date</span>
-                                  )}
-                                  <Calendar className="ml-auto h-4 w-4 opacity-50" />
-                                </Button>
-                              </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <CalendarComponent
-                                mode="single"
-                                selected={field.value}
-                                onSelect={(date) => {
-                                  field.onChange(date);
-                                  setIssueDateCalendarOpen(false);
-                                }}
-                                disabled={(date) => date > new Date()}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="expiryDate"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                          <FormLabel>Expiry Date</FormLabel>
-                          <Popover
-                            open={expiryDateCalendarOpen}
-                            onOpenChange={setExpiryDateCalendarOpen}
-                          >
-                            <PopoverTrigger asChild>
-                              <FormControl>
-                                <Button
-                                  variant="outline"
-                                  className={cn(
-                                    'w-full pl-3 text-left font-normal rounded-xl',
-                                    !field.value && 'text-muted-foreground',
-                                  )}
-                                >
-                                  {field.value ? (
-                                    format(field.value, 'PPP')
-                                  ) : (
-                                    <span>Pick a date (optional)</span>
-                                  )}
-                                  <Calendar className="ml-auto h-4 w-4 opacity-50" />
-                                </Button>
-                              </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <CalendarComponent
-                                mode="single"
-                                selected={field.value || undefined}
-                                onSelect={(date) => {
-                                  field.onChange(date);
-                                  setExpiryDateCalendarOpen(false);
-                                }}
-                                disabled={(date) => {
-                                  const issueDate = form.watch('issueDate');
-                                  return issueDate ? date < issueDate : false;
-                                }}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          {selectedPreset?.typicalValidityYears ? (
-                            <Button
-                              type="button"
-                              variant="link"
-                              className="h-auto p-0 text-xs justify-start"
-                              onClick={suggestExpiryFromPreset}
-                            >
-                              Suggest expiry (+{selectedPreset.typicalValidityYears} years)
-                            </Button>
-                          ) : null}
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="renewalRequired"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                          <FormControl>
-                            <input
-                              type="checkbox"
-                              checked={field.value}
-                              onChange={field.onChange}
-                              className="h-4 w-4 rounded border-gray-300"
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel>Renewal Required</FormLabel>
-                            <FormDescription>
-                              Check if this certificate requires renewal
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="renewalNoticeDays"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Renewal Notice (Days)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min="1"
-                              placeholder="90"
-                              {...field}
-                              onChange={(e) =>
-                                field.onChange(parseInt(e.target.value) || 90)
-                              }
-                              className="rounded-xl"
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Days before expiry to send renewal notice
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Additional notes about this certificate..."
-                            className="rounded-xl"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <DialogFooter>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleCloseForm}
-                      disabled={isSaving || isUploading}
-                      className="rounded-xl"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      disabled={isSaving || isUploading || isExtracting}
-                      className="rounded-xl"
-                    >
-                      {isSaving || isUploading ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          {isUploading ? 'Uploading…' : 'Saving…'}
-                        </>
-                      ) : (
-                        <>
-                          {editingCertificate ? 'Update' : 'Add'} Certificate
-                        </>
-                      )}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            )}
-          </DialogContent>
-        </Dialog>
-      </div>
+      <CertificatesStatTiles
+        items={[
+          {
+            label: 'Total',
+            value: certificateStats.total,
+            hint: 'On file',
+          },
+          {
+            label: 'Valid',
+            value: certificateStats.valid,
+            hint: 'In date',
+            tone: 'emerald',
+          },
+          {
+            label: 'Expiring soon',
+            value: certificateStats.expiring,
+            hint: 'Within notice window',
+            tone: 'amber',
+          },
+          {
+            label: 'Expired',
+            value: certificateStats.expired,
+            hint:
+              certificateStats.gaps > 0
+                ? `${certificateStats.gaps} career gap${certificateStats.gaps === 1 ? '' : 's'}`
+                : 'Past expiry',
+            tone: 'destructive',
+          },
+        ]}
+      />
 
       {careerCertificateGaps.length > 0 ? (
         <CareerCertificateGapsPanel
@@ -1254,42 +1296,53 @@ export default function CertificatesPage() {
       ) : null}
 
       {isLoadingCertificates ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
+        <CertificatesSection title="Your certificates" flush>
+          <CertificatesLoadingState />
+        </CertificatesSection>
       ) : certificates.length === 0 ? (
-        <Card className="rounded-xl">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Award className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Certificates</h3>
-            <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
-              Choose STCW, EDH, ENG1, or another preset, upload a copy, and track
-              expiry dates.
-            </p>
-            <Button onClick={() => handleOpenForm()} className="rounded-xl">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add Your First Certificate
-            </Button>
-          </CardContent>
-        </Card>
+        <CertificatesSection title="Your certificates" flush>
+          <CertificatesEmptyState
+            title="No certificates yet"
+            description="Choose STCW, EDH, ENG1, or another preset, upload a copy, and track expiry dates."
+            action={
+              <Button
+                onClick={() => handleOpenForm()}
+                className="h-8 rounded-md text-xs"
+              >
+                <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+                Add your first certificate
+              </Button>
+            }
+          />
+        </CertificatesSection>
       ) : (
-        <Card className="rounded-xl">
-          <CardHeader>
-            <CardTitle>Your Certificates</CardTitle>
-            <CardDescription>
-              Track expiration dates and renewal requirements for all your certificates
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <CertificatesSection
+          title="Your certificates"
+          description="Track expiration dates and renewal requirements for all your certificates."
+          flush
+        >
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Certificate</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Issue Date</TableHead>
-                  <TableHead>Expiry Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-medium">
+                    Certificate
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-medium">
+                    Type
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-medium">
+                    Issue Date
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-medium">
+                    Expiry Date
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-[11px] font-medium">
+                    Status
+                  </TableHead>
+                  <TableHead className="h-9 bg-muted/40 text-right text-[11px] font-medium">
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1316,7 +1369,7 @@ export default function CertificatesPage() {
                     <TableRow key={certificate.id}>
                       <TableCell className="font-medium">
                         <div>
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex flex-wrap items-center gap-2">
                             {certificate.certificateName}
                             {certificate.documentUrl ? (
                               <FileText className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1324,7 +1377,7 @@ export default function CertificatesPage() {
                             {careerGap ? (
                               <Badge
                                 variant="outline"
-                                className="gap-1 rounded-lg border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-800 dark:text-amber-200"
+                                className="gap-1 rounded-md border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-800 dark:text-amber-200"
                                 title={careerGap.detail}
                               >
                                 <Target className="h-3 w-3" />
@@ -1343,11 +1396,11 @@ export default function CertificatesPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="rounded-lg">
+                        <Badge variant="outline" className="rounded-md text-[10px]">
                           {certificate.certificateType}
                         </Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-xs tabular-nums">
                         {format(
                           parse(certificate.issueDate, 'yyyy-MM-dd', new Date()),
                           'MMM d, yyyy',
@@ -1356,7 +1409,7 @@ export default function CertificatesPage() {
                       <TableCell>
                         {certificate.expiryDate ? (
                           <div>
-                            <div>
+                            <div className="text-xs tabular-nums">
                               {format(
                                 parse(
                                   certificate.expiryDate,
@@ -1369,12 +1422,12 @@ export default function CertificatesPage() {
                             {daysUntilExpiry !== null && (
                               <div
                                 className={cn(
-                                  'text-xs',
-                                  daysUntilExpiry < 0 && 'text-red-500',
+                                  'text-[11px]',
+                                  daysUntilExpiry < 0 && 'text-destructive',
                                   daysUntilExpiry > 0 &&
                                     daysUntilExpiry <=
                                       certificate.renewalNoticeDays &&
-                                    'text-orange-500',
+                                    'text-amber-600',
                                   daysUntilExpiry >
                                     certificate.renewalNoticeDays &&
                                     'text-muted-foreground',
@@ -1387,16 +1440,15 @@ export default function CertificatesPage() {
                             )}
                           </div>
                         ) : (
-                          <span className="text-muted-foreground">No expiry</span>
+                          <span className="text-xs text-muted-foreground">
+                            No expiry
+                          </span>
                         )}
                       </TableCell>
                       <TableCell>
                         <Badge
-                          className={cn(
-                            'rounded-full px-3 py-1 text-xs font-medium',
-                            status.color,
-                            'text-white',
-                          )}
+                          variant="outline"
+                          className={cn('rounded-md text-[10px]', status.badgeClass)}
                         >
                           {status.label}
                         </Badge>
@@ -1437,15 +1489,15 @@ export default function CertificatesPage() {
                 })}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
+          </div>
+        </CertificatesSection>
       )}
 
       <AlertDialog
         open={!!deleteCertificateId}
         onOpenChange={(open) => !open && setDeleteCertificateId(null)}
       >
-        <AlertDialogContent className="rounded-xl">
+        <AlertDialogContent className="rounded-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Certificate</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1454,10 +1506,12 @@ export default function CertificatesPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="h-8 rounded-md text-xs">
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="h-8 rounded-md bg-destructive text-xs text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
             </AlertDialogAction>

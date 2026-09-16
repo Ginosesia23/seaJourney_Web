@@ -12,24 +12,23 @@
  *     between 0.1 and 1.5 kn. Without a stability check, the raw mapping
  *     produces: at-anchor → in-port → at-anchor → underway → in-port → ...
  *     over successive hours. Every flap becomes a lock-screen notification.
- *   • Some AIS transponders never actually transmit "At anchor" (nav code
- *     1) and instead leave the status as "Undefined" or the stale
- *     "Underway using engine" from the last passage. In those cases the
- *     mapping falls through to the speed-only fallback and inherits all
- *     the drift noise above.
+ *   • Some AIS transponders never transmit a clear status and leave it as
+ *     "Undefined" / missing. Only those cases fall through to geo /
+ *     stability inference — and they inherit the drift noise above.
  *
  * ALGORITHM
  * ---------
  * Four tiers of evidence, applied in order:
  *
- *   1. EXPLICIT AIS NAV STATUS. If the transponder is clearly saying
- *      "At anchor" / "Moored" / "Aground", trust it 100%. If it's clearly
- *      saying an underway variant AND SOG ≥ 1 kn, trust it. These are the
- *      only cases where a single fix by itself is reliable.
+ *   1. EXPLICIT AIS NAV STATUS (authoritative). If the transponder reports
+ *      Moored / At anchor / Aground / any underway variant, map that
+ *      directly to our state. We do not second-guess clear AIS labels with
+ *      geocode or place memory — only Undefined / missing status falls
+ *      through to the stability / geo tiers below.
  *
  *   2. YESTERDAY ANCHOR LOCK. If we have yesterday's resolved state AND
  *      it was stationary AND today's fix is inside a tight radius of
- *      yesterday's last position AND we're not clearly underway, lock the
+ *      yesterday's last position AND AIS status is undefined, lock the
  *      state to yesterday's. This is the per-sample counterpart to the
  *      analyzer's sticky-stationary rule — it stops today's hourly samples
  *      from flip-flopping between at-anchor and in-port while the vessel
@@ -43,18 +42,17 @@
  *      already locked by yesterday / a stable previous sample. Helps when
  *      returning to a marina after a passage.
  *
- *   3. POSITION STABILITY. When AIS is ambiguous (unknown/undefined nav
- *      status, or underway status with drifting speed) and no yesterday
- *      anchor applies, compare the current lat/lon to the previous
- *      sample. If the vessel hasn't moved further than the anchor-swing
- *      threshold (~300m by default), carry forward the previous state —
- *      nothing has really happened.
+ *   3. POSITION STABILITY. When AIS is Undefined / missing and no
+ *      yesterday anchor applies, compare the current lat/lon to the
+ *      previous sample. If the vessel hasn't moved further than the
+ *      anchor-swing threshold (~300m by default), carry forward the
+ *      previous state — nothing has really happened.
  *
- *   4. GEO / SPEED FALLBACK. Only when the vessel HAS moved significantly
- *      or we have no previous sample AND no yesterday anchor,
- *      disambiguate stationary states using place memory first, then the
- *      geocoded location: populated coastal area → in-port, offshore →
- *      at-anchor. High sustained speed → underway.
+ *   4. GEO / SPEED FALLBACK. Only when AIS is Undefined / missing and
+ *      the vessel HAS moved significantly (or we have no previous sample
+ *      / yesterday anchor), disambiguate stationary states using place
+ *      memory first, then the geocoded location: populated coastal area
+ *      → in-port, offshore → at-anchor. High sustained speed → underway.
  *
  * The resolver also returns whether the underlying position changed
  * meaningfully, so the notification layer can suppress "state changed"
@@ -73,6 +71,10 @@ import {
   PLACE_MEMORY_RADIUS_NM,
   type PlaceMemoryHint,
 } from '@/lib/ais/place-memory';
+import {
+  geocodeSuggestsMoored,
+  placeNameSuggestsOpenWaterOrPark,
+} from '@/lib/ais/place-name-hints';
 
 /**
  * Anchor-swing / GPS noise threshold. A vessel on a normal 5:1 anchor
@@ -325,10 +327,9 @@ export function resolveLiveSampleState(
     };
   }
 
-  // Underway variants (codes 0, 2, 3, 4, 7, 8, 11, 12). Only trust these
-  // when there's actual motion — otherwise we fall through to position
-  // stability (many transponders never clear the underway flag when the
-  // vessel drops anchor).
+  // Underway variants (codes 0, 2, 3, 4, 7, 8, 11, 12): trust AIS directly.
+  // Product decision: when the transponder publishes an underway status we
+  // use it — no speed gate, no geocode / place-memory override.
   const isUnderwayNavStatus =
     canonical === AIS_NAV_STATUS_LABELS[0] ||
     canonical === AIS_NAV_STATUS_LABELS[2] ||
@@ -339,15 +340,34 @@ export function resolveLiveSampleState(
     canonical === AIS_NAV_STATUS_LABELS[11] ||
     canonical === AIS_NAV_STATUS_LABELS[12];
 
-  if (isUnderwayNavStatus && speed >= UNAMBIGUOUS_UNDERWAY_KN) {
+  if (isUnderwayNavStatus) {
     return {
       state: 'underway',
       confidence: 'explicit-underway',
-      reason: `AIS ${canonical.toLowerCase()} at ${speed.toFixed(1)} kn.`,
+      reason:
+        typeof position.speed === 'number'
+          ? `AIS ${canonical.toLowerCase()} at ${speed.toFixed(1)} kn.`
+          : `AIS ${canonical.toLowerCase()}.`,
       distanceFromPreviousNm: distanceNm,
       positionChangedMeaningfully,
     };
   }
+
+  /**
+   * Prefer place memory except when it remembers Moored at a marine park /
+   * roadstead (poisoned geo over-calls).
+   */
+  const shouldApplyPlaceMemory = (): boolean => {
+    if (!placeMemoryUsable || !placeMemory) return false;
+    if (placeMemory.state !== 'in-port') return true;
+    if (placeNameSuggestsOpenWaterOrPark(placeMemory.placeName)) return false;
+    return true;
+  };
+
+  const locationSuggestsMoored = geocodeSuggestsMoored({
+    inPopulatedArea: locationContext?.endOfDayInPopulatedArea,
+    placeName: locationContext?.endOfDayPlaceName,
+  });
 
   // ─── Tier 2: YESTERDAY ANCHOR LOCK ──────────────────────────────────
   // If yesterday was stationary and today's fix is inside a tight radius
@@ -400,45 +420,54 @@ export function resolveLiveSampleState(
     // arrived and stopped moving. Prefer place memory (been here before),
     // then geocoding; otherwise default to at-anchor.
     if (previousSample.state === 'underway' && speed < STATIONARY_SPEED_CEILING_KN) {
-      if (placeMemoryUsable) {
+      if (shouldApplyPlaceMemory()) {
         return applyPlaceMemory('Vessel has stopped after being underway.');
       }
-      const inPop = locationContext?.endOfDayInPopulatedArea === true;
       return {
-        state: inPop ? 'in-port' : 'at-anchor',
+        state: locationSuggestsMoored ? 'in-port' : 'at-anchor',
         confidence: 'position-stable',
-        reason: inPop
-          ? 'Vessel has stopped moving inside a populated coastal area.'
-          : 'Vessel has stopped moving offshore.',
+        reason: locationSuggestsMoored
+          ? 'Vessel has stopped moving at a berth / populated harbour area.'
+          : 'Vessel has stopped moving — treating as at anchor.',
         distanceFromPreviousNm: distanceNm,
         positionChangedMeaningfully,
       };
     }
 
-    // Self-heal for stale stationary states. If the previous sample is
-    // at-anchor or in-port AND we have a geocode reading, use the
-    // populated-area flag as a tie-breaker between the two. Without this
-    // step, a bad historical sample (e.g. from before the resolver was
-    // introduced, when a drift-noise SOG got mapped to in-port) would be
-    // carried forward forever because nothing else in the pipeline
-    // corrects it. Same-position stationary↔stationary transitions never
-    // notify (see shouldNotifyForTransition), so the correction is silent.
+    // Self-heal for stale stationary states using berth / park place evidence.
     if (
       (previousSample.state === 'at-anchor' || previousSample.state === 'in-port') &&
-      locationContext &&
-      typeof locationContext.endOfDayInPopulatedArea === 'boolean'
+      locationContext
     ) {
-      const inPop = locationContext.endOfDayInPopulatedArea === true;
-      const preferred: DailyStatus = inPop ? 'in-port' : 'at-anchor';
+      const preferred: DailyStatus = locationSuggestsMoored
+        ? 'in-port'
+        : 'at-anchor';
       if (preferred !== previousSample.state) {
         return {
           state: preferred,
           confidence: 'position-stable',
-          reason: `Same position (${(distanceNm * 1852).toFixed(0)} m from last fix), but geocode says ${inPop ? 'populated coastal area' : 'offshore'} — correcting stored ${previousSample.state} → ${preferred}.`,
+          reason: `Same position (${(distanceNm * 1852).toFixed(0)} m from last fix), but place evidence suggests ${preferred === 'in-port' ? 'a berth / harbour' : 'open water / anchorage'} — correcting stored ${previousSample.state} → ${preferred}.`,
           distanceFromPreviousNm: distanceNm,
           positionChangedMeaningfully,
         };
       }
+    }
+
+    // Wrongly stored Moored at a park / roadstead: snap to at-anchor.
+    if (
+      previousSample.state === 'in-port' &&
+      (placeNameSuggestsOpenWaterOrPark(locationContext?.endOfDayPlaceName) ||
+        placeNameSuggestsOpenWaterOrPark(placeMemory?.placeName)) &&
+      !shouldApplyPlaceMemory()
+    ) {
+      return {
+        state: 'at-anchor',
+        confidence: 'position-stable',
+        reason:
+          'Same position — correcting Moored → at anchor (place is a park / open coastal feature, not a berth).',
+        distanceFromPreviousNm: distanceNm,
+        positionChangedMeaningfully,
+      };
     }
 
     return {
@@ -467,19 +496,18 @@ export function resolveLiveSampleState(
 
   // Returning to / sitting at a known place after a passage (previous fix
   // far away, or first sample). Prefer remembered state over generic geo.
-  if (placeMemoryUsable) {
+  if (shouldApplyPlaceMemory()) {
     return applyPlaceMemory('Ambiguous AIS near a known place.');
   }
 
-  // Vessel is stationary-ish and we have no reliable AIS status.
+  // Vessel is stationary-ish and AIS status was Undefined / missing.
   // Use geocoding to distinguish anchor from port.
   if (locationContext) {
-    const inPop = locationContext.endOfDayInPopulatedArea === true;
-    if (inPop) {
+    if (locationSuggestsMoored) {
       return {
         state: 'in-port',
         confidence: 'geo-inferred',
-        reason: `Stationary at ${locationContext.endOfDayPlaceName ?? 'a populated area'} — treating as moored.`,
+        reason: `Stationary at ${locationContext.endOfDayPlaceName ?? 'a harbour / berth'} — treating as moored.`,
         distanceFromPreviousNm: distanceNm,
         positionChangedMeaningfully,
       };
@@ -488,7 +516,7 @@ export function resolveLiveSampleState(
       state: 'at-anchor',
       confidence: 'geo-inferred',
       reason: locationContext.endOfDayPlaceName
-        ? `Stationary offshore near ${locationContext.endOfDayPlaceName} — treating as at anchor.`
+        ? `Stationary near ${locationContext.endOfDayPlaceName} — treating as at anchor.`
         : 'Stationary offshore — treating as at anchor.',
       distanceFromPreviousNm: distanceNm,
       positionChangedMeaningfully,

@@ -3,11 +3,14 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireUser } from '@/lib/applications/auth';
 import { assertCareerProgressAccess } from '@/lib/applications/career-access.server';
 import { evaluateMilestoneWithDependencies } from '@/lib/applications/load-milestone-progress';
+import { assertCanViewCrewSharedData } from '@/lib/vessel-crew-access.server';
 
 type Params = { params: Promise<{ id: string }> };
 
 /**
  * GET /api/career/milestones/[id]/progress
+ * - Own progress: requires career_progress feature
+ * - ?crewUserId=: vessel (approved access) or admin viewing shared crew progress
  */
 export async function GET(req: NextRequest, { params }: Params) {
   try {
@@ -15,8 +18,16 @@ export async function GET(req: NextRequest, { params }: Params) {
     if ('error' in auth) return auth.error;
     const { id } = await params;
 
-    const access = await assertCareerProgressAccess(auth.userId);
-    if ('error' in access) return access.error;
+    const crewUserId = req.nextUrl.searchParams.get('crewUserId');
+    const targetUserId = crewUserId || auth.userId;
+
+    if (crewUserId && crewUserId !== auth.userId) {
+      const shared = await assertCanViewCrewSharedData(auth.userId, crewUserId);
+      if ('error' in shared) return shared.error;
+    } else {
+      const access = await assertCareerProgressAccess(auth.userId);
+      if ('error' in access) return access.error;
+    }
 
     const { data: milestone } = await supabaseAdmin
       .from('career_milestones')
@@ -28,7 +39,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Milestone not found' }, { status: 404 });
     }
 
-    const result = await evaluateMilestoneWithDependencies(auth.userId, id);
+    const result = await evaluateMilestoneWithDependencies(targetUserId, id);
     if ('error' in result) {
       return NextResponse.json(
         { error: result.error },
@@ -45,6 +56,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 /**
  * PATCH /api/career/milestones/[id]/progress
  * Body: { requirementId, completed: boolean }
+ * Owner-only — vessels cannot toggle crew manual checklist items.
  */
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {

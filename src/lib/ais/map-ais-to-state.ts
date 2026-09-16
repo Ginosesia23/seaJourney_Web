@@ -37,6 +37,11 @@ const UNDERWAY_CANONICAL = new Set<string>([
   AIS_NAV_STATUS_LABELS[12], // Pushing ahead / towing alongside
 ]);
 
+export function isAisUnderwayNavStatus(canonical: string | null | undefined): boolean {
+  if (!canonical) return false;
+  return UNDERWAY_CANONICAL.has(canonical);
+}
+
 const STRING_TO_CANONICAL: Array<{ test: (s: string) => boolean; label: string }> = [
   { test: (s) => /aground/.test(s), label: AIS_NAV_STATUS_LABELS[6] },
   {
@@ -142,7 +147,7 @@ export function mapAisToDailyStatus(
   }
 
   if (UNDERWAY_CANONICAL.has(canonical)) {
-    return speed >= 0.3 ? 'underway' : 'at-anchor';
+    return 'underway';
   }
 
   // Fallback when status is missing or unknown

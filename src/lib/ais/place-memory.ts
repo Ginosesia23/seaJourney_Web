@@ -14,6 +14,7 @@
  */
 
 import { haversineNm } from '@/lib/ais/analyze-daily-state';
+import { placeNameSuggestsOpenWaterOrPark } from '@/lib/ais/place-name-hints';
 import type { DailyStatus } from '@/lib/types';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -245,7 +246,13 @@ export async function recordPlaceMemoryVisit(args: {
   state: DailyStatus;
   placeName?: string | null;
 }): Promise<void> {
-  const { vesselId, lat, lon, state, placeName } = args;
+  const { vesselId, lat, lon, placeName } = args;
+  // Don't durable-remember "Moored" at marine parks / roadsteads — those
+  // memories poison later samples into in-port.
+  let state = args.state;
+  if (state === 'in-port' && placeNameSuggestsOpenWaterOrPark(placeName)) {
+    state = 'at-anchor';
+  }
   if (!STATIONARY.has(state)) return;
   if (!isFiniteCoord(lat) || !isFiniteCoord(lon)) return;
 

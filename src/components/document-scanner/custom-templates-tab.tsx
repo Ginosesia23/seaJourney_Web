@@ -25,7 +25,6 @@ import {
   Trash2,
   Play,
   FilePlus,
-  Users,
   Calendar,
   Clock,
   Download,
@@ -55,9 +54,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
+import {
+  DocumentCrewPicker,
+  type DocumentCrewOption,
+} from '@/components/dashboard/document-crew-picker';
 import { cn } from '@/lib/utils';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getVesselStateLogs } from '@/supabase/database/queries';
@@ -70,7 +72,6 @@ import {
 import type {
   UserProfile,
   Vessel,
-  VesselAssignment,
 } from '@/lib/types';
 import type {
   VesselDocumentTemplate,
@@ -83,11 +84,6 @@ import {
 } from './form-builder-scanner';
 import { canUseVesselFormBuilder } from '@/lib/vessel-form-builder-access';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
-
-interface CrewOption {
-  profile: UserProfile;
-  assignment: VesselAssignment;
-}
 
 interface SeaTimeResult {
   totalDays: number;
@@ -106,7 +102,7 @@ interface CustomTemplatesTabProps {
   activeVesselId: string | null;
   vessel: Vessel | undefined;
   currentUserProfile: UserProfile | null;
-  crewList: CrewOption[];
+  crewList: DocumentCrewOption[];
   loadingCrew: boolean;
 }
 
@@ -315,20 +311,6 @@ export function CustomTemplatesTab({
       await loadTemplates();
     },
     [closeEditor, loadTemplates],
-  );
-
-  const crewSelectOptions = useMemo(
-    () =>
-      crewList.map((c) => {
-        const name =
-          [c.profile.firstName, c.profile.lastName].filter(Boolean).join(' ') ||
-          c.profile.username ||
-          c.profile.email ||
-          'Unknown';
-        const email = c.profile.email ? ` (${c.profile.email})` : '';
-        return { value: c.profile.id, label: `${name}${email}` };
-      }),
-    [crewList],
   );
 
   const templateNeedsSeaTime = activeTemplate
@@ -785,24 +767,12 @@ export function CustomTemplatesTab({
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Users className="h-4 w-4" /> Crew member
-              </Label>
-              {loadingCrew ? (
-                <div className="text-sm text-muted-foreground">
-                  Loading crew…
-                </div>
-              ) : (
-                <SearchableSelect
-                  options={crewSelectOptions}
-                  value={useCrewId}
-                  onValueChange={setUseCrewId}
-                  placeholder="Select crew member"
-                  searchPlaceholder="Search by name or email…"
-                />
-              )}
-            </div>
+            <DocumentCrewPicker
+              crewList={crewList}
+              value={useCrewId}
+              onValueChange={setUseCrewId}
+              loading={loadingCrew}
+            />
 
             {templateNeedsSeaTime && (
               <>

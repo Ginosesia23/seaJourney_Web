@@ -193,7 +193,7 @@ export interface BuildAndGenerateNavWatchOptions {
   vesselUserId?: string | null;
 }
 
-/** Build sea service, save application, and generate MCA Watch Rating PDF. Used by both crew (Documents) and vessel (Crew page). */
+/** Build sea service, save application, and generate MCA Watch Rating PDF. Used by crew (Documents) and vessel (Documents generator). */
 export async function buildAndGenerateNavWatchApplication(
   supabase: SupabaseClient,
   options: BuildAndGenerateNavWatchOptions

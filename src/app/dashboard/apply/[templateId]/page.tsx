@@ -49,6 +49,8 @@ function certificateStatusLabel(status?: CertificateValidityStatus): string {
       return 'Renew soon';
     case 'expired':
       return 'Expired';
+    case 'insufficient_hold':
+      return 'Holding period';
     case 'missing':
     default:
       return 'Missing';
@@ -60,8 +62,10 @@ function certificateStatusClasses(status?: CertificateValidityStatus): string {
     case 'valid':
     case 'no_expiry':
       return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+    case 'insufficient_hold':
+      return 'border-sky-500/30 bg-sky-500/10 text-sky-800 dark:text-sky-300';
     case 'expiring_soon':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+      return 'border-orange-500/30 bg-orange-500/10 text-orange-800 dark:text-orange-300';
     case 'expired':
       return 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300';
     default:
