@@ -100,7 +100,7 @@ export default function VesselHistoryPage() {
 
   // Fetch all vessels
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
-    user?.id ? 'vessels' : null,
+    user?.id ? 'vessels_public_identity' : null,
     user?.id ? { orderBy: 'name', ascending: true } : undefined
   );
 

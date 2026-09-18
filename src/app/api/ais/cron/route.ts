@@ -6,13 +6,11 @@ import { syncAllEnabledAisVessels } from '@/lib/ais/sync-vessel-state-from-ais';
 /**
  * GET /api/ais/cron
  *
- * Unified scheduled AIS job (Vercel cron every 30 minutes).
- * 1. Vessel-manager tracking → daily_state_logs for vessel accounts
- * 2. Crew live tracking → daily_state_logs per crew user
+ * Unified scheduled AIS job (Vercel cron every 5 minutes).
+ * 1. Vessel-manager tracking → only vessels with next_ais_check_at due
+ * 2. Crew live tracking → samples from central AIS cache (no extra provider calls)
  *
- * Both paths use the central AIS service (one provider fetch per vessel).
- * Cron ticks every 5 minutes; adaptive freshness skips stationary vessels
- * that were fetched within the last 45 minutes.
+ * Adaptive intervals: underway/unknown/transition 5m, anchor 30m, moored/port 60m.
  * Requires CRON_SECRET header.
  */
 export async function GET(req: NextRequest) {

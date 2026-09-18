@@ -48,7 +48,10 @@ export function UserInfoCard({
     } as UserProfile;
   }, [userProfileRaw]);
 
-  const { data: activeVessel } = useDoc<Vessel>('vessels', userProfile?.activeVesselId || null);
+  const { data: activeVessel } = useDoc<Vessel>(
+    'vessels_public_identity',
+    userProfile?.activeVesselId || null,
+  );
 
   if (isLoading) {
     return (

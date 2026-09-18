@@ -167,8 +167,8 @@ export default function CalendarPage() {
 
   // Query all vessels
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
-    user?.id ? 'vessels' : null,
-    user?.id ? { orderBy: 'created_at', ascending: false } : undefined
+    user?.id ? 'vessels_public_identity' : null,
+    user?.id ? { orderBy: 'name', ascending: true } : undefined
   );
 
   const currentVessel = useMemo(() => {

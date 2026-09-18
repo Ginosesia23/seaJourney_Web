@@ -138,7 +138,7 @@ export default function AdminUserDetailPage() {
 
         if (resolvedVesselId) {
           const { data: vessel } = await supabase
-            .from('vessels')
+            .from('vessels_public_identity')
             .select('name')
             .eq('id', resolvedVesselId)
             .maybeSingle();

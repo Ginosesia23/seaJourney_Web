@@ -124,6 +124,7 @@ export type VesselAisRow = {
   imo?: string | null;
   vessel_manager_id?: string | null;
   ais_tracking_enabled?: boolean | null;
+  ais_provider_poll_enabled?: boolean | null;
   ais_last_sync_at?: string | null;
   ais_last_nav_status?: string | null;
   ais_last_speed?: number | null;
@@ -141,7 +142,7 @@ export async function assertVesselManagerForVessel(
   const { data: vessel, error } = await supabaseAdmin
     .from('vessels')
     .select(
-      'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
+      'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_provider_poll_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
     )
     .eq('id', vesselId)
     .maybeSingle();
@@ -188,7 +189,7 @@ export async function assertVesselLinkedViewerForVessel(
   const { data: vessel, error } = await supabaseAdmin
     .from('vessels')
     .select(
-      'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
+      'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_provider_poll_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
     )
     .eq('id', vesselId)
     .maybeSingle();
@@ -265,7 +266,7 @@ export async function authenticateVesselAisReader(
     const { data: vessel, error } = await supabaseAdmin
       .from('vessels')
       .select(
-        'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
+        'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_provider_poll_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
       )
       .eq('id', vesselId)
       .maybeSingle();
@@ -344,7 +345,7 @@ export async function assertAisHistoryVesselAccess(
   const { data: vessel, error } = await supabaseAdmin
     .from('vessels')
     .select(
-      'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
+      'id, name, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_provider_poll_enabled, ais_last_sync_at, ais_last_nav_status, ais_last_speed, ais_last_position_at, ais_last_sync_error',
     )
     .eq('id', vesselId)
     .maybeSingle();

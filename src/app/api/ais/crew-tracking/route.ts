@@ -252,8 +252,32 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    // Recompute vessel provider-poll entitlement (crew may be sole funder).
+    if (activeVessel?.vesselId) {
+      const { refreshVesselAisEntitlement } = await import(
+        '@/lib/ais/vessel-ais-entitlement'
+      );
+      await refreshVesselAisEntitlement(activeVessel.vesselId);
+    } else if (!enabled) {
+      const { refreshVesselAisEntitlementForUser } = await import(
+        '@/lib/ais/vessel-ais-entitlement'
+      );
+      await refreshVesselAisEntitlementForUser(auth.userId);
+    }
+
     let syncResult = null;
     if (enabled && activeVessel) {
+      // Ensure central vessel AIS is refreshed once (crew may be sole funder).
+      try {
+        const { getVesselAIS } = await import('@/lib/ais/ais-service');
+        await getVesselAIS(activeVessel.vesselId, {
+          force: true,
+          triggerSource: 'crew-enable',
+        });
+      } catch (e) {
+        console.warn('[CREW AIS TRACKING] initial vessel refresh failed', e);
+      }
+
       syncResult = await syncCrewStateFromAis(
         {
           userId: auth.userId,

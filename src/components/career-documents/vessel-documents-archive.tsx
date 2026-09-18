@@ -395,7 +395,7 @@ export function VesselDocumentsArchive({
 
       if (vesselIdSet.size > 0) {
         const { data: vessels } = await supabase
-          .from('vessels')
+          .from('vessels_public_identity')
           .select('id, name')
           .in('id', [...vesselIdSet]);
         const map: Record<string, string> = {};

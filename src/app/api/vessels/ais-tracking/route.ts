@@ -100,6 +100,11 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    const { refreshVesselAisEntitlement } = await import(
+      '@/lib/ais/vessel-ais-entitlement'
+    );
+    await refreshVesselAisEntitlement(vesselId);
+
     let syncResult = null;
     if (enabled) {
       syncResult = await syncVesselStateFromAis(updated, {

@@ -15,6 +15,17 @@ import { ONBOARD_TOGGLE_LEAVE_MARKER } from '@/lib/crew-rotation';
 import { sendUserNotification } from '@/lib/notifications/send-user-notification';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+async function refreshVesselAisEntitlementSafe(vesselId: string): Promise<void> {
+  try {
+    const { refreshVesselAisEntitlement } = await import(
+      '@/lib/ais/vessel-ais-entitlement'
+    );
+    await refreshVesselAisEntitlement(vesselId);
+  } catch (err) {
+    console.warn('[onboard-leave] AIS entitlement refresh failed', vesselId, err);
+  }
+}
+
 /** How far ahead we pre-write on-leave days when a leave end is far away.
  *  Open leave periods are extended day-by-day via rotation sync / AIS. */
 export const ONBOARD_LEAVE_LOG_HORIZON_DAYS = 21;
@@ -216,6 +227,7 @@ export async function applyOnboardToggleToCrewLogs(args: {
       console.warn('[onboard-leave] clear logs failed', delErr.message);
       return { applied: false, daysTouched: 0 };
     }
+    void refreshVesselAisEntitlementSafe(args.vesselId);
     return { applied: true, daysTouched: ids.length };
   }
 
@@ -250,6 +262,7 @@ export async function applyOnboardToggleToCrewLogs(args: {
     return { applied: false, daysTouched: 0 };
   }
 
+  void refreshVesselAisEntitlementSafe(args.vesselId);
   return { applied: true, daysTouched: rows.length };
 }
 
@@ -366,4 +379,67 @@ export async function shouldForceOnLeaveFromOnboardTracker(
   if (error || !data) return false;
   if (data.onboard !== false || !data.onboard_override_until) return false;
   return new Date(data.onboard_override_until as string) > new Date();
+}
+
+/**
+ * Pure eligibility decision (testable). Prefer
+ * `isCrewEligibleForAisSeaService` at call sites — it loads DB facts.
+ */
+export function crewAisSeaServiceEligibilityFromFacts(facts: {
+  dailyState: string | null | undefined;
+  forceOnLeaveFromTracker: boolean;
+}): { eligible: boolean; reason: string | null } {
+  if (facts.dailyState === 'on-leave') {
+    return {
+      eligible: false,
+      reason:
+        'Daily state is On Leave — AIS sea-service paused until back on board.',
+    };
+  }
+  if (facts.forceOnLeaveFromTracker) {
+    return {
+      eligible: false,
+      reason:
+        'Crew marked off board via Onboard Tracker — AIS sea-service skipped.',
+    };
+  }
+  return { eligible: true, reason: null };
+}
+
+/**
+ * Authoritative backend check: may vessel AIS contribute to THIS crew
+ * member's sea-service for `dateIso`?
+ *
+ * Vessel AIS polling / vessel_daily_ais_summary are independent — this only
+ * gates crew samples and AIS-generated daily_state_logs.
+ *
+ * Not eligible when:
+ *   • today's daily_state_log is already on-leave (manual or tracker)
+ *   • Onboard Tracker leave / active off-board override covers the date
+ *
+ * Eligibility is always derived from DB state — never from a client flag.
+ */
+export async function isCrewEligibleForAisSeaService(
+  crewUserId: string,
+  vesselId: string,
+  dateIso: string = todayIso(),
+): Promise<{ eligible: boolean; reason: string | null }> {
+  const { data: todayLog } = await supabaseAdmin
+    .from('daily_state_logs')
+    .select('state')
+    .eq('user_id', crewUserId)
+    .eq('vessel_id', vesselId)
+    .eq('date', dateIso)
+    .maybeSingle();
+
+  const forceOnLeaveFromTracker = await shouldForceOnLeaveFromOnboardTracker(
+    crewUserId,
+    vesselId,
+    dateIso,
+  );
+
+  return crewAisSeaServiceEligibilityFromFacts({
+    dailyState: (todayLog?.state as string | undefined) ?? null,
+    forceOnLeaveFromTracker,
+  });
 }

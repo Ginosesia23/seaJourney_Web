@@ -11,7 +11,7 @@ import { Loader2, Ship, Clock, CheckCircle2, XCircle, AlertCircle, FileText, Eye
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import type { VesselClaimRequest, Vessel } from '@/lib/types';
+import type { VesselClaimRequest } from '@/lib/types';
 
 export default function RequestsPage() {
   const { user } = useUser();
@@ -21,7 +21,6 @@ export default function RequestsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState<(VesselClaimRequest & { vessel?: { name: string } }) | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [vessels, setVessels] = useState<Vessel[]>([]);
 
   // Fetch user's requests
   useEffect(() => {
@@ -51,16 +50,14 @@ export default function RequestsPage() {
           return;
         }
 
-        // Fetch all vessels for name lookup
+        // Fetch vessel names via public identity (no private management fields)
         const { data: vesselsData, error: vesselsError } = await supabase
-          .from('vessels')
+          .from('vessels_public_identity')
           .select('id, name')
           .order('name', { ascending: true });
 
         if (vesselsError) {
           console.error('[REQUESTS PAGE] Error fetching vessels:', vesselsError);
-        } else {
-          setVessels(vesselsData || []);
         }
 
         // Combine requests with vessel names

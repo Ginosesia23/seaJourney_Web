@@ -27,6 +27,7 @@ import { hasActiveSubscription } from '@/supabase/database/subscription-helpers'
 import { isCrewLimitedNavigationRestricted } from '@/lib/crew-vessel-feature-boost';
 import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
+import { vesselsCatalogTableForRole } from '@/lib/vessels/public-identity';
 import { cn } from '@/lib/utils';
 import { VesselSummaryCard, VesselSummarySkeleton } from '@/components/dashboard/vessel-summary-card';
 import { AdminVesselEditDialog } from '@/components/dashboard/admin-vessel-edit-dialog';
@@ -202,15 +203,7 @@ export default function VesselsPage() {
     }
   }
 
-  // Query all vessels (vessels are shared, not owned by users)
-  const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
-    user?.id ? 'vessels' : null,
-    user?.id
-      ? { orderBy: 'created_at', ascending: false, refreshTrigger: vesselsRefresh }
-      : undefined
-  );
-  
-  // Fetch user profile to get activeVesselId
+  // Fetch user profile to get activeVesselId / role (drives catalog table choice)
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
   const { boost: vesselBoost } = useCrewVesselFeatureBoost();
   
@@ -233,6 +226,16 @@ export default function VesselsPage() {
       subscriptionStatus: (userProfileRaw as any).subscription_status || userProfileRaw.subscriptionStatus || 'inactive',
     } as UserProfile;
   }, [userProfileRaw]);
+
+  // Query vessel catalog. Crew/captain use vessels_public_identity (no private
+  // management columns). Admins and vessel managers may read full vessels rows.
+  const vesselsCatalogTable = vesselsCatalogTableForRole(currentUserProfile?.role);
+  const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
+    user?.id && currentUserProfile ? vesselsCatalogTable : null,
+    user?.id && currentUserProfile
+      ? { orderBy: 'name', ascending: true, refreshTrigger: vesselsRefresh }
+      : undefined
+  );
 
   // Restricted-access tiers (crew_limited + vessel_linked) — both are
   // free vessel-managed accounts that should not see the personal "My Vessels"

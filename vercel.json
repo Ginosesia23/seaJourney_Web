@@ -3,6 +3,10 @@
     {
       "path": "/api/ais/cron",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/ais/entitlement-reconcile",
+      "schedule": "0 */4 * * *"
     }
   ]
 }

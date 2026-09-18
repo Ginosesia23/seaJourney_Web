@@ -29,6 +29,7 @@ function mapVesselRowToVessel(row: Record<string, unknown>): Vessel {
     management_company: (row.management_company as string) ?? null,
     company_address: (row.company_address as string) ?? null,
     company_contact: (row.company_contact as string) ?? null,
+    stamp: (row.stamp as string) ?? null,
   };
 }
 
@@ -53,11 +54,10 @@ export async function downloadTestimonialPdfForCrewMember(
   format: TestimonialPDFFormat = 'mca',
   output: TestimonialPDFOutput = 'download',
 ): Promise<Blob | void> {
-  const { data: vesselRow, error: vErr } = await supabase
-    .from('vessels')
-    .select('*')
-    .eq('id', testimonial.vessel_id)
-    .maybeSingle();
+  const { data: vesselRow, error: vErr } = await supabase.rpc(
+    'get_vessel_for_crew_document',
+    { p_vessel_id: testimonial.vessel_id },
+  );
 
   if (vErr || !vesselRow) {
     throw new Error('Vessel details not found.');

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findExistingVessel, normalizeImo, normalizeMmsi } from '@/lib/vessels/find-existing-vessel';
+import {
+  findCanonicalVessel,
+  insertVesselRaceSafe,
+  normalizeImo,
+  normalizeMmsi,
+} from '@/lib/vessels/find-existing-vessel';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function POST(req: NextRequest) {
@@ -24,7 +29,7 @@ export async function POST(req: NextRequest) {
     if (!name || !type) {
       return NextResponse.json(
         { error: 'Missing required fields: name and type' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -32,27 +37,40 @@ export async function POST(req: NextRequest) {
     const normalizedMmsi = normalizeMmsi(mmsi);
     const normalizedImo = normalizeImo(officialNumber);
 
-    const existingVessel = await findExistingVessel(supabaseAdmin, {
+    const canonical = await findCanonicalVessel(supabaseAdmin, {
       mmsi: normalizedMmsi,
       imo: normalizedImo,
       name: trimmedName,
+      allowNameMatch: !(normalizedMmsi || normalizedImo),
     });
 
-    if (existingVessel) {
-      return respondWithExistingVessel(existingVessel, isOfficial, vesselManagerId);
+    if (canonical.status === 'conflict') {
+      console.warn('[CREATE VESSEL API] identity conflict', canonical.conflict.message);
+      return NextResponse.json(
+        {
+          error: 'Vessel identity conflict',
+          message: canonical.conflict.message,
+        },
+        { status: 409 },
+      );
     }
 
-    // Vessel doesn't exist, create it
-    const isOfficialValue = isOfficial === true; // Explicitly convert to boolean
-    console.log('[CREATE VESSEL API] Creating new vessel with is_official:', isOfficialValue, 'isOfficial param:', isOfficial);
-    
+    if (canonical.status === 'found') {
+      return respondWithExistingVessel(
+        canonical.vessel,
+        isOfficial,
+        vesselManagerId,
+      );
+    }
+
+    const isOfficialValue = isOfficial === true;
     const insertData: Record<string, unknown> = {
       name: trimmedName,
-      type: type,
+      type,
       imo: normalizedImo,
       mmsi: normalizedMmsi,
     };
-    
+
     if (call_sign !== undefined) insertData.call_sign = call_sign?.trim() || null;
     if (flag !== undefined) insertData.flag = flag?.trim().toUpperCase() || null;
     if (length_m !== undefined && length_m !== null) insertData.length_m = length_m;
@@ -62,53 +80,53 @@ export async function POST(req: NextRequest) {
       insertData.gross_tonnage = gross_tonnage;
     }
     if (build_year !== undefined && build_year !== null) insertData.build_year = build_year;
-    
-    // Only set is_official if the column exists and we have a value
-    if (isOfficialValue !== undefined) {
-      insertData.is_official = isOfficialValue;
-    }
-    
-    // Set vessel_manager_id if provided (when vessel role user creates the vessel)
-    if (vesselManagerId) {
-      insertData.vessel_manager_id = vesselManagerId;
-    }
-    
-    const { data: newVessel, error: insertError } = await supabaseAdmin
-      .from('vessels')
-      .insert(insertData)
-      .select('id, name, type, imo, is_official')
-      .single();
+    if (isOfficialValue !== undefined) insertData.is_official = isOfficialValue;
+    if (vesselManagerId) insertData.vessel_manager_id = vesselManagerId;
 
-    if (insertError) {
-      console.error('[CREATE VESSEL API] Insert error:', insertError);
-      console.error('[CREATE VESSEL API] Insert data was:', insertData);
+    const inserted = await insertVesselRaceSafe(
+      supabaseAdmin,
+      insertData,
+      'id, name, type, imo, is_official, mmsi',
+    );
+
+    if (!inserted.ok) {
+      console.error('[CREATE VESSEL API] Insert error:', inserted.error);
       return NextResponse.json(
         {
-          error: 'Failed to create vessel',
-          message: insertError.message,
+          error: inserted.conflict ? 'Vessel identity conflict' : 'Failed to create vessel',
+          message: inserted.error,
         },
-        { status: 500 }
+        { status: inserted.conflict ? 409 : 500 },
       );
     }
 
-    console.log('[CREATE VESSEL API] Created vessel with is_official:', newVessel?.is_official);
+    if (!inserted.created) {
+      return respondWithExistingVessel(
+        inserted.vessel,
+        isOfficial,
+        vesselManagerId,
+      );
+    }
 
     return NextResponse.json({
       success: true,
       vessel: {
-        id: newVessel.id,
-        name: newVessel.name,
-        type: newVessel.type,
-        officialNumber: newVessel.imo,
+        id: inserted.vessel.id,
+        name: inserted.vessel.name,
+        type: inserted.vessel.type,
+        officialNumber: inserted.vessel.imo,
       },
       alreadyExists: false,
-      isOfficial: newVessel.is_official,
+      isOfficial: (inserted.vessel as { is_official?: boolean }).is_official ?? false,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[CREATE VESSEL API] Unexpected error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: error?.message },
-      { status: 500 }
+      {
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 },
     );
   }
 }
@@ -120,7 +138,6 @@ async function respondWithExistingVessel(
     type: string;
     imo: string | null;
     is_official?: boolean | null;
-    vessel_manager_id?: string | null;
   },
   isOfficial: boolean | undefined,
   vesselManagerId: string | undefined,
@@ -138,8 +155,6 @@ async function respondWithExistingVessel(
 
     if (updateError) {
       console.error('[CREATE VESSEL API] Error updating is_official:', updateError);
-    } else {
-      console.log('[CREATE VESSEL API] Updated is_official to true for vessel:', existingVessel.id);
     }
   }
 
@@ -161,4 +176,3 @@ async function respondWithExistingVessel(
     isOfficial: finalVessel?.is_official || false,
   });
 }
-

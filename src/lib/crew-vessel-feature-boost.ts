@@ -89,13 +89,11 @@ async function managerForVesselClient(
   supabase: SupabaseClient,
   vesselId: string,
 ): Promise<ManagerRow | null> {
-  const { data: vessel } = await supabase
-    .from('vessels')
-    .select('vessel_manager_id')
-    .eq('id', vesselId)
-    .maybeSingle();
+  const { data: managerIdRpc } = await supabase.rpc('get_vessel_manager_id', {
+    p_vessel_id: vesselId,
+  });
 
-  const managerId = (vessel?.vessel_manager_id as string | null) || null;
+  const managerId = (managerIdRpc as string | null) || null;
   if (managerId) {
     const { data } = await supabase
       .from('users')
@@ -181,7 +179,7 @@ export async function fetchCrewVesselFeatureBoost(
   let vesselName: string | null = null;
   if (bestVesselId) {
     const { data } = await supabase
-      .from('vessels')
+      .from('vessels_public_identity')
       .select('name')
       .eq('id', bestVesselId)
       .maybeSingle();

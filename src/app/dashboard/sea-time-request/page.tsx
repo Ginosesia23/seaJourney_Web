@@ -157,10 +157,38 @@ export default function SeaTimeRequestPage() {
     fetchAssignments();
   }, [user?.id, supabase, toast]);
 
-  // Fetch vessels for the assignments
-  const { data: vesselsData } = useCollection<Vessel>('vessels', {
+  // Fetch vessels for the assignments (public identity only)
+  const { data: vesselsData } = useCollection<Vessel>('vessels_public_identity', {
     enabled: vesselAssignments.length > 0,
   });
+
+  // Official vessels = assigned + has a manager (via RPC — not full vessels SELECT)
+  const [managedVesselIds, setManagedVesselIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!vesselAssignments.length) {
+        setManagedVesselIds(new Set());
+        return;
+      }
+      const ids = [...new Set(vesselAssignments.map((a) => a.vesselId))];
+      const managed = new Set<string>();
+      await Promise.all(
+        ids.map(async (vesselId) => {
+          const { data } = await supabase.rpc('get_vessel_manager_id', {
+            p_vessel_id: vesselId,
+          });
+          if (data) managed.add(vesselId);
+        }),
+      );
+      if (!cancelled) setManagedVesselIds(managed);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [vesselAssignments, supabase]);
 
   // Get unique vessels from assignments - only show official vessels (managed by vessel manager)
   const availableVessels = useMemo(() => {
@@ -168,13 +196,9 @@ export default function SeaTimeRequestPage() {
     
     const vesselIds = new Set(vesselAssignments.map(a => a.vesselId));
     return vesselsData.filter(v => {
-      // Only include vessels that:
-      // 1. User is assigned to
-      // 2. Have a vessel manager (official vessel, not just added by crew member)
-      const hasManager = v.vesselManagerId || (v as any).vessel_manager_id;
-      return vesselIds.has(v.id) && hasManager;
+      return vesselIds.has(v.id) && managedVesselIds.has(v.id);
     });
-  }, [vesselsData, vesselAssignments]);
+  }, [vesselsData, vesselAssignments, managedVesselIds]);
 
   // Fetch existing requests (refetch when requestsRefreshTrigger changes)
   const { data: requestsData } = useCollection<SeaTimeRequest>(

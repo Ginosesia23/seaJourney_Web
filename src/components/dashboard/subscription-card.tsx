@@ -61,8 +61,8 @@ export function SubscriptionCard() {
 
   // Fetch usage data
   const { data: allVessels } = useCollection<Vessel>(
-    user?.id ? 'vessels' : null,
-    user?.id ? { orderBy: 'created_at', ascending: false } : undefined
+    user?.id ? 'vessels_public_identity' : null,
+    user?.id ? { orderBy: 'name', ascending: true } : undefined
   );
 
   const [usageData, setUsageData] = useState({

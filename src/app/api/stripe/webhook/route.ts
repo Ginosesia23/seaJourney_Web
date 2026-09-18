@@ -344,6 +344,39 @@ async function syncUserFromSubscription(
   // Ensure vessel accounts have their active_vessel_id set
   await ensureVesselActiveVesselId(userId);
 
+  // Recompute AIS provider polling for vessels this user funds.
+  try {
+    const { data: fullUser } = await supabaseAdmin
+      .from("users")
+      .select(
+        "id, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, ais_live_tracking_enabled",
+      )
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (fullUser) {
+      const { hasCrewAisLiveTrackingTier } = await import(
+        "@/supabase/database/subscription-helpers"
+      );
+      if (
+        fullUser.ais_live_tracking_enabled &&
+        !hasCrewAisLiveTrackingTier(fullUser)
+      ) {
+        await supabaseAdmin
+          .from("users")
+          .update({ ais_live_tracking_enabled: false })
+          .eq("id", userId);
+      }
+    }
+
+    const { refreshVesselAisEntitlementForUser } = await import(
+      "@/lib/ais/vessel-ais-entitlement"
+    );
+    await refreshVesselAisEntitlementForUser(userId);
+  } catch (e) {
+    console.warn("[SYNC] AIS entitlement refresh failed", userId, e);
+  }
+
   return { before, after, userId };
 }
 

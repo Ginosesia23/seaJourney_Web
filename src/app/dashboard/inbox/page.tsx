@@ -120,7 +120,7 @@ export default function InboxPage() {
   }, [userProfileRaw, user]);
 
   // Fetch all vessels for name lookup
-  const { data: vessels } = useCollection<Vessel>('vessels');
+  const { data: vessels } = useCollection<Vessel>('vessels_public_identity');
 
   // Check if user is captain/admin (has captain, vessel, or admin role, or position contains captain)
   const isCaptain = useMemo(() => {
@@ -208,7 +208,12 @@ export default function InboxPage() {
           const vesselIds = [...new Set(offersData.map((o: any) => o.vessel_id))];
           const vesselUserIds = [...new Set(offersData.map((o: any) => o.vessel_user_id))];
           const [vesselsRes, usersRes] = await Promise.all([
-            vesselIds.length ? supabase.from('vessels').select('id, name').in('id', vesselIds) : { data: [] },
+            vesselIds.length
+              ? supabase
+                  .from('vessels_public_identity')
+                  .select('id, name')
+                  .in('id', vesselIds)
+              : { data: [] },
             vesselUserIds.length ? supabase.from('users').select('id, email, first_name, last_name, username').in('id', vesselUserIds) : { data: [] },
           ]);
           const vesselMap = new Map((vesselsRes.data || []).map((v: any) => [v.id, v]));
@@ -280,7 +285,7 @@ export default function InboxPage() {
                     .eq('id', request.requested_by)
                     .maybeSingle(),
                   supabase
-                    .from('vessels')
+                    .from('vessels_public_identity')
                     .select('name')
                     .eq('id', request.vessel_id)
                     .maybeSingle(),
@@ -394,7 +399,7 @@ export default function InboxPage() {
                       .eq('id', request.crew_user_id)
                       .maybeSingle(),
                     supabase
-                      .from('vessels')
+                      .from('vessels_public_identity')
                       .select('name')
                       .eq('id', request.vessel_id)
                       .maybeSingle(),
@@ -1412,20 +1417,19 @@ export default function InboxPage() {
         // First, get the vessel record to find the vessel_manager_id
         let vesselManagerId: string | null = null;
         try {
-          const { data: vesselData, error: vesselError } = await supabase
-            .from('vessels')
-            .select('vessel_manager_id')
-            .eq('id', testimonial.vessel_id)
-            .maybeSingle();
-          
+          const { data: managerId, error: vesselError } = await supabase.rpc(
+            'get_vessel_manager_id',
+            { p_vessel_id: testimonial.vessel_id },
+          );
+
           if (vesselError) {
-            console.error('[INBOX] Error fetching vessel record:', vesselError);
-          } else if (vesselData) {
-            vesselManagerId = vesselData.vessel_manager_id;
+            console.error('[INBOX] Error fetching vessel manager id:', vesselError);
+          } else if (managerId) {
+            vesselManagerId = managerId as string;
             console.log('[INBOX] Vessel manager ID:', vesselManagerId);
           }
         } catch (error) {
-          console.error('[INBOX] Exception fetching vessel record:', error);
+          console.error('[INBOX] Exception fetching vessel manager id:', error);
         }
         
         // Fetch vessel logs from the vessel account (vessel_manager_id)

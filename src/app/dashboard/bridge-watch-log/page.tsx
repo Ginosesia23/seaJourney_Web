@@ -142,8 +142,8 @@ export default function BridgeWatchLogPage() {
 
   // Query vessels and filter to only assigned ones
   const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
-    user?.id ? 'vessels' : null,
-    user?.id ? { orderBy: 'created_at', ascending: false } : undefined
+    user?.id ? 'vessels_public_identity' : null,
+    user?.id ? { orderBy: 'name', ascending: true } : undefined
   );
 
   const vessels = useMemo(() => {

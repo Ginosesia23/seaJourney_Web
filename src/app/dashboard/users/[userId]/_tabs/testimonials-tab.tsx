@@ -71,7 +71,7 @@ export function TestimonialsTab({ userId }: Props) {
         const nameById = new Map<string, string>();
         if (vesselIds.length > 0) {
           const { data: vessels } = await supabase
-            .from('vessels')
+            .from('vessels_public_identity')
             .select('id, name')
             .in('id', vesselIds);
           for (const v of vessels ?? []) {

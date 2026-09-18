@@ -1,30 +1,26 @@
 /**
- * Live AIS state tracking for premium crew.
+ * Live AIS sea-service tracking for premium crew.
  *
- * Each hour, for every crew user that has opted in and has an active vessel
- * assignment, we:
- *   1. Fetch the latest AIS position for their vessel from Datalastic.
- *   2. Record it as a `crew_ais_state_samples` row for the crew's local
- *      "today" (we use server UTC — good enough for now).
- *   3. Re-aggregate all of today's samples via `aggregateCrewDailyState`,
- *      which delegates to `analyzeAisDailyState` — the same analyzer the AIS
- *      history import uses. It considers:
- *        * previous-day state + last-known coords (carry-forward if the
- *          vessel didn't move overnight),
- *        * ≥ 4-hour underway rule for the sea-day classification,
- *        * position clusters + distance moved between them,
- *        * speed / motion analysis,
- *        * reverse-geocoded end-of-day location (populated area?)
- *   4. Upsert the resulting state into `daily_state_logs` under the crew
- *      user's id with an `[AIS auto]` note prefix (never clobbering manual
- *      entries).
+ * Architecture (crew vs vessel):
+ *   • Vessel AIS polling is owned by the adaptive vessel scheduler + cron.
+ *     Crew leave NEVER stops or slows vessel Datalastic fetches.
+ *   • This module only decides whether a given CREW MEMBER may receive
+ *     AIS-derived sea-service credit from the shared vessel AIS cache.
  *
- * Datalastic calls are deduplicated per vessel/MMSI within a single cron
- * pass so multiple crew on the same vessel only cost one API call.
+ * For each opted-in crew user with an active vessel assignment:
+ *   1. Skip if the crew member is on leave / off board (authoritative DB).
+ *   2. READ central vessel AIS (cache) — do not control vessel fetch schedule.
+ *   3. Record a `crew_ais_state_samples` row for the crew's local "today".
+ *   4. Re-aggregate today's samples → daily sea-service state (≥4h underway).
+ *   5. Upsert `daily_state_logs` with `[AIS auto]` (never clobber manual /
+ *      on-leave entries).
+ *
+ * Returning from leave resumes from the valid onboard period only — there is
+ * no backfill of AIS sea-service for leave days (sync only processes today /
+ * the requested logDate, and leave days already have on-leave logs).
  */
 
-import { getLatestAIS, getVesselAIS } from '@/lib/ais/ais-service';
-import { isAisCacheFresh } from '@/lib/ais/constants';
+import { getVesselAIS } from '@/lib/ais/ais-service';
 import type { DatalasticVesselPosition } from '@/lib/datalastic/client';
 import {
   buildAisStateNote,
@@ -46,6 +42,7 @@ import {
 import { reverseGeocodeStructured } from '@/lib/geocoding/reverse-geocode';
 import {
   ONBOARD_TOGGLE_LOG_NOTE,
+  isCrewEligibleForAisSeaService,
   shouldForceOnLeaveFromOnboardTracker,
 } from '@/lib/crew-rotation/onboard-leave-side-effects';
 import { sendUserNotification } from '@/lib/notifications/send-user-notification';
@@ -120,64 +117,36 @@ export async function syncCrewStateFromAis(
   try {
     const logDate = logDateForLiveAisSync(options?.logDate);
 
-    // If the crew already logged On Leave for today, do not fetch AIS or
-    // overwrite their daily state. Tracking stays enabled — sync resumes
-    // automatically once they log back on board.
-    {
-      const { data: todayLog } = await supabaseAdmin
-        .from('daily_state_logs')
-        .select('state')
-        .eq('user_id', userId)
-        .eq('vessel_id', vesselId)
-        .eq('date', logDate)
-        .maybeSingle();
+    // Crew eligibility only — never touches vessel AIS scheduling metadata.
+    const eligibility = await isCrewEligibleForAisSeaService(
+      userId,
+      vesselId,
+      logDate,
+    );
+    if (!eligibility.eligible) {
+      // Ensure Onboard Tracker leave is mirrored onto today's log when needed,
+      // without creating AIS samples or underway credit.
+      if (await shouldForceOnLeaveFromOnboardTracker(userId, vesselId, logDate)) {
+        const { data: existingLeaveLog } = await supabaseAdmin
+          .from('daily_state_logs')
+          .select('id, state, notes')
+          .eq('user_id', userId)
+          .eq('vessel_id', vesselId)
+          .eq('date', logDate)
+          .maybeSingle();
 
-      if ((todayLog?.state as string | undefined) === 'on-leave') {
-        await supabaseAdmin
-          .from('users')
-          .update({
-            ais_live_last_sync_at: new Date().toISOString(),
-            ais_live_last_sync_error: null,
-          })
-          .eq('id', userId);
-
-        return {
-          ok: true,
-          skipped: true,
-          reason: 'Daily state is On Leave — AIS sync paused until back on board.',
-          userId,
-          vesselId,
-        };
-      }
-    }
-
-    // Onboard Tracker signed this crew off (leave period or active override).
-    // Keep their daily log as on-leave — no AIS fetch needed while on leave.
-    if (await shouldForceOnLeaveFromOnboardTracker(userId, vesselId, logDate)) {
-      const { data: existingLeaveLog } = await supabaseAdmin
-        .from('daily_state_logs')
-        .select('id, state, notes')
-        .eq('user_id', userId)
-        .eq('vessel_id', vesselId)
-        .eq('date', logDate)
-        .maybeSingle();
-
-      const alreadyOnLeave =
-        existingLeaveLog?.state === 'on-leave' &&
-        typeof existingLeaveLog.notes === 'string' &&
-        existingLeaveLog.notes.startsWith('[onboard-toggle]');
-
-      if (!alreadyOnLeave) {
-        await supabaseAdmin.from('daily_state_logs').upsert(
-          {
-            user_id: userId,
-            vessel_id: vesselId,
-            date: logDate,
-            state: 'on-leave',
-            notes: ONBOARD_TOGGLE_LOG_NOTE,
-          },
-          { onConflict: 'user_id,vessel_id,date' },
-        );
+        if (existingLeaveLog?.state !== 'on-leave') {
+          await supabaseAdmin.from('daily_state_logs').upsert(
+            {
+              user_id: userId,
+              vessel_id: vesselId,
+              date: logDate,
+              state: 'on-leave',
+              notes: ONBOARD_TOGGLE_LOG_NOTE,
+            },
+            { onConflict: 'user_id,vessel_id,date' },
+          );
+        }
       }
 
       await supabaseAdmin
@@ -191,17 +160,21 @@ export async function syncCrewStateFromAis(
       return {
         ok: true,
         skipped: true,
-        reason: 'Crew marked off board via Onboard Tracker — daily state kept as on-leave.',
+        reason:
+          eligibility.reason ??
+          'Crew not eligible for AIS sea-service (on leave / off board).',
         userId,
         vesselId,
       };
     }
 
+    // Default: cache-only. Vessel cron owns due provider fetches.
+    // Pass force via options.position from a deliberate refresh path if needed.
     const aisSnapshot =
       options?.position !== undefined
         ? options.position
         : await getVesselAIS(vesselId, {
-            refreshIfStale: true,
+            refreshIfStale: false,
             triggerSource: 'crew-sync',
           });
 
@@ -401,8 +374,9 @@ export async function syncCrewStateFromAis(
 
     const isManuallyOverridden =
       existingLog &&
-      typeof existingLog.notes === 'string' &&
-      !existingLog.notes.startsWith('[AIS');
+      (existingLog.state === 'on-leave' ||
+        (typeof existingLog.notes === 'string' &&
+          !existingLog.notes.startsWith('[AIS')));
 
     console.log('[crew-ais-sync] daily_state_log guard', {
       existingLogFound: !!existingLog,
@@ -721,19 +695,11 @@ export async function syncAllEnabledCrewAis(): Promise<CrewAisSyncResult[]> {
     let aisSnapshot = positionCache.get(cacheKey);
     if (aisSnapshot === undefined) {
       try {
-        const latest = await getLatestAIS(candidate.vesselId);
-        // Cron ticks every 5 min; only refresh when the adaptive window expired.
-        if (latest && isAisCacheFresh(latest.fetched_at, latest.seajourney_state)) {
-          aisSnapshot = await getVesselAIS(candidate.vesselId, {
-            refreshIfStale: false,
-            triggerSource: 'crew-cron:cache',
-          });
-        } else {
-          aisSnapshot = await getVesselAIS(candidate.vesselId, {
-            refreshIfStale: true,
-            triggerSource: 'crew-cron',
-          });
-        }
+        // Vessel cron (same tick) owns due provider fetches. Crew reads cache only.
+        aisSnapshot = await getVesselAIS(candidate.vesselId, {
+          refreshIfStale: false,
+          triggerSource: 'crew-cron',
+        });
       } catch (err) {
         console.warn(
           '[crew-ais-cron] central AIS fetch failed for vessel',
@@ -745,17 +711,40 @@ export async function syncAllEnabledCrewAis(): Promise<CrewAisSyncResult[]> {
       positionCache.set(cacheKey, aisSnapshot);
     }
 
-    // No new provider data needed — skip sample/aggregate work this tick.
+    if (!aisSnapshot?.rawPosition && aisSnapshot?.latitude == null) {
+      results.push({
+        ok: true,
+        skipped: true,
+        reason: 'No central AIS cache for vessel yet',
+        userId: candidate.userId,
+        vesselId: candidate.vesselId,
+      });
+      continue;
+    }
+
+    // Skip if we already sampled this vessel fix for this crew user.
+    const { data: lastSample } = await supabaseAdmin
+      .from('crew_ais_state_samples')
+      .select('sampled_at')
+      .eq('user_id', candidate.userId)
+      .eq('vessel_id', candidate.vesselId)
+      .order('sampled_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const vesselFetchedMs = Date.parse(aisSnapshot.fetchedAt);
+    const lastSampleMs = lastSample?.sampled_at
+      ? Date.parse(lastSample.sampled_at as string)
+      : NaN;
     if (
-      aisSnapshot &&
-      aisSnapshot.source === 'cache' &&
-      !aisSnapshot.stale &&
-      isAisCacheFresh(aisSnapshot.fetchedAt, aisSnapshot.state)
+      Number.isFinite(vesselFetchedMs) &&
+      Number.isFinite(lastSampleMs) &&
+      lastSampleMs >= vesselFetchedMs
     ) {
       results.push({
         ok: true,
         skipped: true,
-        reason: `AIS cache still fresh for ${aisSnapshot.state} (adaptive interval)`,
+        reason: 'Crew sample already recorded for current AIS fix',
         userId: candidate.userId,
         vesselId: candidate.vesselId,
       });

@@ -13,8 +13,8 @@
  */
 
 import type { DatalasticVesselPosition } from '@/lib/datalastic/client';
-import { getLatestAIS, getVesselAIS } from '@/lib/ais/ais-service';
-import { isAisCacheFresh } from '@/lib/ais/constants';
+import { getVesselAIS } from '@/lib/ais/ais-service';
+import { finalizeYesterdayIfNeeded } from '@/lib/ais/daily-summary';
 import {
   buildAisStateNote,
   getNormalizedAisNavStatus,
@@ -109,6 +109,29 @@ async function aggregateAndUpsertDay(opts: {
   note: string;
 }> {
   const { vesselId, managerUserId, logDate, positionForNote } = opts;
+
+  // Prefer duration-based vessel_daily_ais_summary when present.
+  try {
+    const { getDailyAisSummary, applyDailySummaryToStateLogs } = await import(
+      '@/lib/ais/daily-summary'
+    );
+    const summary = await getDailyAisSummary(vesselId, logDate);
+    if (summary?.qualifying_daily_state) {
+      const applied = await applyDailySummaryToStateLogs(vesselId, summary);
+      const underwayHours = (summary.underway_seconds / 3600).toFixed(1);
+      return {
+        state: summary.qualifying_daily_state,
+        reason: summary.underway_qualified
+          ? `Duration summary: ≥4h underway (${underwayHours}h)`
+          : `Duration summary: ${summary.qualifying_daily_state}`,
+        sampleCount: summary.observation_count,
+        skippedManual: !applied.updated && applied.reason === 'Manual override present',
+        note: `[AIS auto] · daily: ${summary.qualifying_daily_state} · ${underwayHours}h underway`,
+      };
+    }
+  } catch (e) {
+    console.warn('[vessel-ais-sync] duration summary unavailable, falling back', e);
+  }
 
   const { data: samples, error } = await supabaseAdmin
     .from('vessel_ais_state_samples')
@@ -229,13 +252,21 @@ export async function syncVesselStateFromAis(
 ): Promise<AisSyncResult> {
   const vesselId = vessel.id;
 
-  if (!options?.force && !vessel.ais_tracking_enabled) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: 'AIS tracking is disabled for this vessel',
-      vesselId,
-    };
+  if (!options?.force) {
+    const { shouldTrackVesselAIS } = await import(
+      '@/lib/ais/vessel-ais-entitlement'
+    );
+    const track =
+      vessel.ais_provider_poll_enabled === true ||
+      (await shouldTrackVesselAIS(vesselId));
+    if (!track) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'No active AIS entitlement source for this vessel',
+        vesselId,
+      };
+    }
   }
 
   if (!vessel.mmsi && !vessel.imo) {
@@ -248,14 +279,8 @@ export async function syncVesselStateFromAis(
   }
 
   const managerUserId = options?.managerUserId || vessel.vessel_manager_id;
-  if (!managerUserId) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: 'No vessel manager is assigned to this vessel',
-      vesselId,
-    };
-  }
+  // Manager is optional for crew-funded vessels — still refresh central AIS;
+  // skip writing vessel-manager daily_state_logs when no manager exists.
 
   try {
     const logDate = logDateForLiveAisSync(options?.logDate);
@@ -277,16 +302,14 @@ export async function syncVesselStateFromAis(
         }
       : null;
 
-    const previousDay = await loadPreviousDayContext(
-      vesselId,
-      managerUserId,
-      logDate,
-    );
+    const previousDay = managerUserId
+      ? await loadPreviousDayContext(vesselId, managerUserId, logDate)
+      : null;
 
-    // Central AIS service — one provider fetch per vessel (deduped + cached).
+    // Cron: refresh when due. Manual sync: force provider fetch.
     const aisSnapshot = await getVesselAIS(vesselId, {
-      force: options?.force,
-      refreshIfStale: true,
+      force: options?.force === true,
+      refreshIfStale: options?.force !== true,
       triggerSource: options?.force ? 'vessel-sync:manual' : 'vessel-sync:cron',
       classificationContext: {
         previousSample,
@@ -408,33 +431,43 @@ export async function syncVesselStateFromAis(
       throw sampleError;
     }
 
-    const day = await aggregateAndUpsertDay({
-      vesselId,
-      managerUserId,
-      logDate,
-      positionForNote: position,
-    });
+    const day = managerUserId
+      ? await aggregateAndUpsertDay({
+          vesselId,
+          managerUserId,
+          logDate,
+          positionForNote: position,
+        })
+      : {
+          state: sampleState,
+          sampleCount: 0,
+          reason: 'Central AIS refreshed (no vessel manager — crew-funded)',
+          skippedManual: false,
+          note: null as string | null,
+        };
 
-    // Finalize yesterday once early UTC so the previous calendar day settles
-    // without needing anyone to open the app.
+    // Finalize yesterday's duration summary near UTC midnight.
     let finalizedYesterday = false;
     const utcHour = new Date().getUTCHours();
     if (utcHour <= 2) {
-      const yesterday = utcDateOffset(-1);
       try {
-        const { count } = await supabaseAdmin
-          .from('vessel_ais_state_samples')
-          .select('id', { count: 'exact', head: true })
-          .eq('vessel_id', vesselId)
-          .eq('sample_date', yesterday);
-        if ((count ?? 0) > 0) {
-          await aggregateAndUpsertDay({
-            vesselId,
-            managerUserId,
-            logDate: yesterday,
-            positionForNote: null,
-          });
-          finalizedYesterday = true;
+        await finalizeYesterdayIfNeeded(vesselId);
+        if (managerUserId) {
+          const yesterday = utcDateOffset(-1);
+          const { count } = await supabaseAdmin
+            .from('vessel_ais_state_samples')
+            .select('id', { count: 'exact', head: true })
+            .eq('vessel_id', vesselId)
+            .eq('sample_date', yesterday);
+          if ((count ?? 0) > 0) {
+            await aggregateAndUpsertDay({
+              vesselId,
+              managerUserId,
+              logDate: yesterday,
+              positionForNote: null,
+            });
+            finalizedYesterday = true;
+          }
         }
       } catch (e) {
         console.warn('[vessel-ais-sync] yesterday finalize failed', vesselId, e);
@@ -497,32 +530,36 @@ export async function syncVesselStateFromAis(
   }
 }
 
-/** Sync all vessels with AIS tracking enabled (for cron). */
+/** Sync all vessels with AIS tracking enabled that are due (for cron). */
 export async function syncAllEnabledAisVessels(): Promise<AisSyncResult[]> {
+  const { listDueAisVesselIds } = await import('@/lib/ais/ais-service');
+  const { AIS_CRON_BATCH_SIZE, AIS_CRON_CONCURRENCY } = await import(
+    '@/lib/ais/constants'
+  );
+
+  const dueIds = await listDueAisVesselIds(AIS_CRON_BATCH_SIZE);
+  if (dueIds.length === 0) return [];
+
   const { data: vessels, error } = await supabaseAdmin
     .from('vessels')
-    .select('id, mmsi, imo, vessel_manager_id, ais_tracking_enabled')
-    .eq('ais_tracking_enabled', true);
+    .select(
+      'id, mmsi, imo, vessel_manager_id, ais_tracking_enabled, ais_provider_poll_enabled',
+    )
+    .in('id', dueIds)
+    .eq('ais_provider_poll_enabled', true);
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   const results: AisSyncResult[] = [];
-  for (const vessel of vessels ?? []) {
-    // Cron ticks every 5 min; skip vessels still inside their adaptive window
-    // (underway 5 min / stationary 45 min) so we don't burn API quota.
-    const latest = await getLatestAIS(vessel.id);
-    if (latest && isAisCacheFresh(latest.fetched_at, latest.seajourney_state)) {
-      results.push({
-        ok: true,
-        skipped: true,
-        reason: `AIS cache still fresh for ${latest.seajourney_state} (adaptive interval)`,
-        vesselId: vessel.id,
-      });
-      continue;
-    }
-    results.push(await syncVesselStateFromAis(vessel));
+  const list = vessels ?? [];
+
+  // Bounded concurrency — avoid uncontrolled Promise.all on large fleets.
+  for (let i = 0; i < list.length; i += AIS_CRON_CONCURRENCY) {
+    const chunk = list.slice(i, i + AIS_CRON_CONCURRENCY);
+    const chunkResults = await Promise.all(
+      chunk.map((vessel) => syncVesselStateFromAis(vessel)),
+    );
+    results.push(...chunkResults);
   }
   return results;
 }

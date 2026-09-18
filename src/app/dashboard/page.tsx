@@ -1,8 +1,7 @@
 
 'use client';
 
-import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Wrench, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, CalendarDays, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn, type LucideIcon } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Wrench, Calendar, MapPin, PlusCircle, Clock, TrendingUp, History, TrendingDown, Activity, Target, Trophy, CheckCircle2, XCircle, FileText, Users, CreditCard, BarChart3, Globe, LogIn, type LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth, isBefore, isAfter, endOfDay, addDays, differenceInDays } from 'date-fns';
@@ -28,6 +27,7 @@ import { getSubscriptionTierPricingMap } from '@/app/actions';
 import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
 import {
   DashboardHeader,
+  DashboardInlineMetrics,
   DashboardPanel,
   DashboardQuickLinks,
   DashboardStatRow,
@@ -638,10 +638,10 @@ export default function DashboardPage() {
     fetchVesselStats();
   }, [isVesselManager, user?.id, userProfile?.activeVesselId, supabase]);
 
-  // Query all vessels (vessels are shared, not owned by users)
+  // Public identity catalog — crew must not SELECT full vessels rows
   const { data: vessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
-    user?.id ? 'vessels' : null,
-    user?.id ? { orderBy: 'created_at', ascending: false } : undefined
+    user?.id ? 'vessels_public_identity' : null,
+    user?.id ? { orderBy: 'name', ascending: true } : undefined
   );
 
   // Get current vessel
@@ -1668,20 +1668,24 @@ export default function DashboardPage() {
     if (isLoadingVesselStats || !vesselStats) {
       return (
         <div className="flex flex-col gap-6">
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-48" />
+          <div className="space-y-2 border-b border-border pb-5">
+            <Skeleton className="h-3 w-36" />
+            <Skeleton className="h-6 w-48" />
             <Skeleton className="h-4 w-64" />
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[...Array(4)].map((_, i) => (
-              <Card key={i} className="rounded-xl">
-                <CardHeader>
-                  <Skeleton className="h-4 w-24" />
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-8 w-16" />
-                </CardContent>
-              </Card>
+              <div
+                key={i}
+                className="overflow-hidden rounded-md border border-border bg-background"
+              >
+                <div className="border-b border-border bg-muted/40 px-3 py-2">
+                  <Skeleton className="h-3 w-20" />
+                </div>
+                <div className="px-3 py-3">
+                  <Skeleton className="h-7 w-16" />
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -1701,23 +1705,30 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-6">
         <DashboardHeader
           title={currentVessel?.name || 'Vessel Dashboard'}
+          breadcrumb="Overview"
+          icon={Ship}
           description="Vessel activity, crew, and sea-time overview"
           actions={
             <>
               {vesselStats.todayStatus && todayStateInfo ? (
-                <Badge
-                  variant="outline"
-                  style={{ borderColor: todayStateInfo.color, color: todayStateInfo.color }}
-                >
-                  <TodayStateIcon className="mr-1.5 h-3.5 w-3.5" />
-                  Today: {todayStateInfo.label}
-                </Badge>
+                <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+                  <TodayStateIcon
+                    className="h-3.5 w-3.5"
+                    style={{ color: todayStateInfo.color }}
+                  />
+                  <span>Today</span>
+                  <span className="font-mono tabular-nums text-foreground">
+                    {todayStateInfo.label}
+                  </span>
+                </div>
               ) : null}
               {currentVessel ? (
-                <Badge variant="outline">
-                  <Ship className="mr-1.5 h-3.5 w-3.5" />
-                  {currentVessel.type || 'Vessel'}
-                </Badge>
+                <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+                  <Ship className="h-3.5 w-3.5" />
+                  <span className="text-foreground">
+                    {currentVessel.type || 'Vessel'}
+                  </span>
+                </div>
               ) : null}
             </>
           }
@@ -1753,18 +1764,22 @@ export default function DashboardPage() {
                   icon: state.icon,
                 }))}
             />
-            <div className="mt-4 grid grid-cols-3 gap-3 border-t pt-4 text-sm">
+            <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border pt-4">
               <div>
-                <p className="text-xs text-muted-foreground">At sea</p>
-                <p className="font-semibold tabular-nums">{atSeaDays}</p>
+                <p className="text-[11px] text-muted-foreground">At sea</p>
+                <p className="font-mono text-sm font-medium tabular-nums">{atSeaDays}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Standby</p>
-                <p className="font-semibold tabular-nums text-[#7629BB]">{vesselStats.totalStandbyDays}</p>
+                <p className="text-[11px] text-muted-foreground">Standby</p>
+                <p className="font-mono text-sm font-medium tabular-nums text-[#7629BB]">
+                  {vesselStats.totalStandbyDays}
+                </p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Total</p>
-                <p className="font-semibold tabular-nums">{vesselStats.totalDays}</p>
+                <p className="text-[11px] text-muted-foreground">Total</p>
+                <p className="font-mono text-sm font-medium tabular-nums">
+                  {vesselStats.totalDays}
+                </p>
               </div>
             </div>
           </DashboardPanel>
@@ -1779,15 +1794,20 @@ export default function DashboardPage() {
             }
           >
             {vesselStats.recentCrewActivity.length > 0 ? (
-              <div className="divide-y">
+              <div className="divide-y divide-border">
                 {vesselStats.recentCrewActivity.map((activity) => (
-                  <div key={activity.userId} className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+                  <div
+                    key={activity.userId}
+                    className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0"
+                  >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{activity.userName}</p>
-                      <p className="text-xs text-muted-foreground">{activity.daysLogged} days logged</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {activity.daysLogged} days logged
+                      </p>
                     </div>
                     {activity.lastActivity ? (
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
                         {format(parse(activity.lastActivity, 'yyyy-MM-dd', new Date()), 'MMM d')}
                       </span>
                     ) : null}
@@ -1795,7 +1815,9 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : (
-              <p className="py-4 text-center text-sm text-muted-foreground">No recent activity</p>
+              <p className="py-6 text-center text-xs text-muted-foreground">
+                No recent activity
+              </p>
             )}
           </DashboardPanel>
         </div>
@@ -1845,19 +1867,21 @@ export default function DashboardPage() {
               </div>
             </div>
             {vesselSeaTimeInRange ? (
-              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4">
-                {[
-                  ['Days logged', vesselSeaTimeInRange.totalDays],
-                  ['At sea', vesselSeaTimeInRange.atSeaDays],
-                  ['Standby', vesselSeaTimeInRange.standbyDays],
-                  ['Sea service', vesselSeaTimeInRange.seaServiceDays],
-                ].map(([label, value]) => (
-                  <div key={label} className="bg-card px-3 py-3">
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-                  </div>
-                ))}
-              </div>
+              <DashboardInlineMetrics
+                items={[
+                  { label: 'Days logged', value: vesselSeaTimeInRange.totalDays },
+                  { label: 'At sea', value: vesselSeaTimeInRange.atSeaDays },
+                  {
+                    label: 'Standby',
+                    value: vesselSeaTimeInRange.standbyDays,
+                    tone: 'purple',
+                  },
+                  {
+                    label: 'Sea service',
+                    value: vesselSeaTimeInRange.seaServiceDays,
+                  },
+                ]}
+              />
             ) : null}
           </div>
         </DashboardPanel>
@@ -1870,20 +1894,24 @@ export default function DashboardPage() {
     if (isLoadingAdminStats || !adminStats) {
       return (
         <div className="flex flex-col gap-6">
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-48" />
+          <div className="space-y-2 border-b border-border pb-5">
+            <Skeleton className="h-3 w-36" />
+            <Skeleton className="h-6 w-48" />
             <Skeleton className="h-4 w-64" />
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[...Array(4)].map((_, i) => (
-              <Card key={i} className="rounded-xl">
-                <CardHeader>
-                  <Skeleton className="h-4 w-24" />
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-8 w-16" />
-                </CardContent>
-              </Card>
+              <div
+                key={i}
+                className="overflow-hidden rounded-md border border-border bg-background"
+              >
+                <div className="border-b border-border bg-muted/40 px-3 py-2">
+                  <Skeleton className="h-3 w-20" />
+                </div>
+                <div className="px-3 py-3">
+                  <Skeleton className="h-7 w-16" />
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -1894,6 +1922,8 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-6">
         <DashboardHeader
           title="Admin Dashboard"
+          breadcrumb="Admin"
+          icon={BarChart3}
           description="Company overview and key metrics"
         />
 
@@ -1943,7 +1973,7 @@ export default function DashboardPage() {
                                 ? 'Vessel Linked'
                                 : tier.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}
                           </span>
-                          <span className="text-sm font-semibold tabular-nums">{count}</span>
+                          <span className="font-mono text-sm font-medium tabular-nums">{count}</span>
                         </div>
                       ))}
                   </div>
@@ -1962,7 +1992,7 @@ export default function DashboardPage() {
                           <span className="truncate text-sm">
                             {tier.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}
                           </span>
-                          <span className="text-sm font-semibold tabular-nums">{count}</span>
+                          <span className="font-mono text-sm font-medium tabular-nums">{count}</span>
                         </div>
                       ))}
                   </div>
@@ -1983,7 +2013,7 @@ export default function DashboardPage() {
                   <p className="text-sm font-medium">Crew</p>
                   <p className="text-xs text-muted-foreground">{adminStats.activeSubscriptions} active accounts</p>
                 </div>
-                <p className="font-semibold tabular-nums">
+                <p className="font-mono font-medium tabular-nums">
                   £{adminStats.crewRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
               </div>
@@ -1992,13 +2022,13 @@ export default function DashboardPage() {
                   <p className="text-sm font-medium">Vessels</p>
                   <p className="text-xs text-muted-foreground">{adminStats.activeVesselSubscriptions} active accounts</p>
                 </div>
-                <p className="font-semibold tabular-nums">
+                <p className="font-mono font-medium tabular-nums">
                   £{adminStats.vesselRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
               </div>
               <div className="flex items-center justify-between gap-4 pt-3">
                 <p className="text-sm font-medium">Total monthly</p>
-                <p className="text-lg font-semibold tabular-nums">
+                <p className="font-mono text-lg font-medium tabular-nums">
                   £{adminStats.monthlyRevenue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
               </div>
@@ -2089,57 +2119,55 @@ export default function DashboardPage() {
     );
   }
   
-  // Loading skeleton component
+  // Loading skeleton — matches new page-ui chrome
   const StatCardSkeleton = () => (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <Skeleton className="h-4 w-24" />
-        <Skeleton className="h-4 w-4 rounded" />
-      </CardHeader>
-      <CardContent>
-        <Skeleton className="h-8 w-16 mb-2" />
-        <Skeleton className="h-3 w-32" />
-      </CardContent>
-    </Card>
+    <div className="overflow-hidden rounded-md border border-border bg-background">
+      <div className="border-b border-border bg-muted/40 px-3 py-2">
+        <Skeleton className="h-3 w-20" />
+      </div>
+      <div className="px-3 py-3">
+        <Skeleton className="mb-2 h-7 w-16" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    </div>
   );
   
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-8">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
-            <Skeleton className="h-8 w-32" />
+            <Skeleton className="h-3 w-36" />
+            <Skeleton className="h-6 w-32" />
             <Skeleton className="h-4 w-48" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Skeleton className="h-10 w-32" />
-            <Skeleton className="h-10 w-32" />
+            <Skeleton className="h-8 w-32 rounded-md" />
+            <Skeleton className="h-8 w-36 rounded-md" />
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => (
             <StatCardSkeleton key={i} />
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-          <Card className="lg:col-span-2 rounded-xl">
-            <CardHeader>
-              <Skeleton className="h-6 w-40 mb-2" />
-              <Skeleton className="h-4 w-64" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-64 w-full" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <Skeleton className="h-6 w-32 mb-2" />
-              <Skeleton className="h-4 w-48" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-64 w-full" />
-            </CardContent>
-          </Card>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="overflow-hidden rounded-md border border-border">
+            <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+              <Skeleton className="h-3 w-28" />
+            </div>
+            <div className="p-4">
+              <Skeleton className="h-40 w-full" />
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-md border border-border">
+            <div className="border-b border-border bg-muted/40 px-4 py-2.5">
+              <Skeleton className="h-3 w-28" />
+            </div>
+            <div className="p-4">
+              <Skeleton className="h-40 w-full" />
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -2149,12 +2177,14 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <DashboardHeader
         title="Dashboard"
+        breadcrumb="Overview"
+        icon={Activity}
         description="Your career at a glance"
         actions={
           <>
             <Select value={selectedYear} onValueChange={setSelectedYear}>
-              <SelectTrigger className="w-[140px]">
-                <Calendar className="mr-2 h-4 w-4" />
+              <SelectTrigger className="h-8 w-[140px] rounded-md text-xs">
+                <Calendar className="mr-2 h-3.5 w-3.5" />
                 <SelectValue placeholder="Year" />
               </SelectTrigger>
               <SelectContent>
@@ -2166,8 +2196,8 @@ export default function DashboardPage() {
               </SelectContent>
             </Select>
             <Select value={selectedVessel} onValueChange={setSelectedVessel}>
-              <SelectTrigger className="w-[180px]">
-                <Ship className="mr-2 h-4 w-4" />
+              <SelectTrigger className="h-8 w-[180px] rounded-md text-xs">
+                <Ship className="mr-2 h-3.5 w-3.5" />
                 <SelectValue placeholder="Vessel" />
               </SelectTrigger>
               <SelectContent>
@@ -2180,97 +2210,82 @@ export default function DashboardPage() {
         }
       />
       
-      {/* Past 7 Days Summary and Quick Visa Log - Side by Side */}
+      {/* Past 7 Days Summary and Quick Visa Log */}
       {(past7DaysStats.totalDays > 0 || (!isAdmin && activeVisas.length > 0)) ? (
       <div className="order-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-      {/* Past 7 Days Summary */}
       {past7DaysStats.totalDays > 0 && (
-        <Card className="rounded-xl border shadow-none">
-          <CardContent className="py-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-muted/30">
-                <CalendarDays className="h-4 w-4 text-muted-foreground" />
+        <DashboardPanel title="Last 7 days" description="Recent logging summary">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            In the last week, you logged{' '}
+            <span className="font-mono font-medium text-foreground">
+              {past7DaysStats.totalDays} day{past7DaysStats.totalDays !== 1 ? 's' : ''}
+            </span>
+            :
+          </p>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+            {past7DaysStats.atSeaDays > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-blue))' }} />
+                <span className="text-muted-foreground">
+                  <span className="font-mono font-medium text-foreground">{past7DaysStats.atSeaDays}</span> at sea
+                </span>
               </div>
-              <div className="flex-1">
-                <h3 className="mb-1.5 text-sm font-semibold">Last 7 days</h3>
-                <div className="space-y-1.5">
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    In the last week, you logged{' '}
-                    <span className="font-semibold text-foreground">{past7DaysStats.totalDays} day{past7DaysStats.totalDays !== 1 ? 's' : ''}</span>:
-                  </p>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                    {past7DaysStats.atSeaDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-blue))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.atSeaDays}</span> day{past7DaysStats.atSeaDays !== 1 ? 's' : ''} at sea
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.standbyDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-purple))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.standbyDays}</span> standby day{past7DaysStats.standbyDays !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.atAnchorDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.atAnchorDays}</span> day{past7DaysStats.atAnchorDays !== 1 ? 's' : ''} at anchor
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.inPortDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-green))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.inPortDays}</span> day{past7DaysStats.inPortDays !== 1 ? 's' : ''} moored
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.onLeaveDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-gray))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.onLeaveDays}</span> day{past7DaysStats.onLeaveDays !== 1 ? 's' : ''} on leave
-                        </span>
-                      </div>
-                    )}
-                    {past7DaysStats.inYardDays > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-red))' }} />
-                        <span className="text-muted-foreground">
-                          <span className="font-semibold text-foreground">{past7DaysStats.inYardDays}</span> day{past7DaysStats.inYardDays !== 1 ? 's' : ''} in yard
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+            )}
+            {past7DaysStats.standbyDays > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-purple))' }} />
+                <span className="text-muted-foreground">
+                  <span className="font-mono font-medium text-foreground">{past7DaysStats.standbyDays}</span> standby
+                </span>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            )}
+            {past7DaysStats.atAnchorDays > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
+                <span className="text-muted-foreground">
+                  <span className="font-mono font-medium text-foreground">{past7DaysStats.atAnchorDays}</span> at anchor
+                </span>
+              </div>
+            )}
+            {past7DaysStats.inPortDays > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-green))' }} />
+                <span className="text-muted-foreground">
+                  <span className="font-mono font-medium text-foreground">{past7DaysStats.inPortDays}</span> moored
+                </span>
+              </div>
+            )}
+            {past7DaysStats.onLeaveDays > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-gray))' }} />
+                <span className="text-muted-foreground">
+                  <span className="font-mono font-medium text-foreground">{past7DaysStats.onLeaveDays}</span> on leave
+                </span>
+              </div>
+            )}
+            {past7DaysStats.inYardDays > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-red))' }} />
+                <span className="text-muted-foreground">
+                  <span className="font-mono font-medium text-foreground">{past7DaysStats.inYardDays}</span> in yard
+                </span>
+              </div>
+            )}
+          </div>
+        </DashboardPanel>
       )}
 
-        {/* Quick Visa Log Section - Compact */}
         {!isAdmin && activeVisas.length > 0 && (
-          <Card className="rounded-xl border shadow-none">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg border bg-muted/30">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div>
-                  <CardTitle className="text-base">Quick Visa Log</CardTitle>
-                  <CardDescription className="text-xs">Log today's date</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="space-y-2">
+          <DashboardPanel
+            title="Quick visa log"
+            description="Log today's date"
+            action={
+              <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+                <Link href="/dashboard/visa-tracker">View all</Link>
+              </Button>
+            }
+          >
+              <div className="divide-y divide-border">
                 {activeVisas.map((visa) => {
                   const today = startOfDay(new Date());
                   const visaIssue = parse(visa.issueDate, 'yyyy-MM-dd', new Date());
@@ -2278,11 +2293,12 @@ export default function DashboardPage() {
                   const isTodayValid = !isBefore(today, visaIssue) && !isAfter(today, visaExpire);
 
                   return (
-                    <div key={visa.id} className="flex items-center justify-between gap-3 border-t py-2.5 first:border-t-0 first:pt-0">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{visa.areaName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {visa.daysRemaining} day{visa.daysRemaining !== 1 ? 's' : ''} remaining
+                    <div key={visa.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{visa.areaName}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          <span className="font-mono tabular-nums">{visa.daysRemaining}</span> day
+                          {visa.daysRemaining !== 1 ? 's' : ''} remaining
                         </p>
                       </div>
                       <Button
@@ -2290,17 +2306,17 @@ export default function DashboardPage() {
                         size="sm"
                         onClick={() => handleQuickLogVisaDate(visa)}
                         disabled={!isTodayValid || isLoggingVisaDate}
-                        className="h-8 rounded-lg"
+                        className="h-8 rounded-md text-xs"
                       >
                         {isLoggingVisaDate ? (
                           <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Logging...
+                            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            Logging…
                           </>
                         ) : (
                           <>
-                            <LogIn className="mr-2 h-4 w-4" />
-                            Log Today
+                            <LogIn className="mr-2 h-3.5 w-3.5" />
+                            Log today
                           </>
                         )}
                       </Button>
@@ -2308,13 +2324,7 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
-              <div className="mt-3 pt-3 border-t">
-                <DashboardQuickLinks
-                  links={[{ href: '/dashboard/visa-tracker', label: 'View all visas', icon: Globe }]}
-                />
-              </div>
-            </CardContent>
-          </Card>
+          </DashboardPanel>
         )}
       </div>
       ) : null}
@@ -2330,7 +2340,7 @@ export default function DashboardPage() {
       />
       
       {/* Current Vessel and Recent Activity Section */}
-      <div className="order-3 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="order-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Current Vessel Card */}
         <DashboardPanel
           title="Current vessel"

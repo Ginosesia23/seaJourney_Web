@@ -440,8 +440,8 @@ function CareerTab({ userId }: { userId?: string }) {
   const [totalSeaTimeDays, setTotalSeaTimeDays] = useState<number | null>(null);
   const [isLoadingSeaTime, setIsLoadingSeaTime] = useState(false);
 
-  // Fetch all vessels for name lookup
-  const { data: vessels } = useCollection<Vessel>('vessels');
+  // Fetch vessel names via public identity (crew must not SELECT private vessels columns)
+  const { data: vessels } = useCollection<Vessel>('vessels_public_identity');
   
   // Filter vessels to only show those the user is assigned to
   // Also include the vessel from the position being edited (if any) to handle historical data

@@ -84,11 +84,6 @@ export async function unlinkVesselManagerSession(opts: {
     .update({
       vessel_manager_id: null,
       ais_tracking_enabled: false,
-      ais_last_sync_at: null,
-      ais_last_nav_status: null,
-      ais_last_speed: null,
-      ais_last_position_at: null,
-      ais_last_sync_error: null,
     })
     .eq('id', vesselId);
 
@@ -103,6 +98,16 @@ export async function unlinkVesselManagerSession(opts: {
         { status: 500 },
       );
     }
+  }
+
+  // Crew-funded AIS may still warrant provider polling — recompute.
+  try {
+    const { refreshVesselAisEntitlement } = await import(
+      '@/lib/ais/vessel-ais-entitlement'
+    );
+    await refreshVesselAisEntitlement(vesselId);
+  } catch (e) {
+    console.warn('[unlink-vessel-manager] AIS entitlement refresh failed', e);
   }
 
   const aisSamples = await countDelete('vessel_ais_state_samples', () =>

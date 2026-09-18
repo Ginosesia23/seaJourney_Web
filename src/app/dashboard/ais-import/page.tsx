@@ -168,10 +168,11 @@ export default function AISImportPage() {
   const [vesselAssignments, setVesselAssignments] = useState<VesselAssignment[]>([]);
   const [isLoadingAssignments, setIsLoadingAssignments] = useState(true);
 
-  const { data: vesselsData } = useCollection<Vessel>('vessels');
+  const { data: vesselsData } = useCollection<Vessel>('vessels_public_identity');
 
+  const vesselDocTable = isVesselManager ? 'vessels' : 'vessels_public_identity';
   const { data: vesselData } = useDoc<Vessel>(
-    'vessels',
+    vesselDocTable,
     (isVesselManager ? activeVesselId : selectedVesselId) || null,
   );
 

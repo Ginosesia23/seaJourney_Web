@@ -90,13 +90,14 @@ export async function getUserProfile(supabase: SupabaseClient, userId: string) {
 }
 
 /**
- * Get all vessels (vessels are shared, not owned by users)
+ * Get vessel catalog for identity/name lookup.
+ * Uses vessels_public_identity so ordinary crew never receive private columns.
  */
-export async function getUserVessels(supabase: SupabaseClient, userId: string) {
+export async function getUserVessels(supabase: SupabaseClient, _userId: string) {
   const { data, error } = await supabase
-    .from('vessels')
-    .select('*')
-    .order('created_at', { ascending: false });
+    .from('vessels_public_identity')
+    .select('id, name, type, imo, mmsi')
+    .order('name', { ascending: true });
 
   if (error) throw error;
 
@@ -105,6 +106,7 @@ export async function getUserVessels(supabase: SupabaseClient, userId: string) {
     name: vessel.name,
     type: vessel.type,
     officialNumber: vessel.imo,
+    mmsi: vessel.mmsi ?? null,
   }));
 }
 

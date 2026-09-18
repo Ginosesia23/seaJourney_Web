@@ -19,11 +19,6 @@ import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-
 import { AisWrongStateReportButton } from '@/components/dashboard/ais-wrong-state-report-button';
 import type { DailyStatus } from '@/lib/types';
 
-import {
-  AIS_REFRESH_INTERVAL_UNDERWAY_MS,
-  getAisRefreshIntervalMs,
-  isAisCacheFresh,
-} from '@/lib/ais/constants';
 import { useCentralVesselAis } from '@/lib/ais/use-central-vessel-ais';
 type AisTrackingStatus = {
   enabled: boolean;
@@ -173,50 +168,8 @@ export function AisTrackingCard({
     [accessToken, loadStatus, localLogDate, readOnly, refreshCentralAis, status?.enabled, vesselId],
   );
 
-  // Sea-service sync: poll on the shortest tick; only run when the adaptive
-  // AIS window for the current state has expired (5 min underway / 45 min else).
-  const runSyncRef = useRef(runSync);
-  useEffect(() => {
-    runSyncRef.current = runSync;
-  }, [runSync]);
-
-  useEffect(() => {
-    if (readOnly || !status?.enabled || !accessToken || loading) return;
-
-    let cancelled = false;
-
-    const autoSync = async () => {
-      if (cancelled) return;
-      const state = centralAis?.state ?? status.lastNavStatus;
-      const fetchedAt = centralAis?.fetchedAt ?? status.lastSyncAt;
-      if (fetchedAt && isAisCacheFresh(fetchedAt, state === 'underway' ? 'underway' : state)) {
-        return;
-      }
-      await runSyncRef.current({ silent: true });
-    };
-
-    if (!status.lastSyncAt && !centralAis?.fetchedAt) {
-      void autoSync();
-    }
-
-    const interval = window.setInterval(() => {
-      void autoSync();
-    }, AIS_REFRESH_INTERVAL_UNDERWAY_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [
-    status?.enabled,
-    status?.lastSyncAt,
-    status?.lastNavStatus,
-    centralAis?.fetchedAt,
-    centralAis?.state,
-    accessToken,
-    loading,
-    readOnly,
-  ]);
+  // Provider fetches are owned by adaptive cron. UI updates via Realtime +
+  // cache-only central AIS reads — no client auto force-refresh.
 
   const handleToggle = async (enabled: boolean) => {
     if (readOnly || !accessToken) return;
@@ -311,6 +264,27 @@ export function AisTrackingCard({
       : null,
   ].filter(Boolean);
 
+  const today = centralAis?.today;
+  const todayBits =
+    today?.qualifyingDailyState != null
+      ? [
+          `Today ${
+            today.qualifyingDailyState === 'at-anchor'
+              ? 'at anchor'
+              : today.qualifyingDailyState === 'in-port'
+                ? 'moored'
+                : today.qualifyingDailyState
+          }`,
+          today.underwayLabel
+            ? `${today.underwayLabel} underway`
+            : null,
+          today.distanceNm > 0
+            ? `${today.distanceNm.toFixed(1)} NM`
+            : null,
+          today.underwayQualified ? '≥4h sea day' : null,
+        ].filter(Boolean)
+      : [];
+
   return (
     <div className="rounded-md border border-border bg-card px-4 py-3">
       {loading ? (
@@ -348,14 +322,21 @@ export function AisTrackingCard({
               ) : status?.lastError ? (
                 <p className="text-xs leading-relaxed text-destructive">{status.lastError}</p>
               ) : status?.enabled && liveBits.length > 0 ? (
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {liveBits.join(' · ')}
-                </p>
+                <div className="space-y-0.5">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Now: {liveBits.join(' · ')}
+                  </p>
+                  {todayBits.length > 0 ? (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Sea service: {todayBits.join(' · ')}
+                    </p>
+                  ) : null}
+                </div>
               ) : (
                 <p className="text-xs leading-relaxed text-muted-foreground">
                   {readOnly
                     ? 'Daily state is set from this vessel’s live AIS.'
-                    : `Background sync every ${Math.round(getAisRefreshIntervalMs(centralAis?.state ?? 'at-anchor') / 60_000)} minutes (5 min while underway) when enabled.`}
+                    : `Adaptive AIS polling (5–60 min by vessel state). Dashboard reads cached central AIS — Sync forces a provider refresh.`}
                 </p>
               )}
             </div>

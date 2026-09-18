@@ -15,10 +15,6 @@ import { hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-hel
 import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import type { DailyStatus } from '@/lib/types';
 
-import {
-  AIS_REFRESH_INTERVAL_UNDERWAY_MS,
-  isAisCacheFresh,
-} from '@/lib/ais/constants';
 import { useCentralVesselAis } from '@/lib/ais/use-central-vessel-ais';
 type CrewSample = {
   id: string;
@@ -178,42 +174,8 @@ export function CrewAisTrackingCard({
     [accessToken, activeVesselId, loadStatus, onLeaveToday, refreshCentralAis, status?.enabled],
   );
 
-  // Sea-service sync: check every 5 min; only run when adaptive window expired.
-  const runSyncRef = useRef(runSync);
-  useEffect(() => {
-    runSyncRef.current = runSync;
-  }, [runSync]);
-
-  useEffect(() => {
-    if (!trackingActive || !accessToken || loading) return;
-    let cancelled = false;
-    const autoSync = async () => {
-      if (cancelled) return;
-      const state = centralAis?.state;
-      const fetchedAt = centralAis?.fetchedAt ?? status?.lastSyncAt;
-      if (fetchedAt && isAisCacheFresh(fetchedAt, state)) {
-        return;
-      }
-      await runSyncRef.current({ silent: true });
-    };
-    if (!status?.lastSyncAt && !centralAis?.fetchedAt) {
-      void autoSync();
-    }
-    const interval = window.setInterval(() => {
-      void autoSync();
-    }, AIS_REFRESH_INTERVAL_UNDERWAY_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [
-    trackingActive,
-    status?.lastSyncAt,
-    centralAis?.fetchedAt,
-    centralAis?.state,
-    accessToken,
-    loading,
-  ]);
+  // Provider fetches are owned by adaptive cron. UI updates via Realtime +
+  // cache-only central AIS reads — no client auto force-refresh.
 
   const handleToggle = async (enabled: boolean) => {
     if (!accessToken) return;
@@ -286,16 +248,24 @@ export function CrewAisTrackingCard({
   const resolvedState = status?.todayDailyState ?? null;
   const underwayHoursMatch = status?.todayNotes?.match(/(\d+(?:\.\d+)?)h underway/);
   const underwayHours = underwayHoursMatch ? underwayHoursMatch[1] : null;
+  const todaySummary = centralAis?.today;
   const liveBits = [
     active?.vesselName || null,
     centralAis?.rawNavigationStatus ?? latestSample?.navStatus ?? null,
     (centralAis?.speed ?? latestSample?.speedKn) != null
       ? `${Number(centralAis?.speed ?? latestSample?.speedKn).toFixed(1)} kn`
       : null,
-    resolvedState
-      ? `today ${STATE_LABELS[resolvedState] || resolvedState}`
-      : null,
-    underwayHours ? `${underwayHours}h underway` : null,
+    todaySummary?.qualifyingDailyState
+      ? `today ${STATE_LABELS[todaySummary.qualifyingDailyState] || todaySummary.qualifyingDailyState}`
+      : resolvedState
+        ? `today ${STATE_LABELS[resolvedState] || resolvedState}`
+        : null,
+    todaySummary?.underwayLabel
+      ? `${todaySummary.underwayLabel} underway`
+      : underwayHours
+        ? `${underwayHours}h underway`
+        : null,
+    todaySummary?.underwayQualified ? '≥4h sea day' : null,
     centralAis?.fetchedAt
       ? `updated ${format(parseISO(centralAis.fetchedAt), 'd MMM · HH:mm')}${
           centralAis.stale && centralAis.ageMinutes != null
@@ -325,7 +295,7 @@ export function CrewAisTrackingCard({
                 <span className="text-sm font-medium">Live AIS tracking</span>
                 {status?.enabled && onLeaveToday ? (
                   <Badge className="h-5 border-amber-500/30 bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-800 dark:text-amber-300">
-                    Paused · on leave
+                    Sea-service paused · on leave
                   </Badge>
                 ) : status?.enabled ? (
                   <Badge className="h-5 border-emerald-500/30 bg-emerald-500/15 px-1.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
@@ -347,7 +317,8 @@ export function CrewAisTrackingCard({
                 </p>
               ) : onLeaveToday && status?.enabled ? (
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  AIS sync is paused while you&apos;re on leave. It resumes when you log back on board.
+                  AIS sea-service tracking paused — you are currently marked as On
+                  Leave. Vessel AIS tracking continues for onboard crew.
                 </p>
               ) : status?.lastError ? (
                 <p className="text-xs leading-relaxed text-destructive">{status.lastError}</p>

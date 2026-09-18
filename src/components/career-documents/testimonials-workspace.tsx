@@ -561,10 +561,10 @@ export function TestimonialsWorkspace({ embedded = false }: { embedded?: boolean
   // Note: Applications page is accessible to all users for testimonials
   // Nav Watch and OOW applications are restricted to premium users (handled in their respective sections)
 
-  // Query all vessels
+  // Public identity catalog — crew must not SELECT full vessels rows
   const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
-    user?.id ? 'vessels' : null,
-    user?.id ? { orderBy: 'created_at', ascending: false } : undefined
+    user?.id ? 'vessels_public_identity' : null,
+    user?.id ? { orderBy: 'name', ascending: true } : undefined
   );
 
   // Filter vessels to only show ones the user has logged time on
@@ -662,11 +662,10 @@ export function TestimonialsWorkspace({ embedded = false }: { embedded?: boolean
       form.setValue('captain_email', '', { shouldValidate: false });
       form.setValue('captain_name', '', { shouldValidate: false });
 
-      const { data: vesselRow, error: vesselError } = await supabase
-        .from('vessels')
-        .select('vessel_manager_id')
-        .eq('id', watchedVesselId)
-        .maybeSingle();
+      const { data: vesselRow, error: vesselError } = await supabase.rpc(
+        'get_vessel_manager_id',
+        { p_vessel_id: watchedVesselId },
+      );
 
       if (isCancelled) return;
 
@@ -676,7 +675,7 @@ export function TestimonialsWorkspace({ embedded = false }: { embedded?: boolean
         return;
       }
 
-      const managerId = (vesselRow as { vessel_manager_id?: string | null } | null)?.vessel_manager_id;
+      const managerId = (vesselRow as string | null) || null;
       if (!managerId) {
         console.log('[TESTIMONIALS] No vessel manager assigned for vessel:', watchedVesselId);
         setAvailableVesselManager(null);

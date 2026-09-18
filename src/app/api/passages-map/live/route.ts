@@ -241,7 +241,7 @@ export async function GET(req: NextRequest) {
 
     const { data: vesselsRaw, error: vesselErr } = await supabaseAdmin
       .from('vessels')
-      .select('id, name, mmsi, imo, ais_tracking_enabled')
+      .select('id, name, mmsi, imo, ais_tracking_enabled, ais_provider_poll_enabled')
       .in('id', vesselIds);
     if (vesselErr) throw vesselErr;
 
@@ -251,6 +251,7 @@ export async function GET(req: NextRequest) {
       mmsi: string | null;
       imo: string | null;
       ais_tracking_enabled: boolean | null;
+      ais_provider_poll_enabled?: boolean | null;
     };
     const vesselMetaById = new Map<string, VesselMeta>();
     const vesselNameById = new Map<string, string>();
@@ -292,7 +293,7 @@ export async function GET(req: NextRequest) {
       await Promise.all(
         vesselIds.map(async (vesselId) => {
           const meta = vesselMetaById.get(vesselId);
-          if (!meta?.ais_tracking_enabled) return;
+          if (!meta?.ais_provider_poll_enabled && !meta?.ais_tracking_enabled) return;
 
           const existing = samplesByVessel.get(vesselId) ?? [];
           const latest = existing.length > 0 ? existing[existing.length - 1]! : null;
@@ -301,8 +302,9 @@ export async function GET(req: NextRequest) {
           }
 
           try {
+            // Cache-only — do not defeat the adaptive AIS scheduler.
             const aisSnapshot = await getVesselAIS(vesselId, {
-              refreshIfStale: true,
+              refreshIfStale: false,
               triggerSource: 'passages-map:live',
             });
             const lat = aisSnapshot.latitude;

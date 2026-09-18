@@ -150,7 +150,7 @@ export default function SignOffsPage() {
           ? supabase.from('users').select('id, first_name, last_name, position').in('id', crewIds)
           : Promise.resolve({ data: [] as any[] }),
         vesselIds.length
-          ? supabase.from('vessels').select('id, name').in('id', vesselIds)
+          ? supabase.from('vessels_public_identity').select('id, name').in('id', vesselIds)
           : Promise.resolve({ data: [] as any[] }),
       ]);
 

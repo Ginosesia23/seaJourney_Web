@@ -162,7 +162,7 @@ export default function MyWatchSchedulePage() {
 
       const nameMap: Record<string, string> = {};
       const { data: vessels } = await supabase
-        .from('vessels')
+        .from('vessels_public_identity')
         .select('id, name')
         .in('id', vesselIds);
 

@@ -57,6 +57,8 @@ export type VesselAisSnapshot = {
   source: 'cache' | 'datalastic';
   refreshError?: string | null;
   rawPosition?: DatalasticVesselPosition | null;
+  nextAisCheckAt?: string | null;
+  aisTrackingMode?: string | null;
 };
 
 export type VesselAisStatusRow = {
@@ -75,4 +77,10 @@ export type VesselAisStatusRow = {
   updated_at: string;
   raw_position: DatalasticVesselPosition | null;
   refresh_error: string | null;
+  next_ais_check_at?: string | null;
+  ais_tracking_mode?: string | null;
+  last_state_change_at?: string | null;
+  state_stable_since?: string | null;
+  last_successful_fetch_at?: string | null;
+  consecutive_fetch_failures?: number | null;
 };

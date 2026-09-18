@@ -5,10 +5,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AIS_REFRESH_INTERVAL_UNDERWAY_MS,
   getAisRefreshIntervalMs,
-  isAisCacheFresh,
+  isVesselDueForProviderFetch,
 } from '@/lib/ais/constants';
 import type { DailyStatus } from '@/lib/types';
 import { useSupabase } from '@/supabase';
+
+export type CentralVesselAisToday = {
+  date: string;
+  currentState: DailyStatus | string | null;
+  qualifyingDailyState: DailyStatus | string | null;
+  underwaySeconds: number;
+  anchorSeconds: number;
+  mooredSeconds: number;
+  distanceNm: number;
+  underwayQualified: boolean;
+  isFinal: boolean;
+  underwayLabel: string | null;
+};
 
 export type CentralVesselAis = {
   vesselId: string;
@@ -18,33 +31,46 @@ export type CentralVesselAis = {
   speed: number | null;
   rawNavigationStatus: string | null;
   fetchedAt: string | null;
+  nextAisCheckAt: string | null;
+  aisTrackingMode: string | null;
   stale: boolean;
   source: 'cache' | 'datalastic';
   ageMinutes: number | null;
   refreshError: string | null;
+  today: CentralVesselAisToday | null;
 };
 
 type Options = {
   vesselId: string | null;
   accessToken: string | null;
   enabled?: boolean;
-  /**
-   * Client poll cadence. Defaults to the shortest (underway) interval so we
-   * notice state changes quickly; the API still enforces adaptive freshness.
-   */
   pollIntervalMs?: number;
 };
 
-function shouldRefreshCentralAis(
-  fetchedAt: string | null | undefined,
-  state: DailyStatus | string | null | undefined,
-): boolean {
-  return !isAisCacheFresh(fetchedAt, state);
+function parseToday(data: Record<string, unknown>): CentralVesselAisToday | null {
+  const today = data.today as Record<string, unknown> | null | undefined;
+  if (!today || typeof today !== 'object') return null;
+  return {
+    date: String(today.date ?? ''),
+    currentState: (today.currentState as string) ?? null,
+    qualifyingDailyState: (today.qualifyingDailyState as string) ?? null,
+    underwaySeconds: Number(today.underwaySeconds) || 0,
+    anchorSeconds: Number(today.anchorSeconds) || 0,
+    mooredSeconds: Number(today.mooredSeconds) || 0,
+    distanceNm: Number(today.distanceNm) || 0,
+    underwayQualified: !!today.underwayQualified,
+    isFinal: !!today.isFinal,
+    underwayLabel:
+      typeof today.underwayLabel === 'string' ? today.underwayLabel : null,
+  };
 }
 
 /**
  * Loads central vessel AIS via the SeaJourney API and subscribes to
- * `vessel_ais_status` Realtime updates for live dashboard refreshes.
+ * `vessel_ais_status` + `vessel_daily_ais_summary` Realtime updates.
+ *
+ * Client polls only re-read the API cache — never force provider fetches.
+ * Provider refresh is owned by the adaptive cron (`next_ais_check_at`).
  */
 export function useCentralVesselAis(options: Options) {
   const {
@@ -81,10 +107,13 @@ export function useCentralVesselAis(options: Options) {
           speed: data.speed ?? null,
           rawNavigationStatus: data.rawNavigationStatus ?? null,
           fetchedAt: data.fetchedAt ?? null,
+          nextAisCheckAt: data.nextAisCheckAt ?? null,
+          aisTrackingMode: data.aisTrackingMode ?? null,
           stale: !!data.stale,
           source: data.source === 'datalastic' ? 'datalastic' : 'cache',
           ageMinutes: data.ageMinutes ?? null,
           refreshError: data.refreshError ?? null,
+          today: parseToday(data),
         };
         setAis(next);
         return next;
@@ -104,7 +133,6 @@ export function useCentralVesselAis(options: Options) {
     aisRef.current = ais;
   }, [ais]);
 
-  // Initial load + adaptive refresh polling
   useEffect(() => {
     if (!vesselId || !accessToken || !enabled) return;
 
@@ -112,19 +140,14 @@ export function useCentralVesselAis(options: Options) {
 
     const load = async () => {
       if (cancelled) return;
-      const current = aisRef.current;
-      await fetchCentralAis(
-        shouldRefreshCentralAis(current?.fetchedAt, current?.state),
-      );
+      // Always cache-only — never pass force from the poll loop.
+      await fetchCentralAis(false);
     };
 
     void load();
 
     const interval = window.setInterval(() => {
-      const current = aisRef.current;
-      if (shouldRefreshCentralAis(current?.fetchedAt, current?.state)) {
-        void fetchCentralAis(false);
-      }
+      void fetchCentralAis(false);
     }, pollIntervalMs);
 
     return () => {
@@ -133,7 +156,7 @@ export function useCentralVesselAis(options: Options) {
     };
   }, [accessToken, enabled, fetchCentralAis, pollIntervalMs, vesselId]);
 
-  // Supabase Realtime — instant UI when backend updates vessel_ais_status
+  // Live current AIS status
   useEffect(() => {
     if (!vesselId || !enabled) return;
 
@@ -151,9 +174,10 @@ export function useCentralVesselAis(options: Options) {
           const row = payload.new as Record<string, unknown> | null;
           if (!row) return;
           const fetchedAt = (row.fetched_at as string) ?? null;
+          const nextAisCheckAt = (row.next_ais_check_at as string) ?? null;
           const state = (row.seajourney_state as string) ?? 'at-anchor';
           const fetchedMs = fetchedAt ? Date.parse(fetchedAt) : NaN;
-          setAis({
+          setAis((prev) => ({
             vesselId,
             state,
             latitude: row.latitude != null ? Number(row.latitude) : null,
@@ -161,12 +185,51 @@ export function useCentralVesselAis(options: Options) {
             speed: row.speed_kn != null ? Number(row.speed_kn) : null,
             rawNavigationStatus: (row.raw_navigation_status as string) ?? null,
             fetchedAt,
-            stale: !isAisCacheFresh(fetchedAt, state),
+            nextAisCheckAt,
+            aisTrackingMode: (row.ais_tracking_mode as string) ?? null,
+            stale: isVesselDueForProviderFetch(nextAisCheckAt),
             source: 'cache',
             ageMinutes: Number.isFinite(fetchedMs)
               ? Math.round((Date.now() - fetchedMs) / 60_000)
               : null,
             refreshError: (row.refresh_error as string) ?? null,
+            today: prev?.today ?? null,
+          }));
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'vessel_daily_ais_summary',
+          filter: `vessel_id=eq.${vesselId}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | null;
+          if (!row) return;
+          const underwaySeconds = Number(row.underway_seconds) || 0;
+          const h = Math.floor(underwaySeconds / 3600);
+          const m = Math.floor((underwaySeconds % 3600) / 60);
+          const underwayLabel = h <= 0 ? `${m}m` : `${h}h ${String(m).padStart(2, '0')}m`;
+          setAis((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              today: {
+                date: String(row.date ?? ''),
+                currentState: (row.current_state as string) ?? null,
+                qualifyingDailyState:
+                  (row.qualifying_daily_state as string) ?? null,
+                underwaySeconds,
+                anchorSeconds: Number(row.anchor_seconds) || 0,
+                mooredSeconds: Number(row.moored_seconds) || 0,
+                distanceNm: Number(row.distance_nm) || 0,
+                underwayQualified: !!row.underway_qualified,
+                isFinal: !!row.is_final,
+                underwayLabel,
+              },
+            };
           });
         },
       )

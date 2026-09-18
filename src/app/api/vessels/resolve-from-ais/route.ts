@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { VesselRegistrationAutofill } from '@/lib/ais/map-datalastic-to-vessel';
 import {
   enrichVesselFromAisAutofill,
-  findExistingVessel,
+  findCanonicalVessel,
+  insertVesselRaceSafe,
   normalizeImo,
   normalizeMmsi,
 } from '@/lib/vessels/find-existing-vessel';
@@ -37,17 +38,29 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const existing = await findExistingVessel(supabaseAdmin, {
+    const canonical = await findCanonicalVessel(supabaseAdmin, {
       mmsi: autofill.mmsi,
       imo: autofill.officialNumber,
       name: autofill.name,
+      allowNameMatch: !(normalizeMmsi(autofill.mmsi) || normalizeImo(autofill.officialNumber)),
     });
 
-    if (existing) {
-      await enrichVesselFromAisAutofill(supabaseAdmin, existing.id, autofill);
+    if (canonical.status === 'conflict') {
+      console.warn('[RESOLVE FROM AIS] identity conflict', canonical.conflict.message);
+      return NextResponse.json(
+        {
+          error: 'Vessel identity conflict',
+          message: canonical.conflict.message,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (canonical.status === 'found') {
+      await enrichVesselFromAisAutofill(supabaseAdmin, canonical.vessel.id, autofill);
       return NextResponse.json({
-        vesselId: existing.id,
-        vesselName: existing.name,
+        vesselId: canonical.vessel.id,
+        vesselName: canonical.vessel.name,
         created: false,
         linkedExisting: true,
       });
@@ -72,25 +85,28 @@ export async function POST(req: NextRequest) {
     if (autofill.gross_tonnage != null) insertData.gross_tonnage = autofill.gross_tonnage;
     if (autofill.build_year != null) insertData.build_year = autofill.build_year;
 
-    const { data: newVessel, error } = await supabaseAdmin
-      .from('vessels')
-      .insert(insertData)
-      .select('id, name')
-      .single();
+    const inserted = await insertVesselRaceSafe(
+      supabaseAdmin,
+      insertData,
+      'id, name, type, imo, mmsi',
+    );
 
-    if (error) {
-      console.error('[RESOLVE FROM AIS] Insert error:', error);
+    if (!inserted.ok) {
+      console.error('[RESOLVE FROM AIS] Insert error:', inserted.error);
       return NextResponse.json(
-        { error: 'Failed to create vessel', message: error.message },
-        { status: 500 },
+        {
+          error: inserted.conflict ? 'Vessel identity conflict' : 'Failed to create vessel',
+          message: inserted.error,
+        },
+        { status: inserted.conflict ? 409 : 500 },
       );
     }
 
     return NextResponse.json({
-      vesselId: newVessel.id,
-      vesselName: newVessel.name,
-      created: true,
-      linkedExisting: false,
+      vesselId: inserted.vessel.id,
+      vesselName: inserted.vessel.name,
+      created: inserted.created,
+      linkedExisting: !inserted.created,
     });
   } catch (error) {
     console.error('[RESOLVE FROM AIS] Unexpected error:', error);

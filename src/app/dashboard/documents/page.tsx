@@ -183,7 +183,7 @@ export default function DocumentsGeneratorPage() {
   const { isEnabled: isFeatureEnabled } = useFeatureFlags();
   const hasPremiumPlusTier = isFeatureEnabled('vessel_document_generator');
 
-  const { data: vesselsCollection } = useCollection<Vessel>('vessels');
+  const { data: vesselsCollection } = useCollection<Vessel>('vessels_public_identity');
   const activeVesselId = currentUserProfile?.role === 'vessel' ? (currentUserProfile as any).active_vessel_id ?? (currentUserProfile as any).activeVesselId : null;
   const vessel = useMemo(() => 
     vesselsCollection?.find((v: any) => v.id === activeVesselId),

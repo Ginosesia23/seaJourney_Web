@@ -199,10 +199,10 @@ export default function ExportPage() {
     const watchedVesselId = form.watch('vesselId');
     const watchedDateRange = form.watch('dateRange');
 
-    // Query all vessels (vessels are shared, not owned by users)
+    // Public identity catalog — crew must not SELECT full vessels rows
     const { data: allVessels, isLoading: isLoadingVessels } = useCollection<Vessel>(
-        'vessels',
-        { orderBy: 'created_at', ascending: false }
+        'vessels_public_identity',
+        { orderBy: 'name', ascending: true }
     );
 
     // Fetch vessel assignments to filter vessels
