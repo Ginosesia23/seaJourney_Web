@@ -351,6 +351,20 @@ export async function GET(req: NextRequest) {
 
     let missing = 0;
     let alreadyLinked = 0;
+    const missingPreview: Array<{
+      fingerprint: string;
+      vesselId: string;
+      startTime: string;
+      endTime: string;
+      distanceNm: number | null;
+      avgSpeedKn: number | null;
+      pointCount: number | null;
+      departureLat: number | null;
+      departureLon: number | null;
+      arrivalLat: number | null;
+      arrivalLon: number | null;
+    }> = [];
+
     for (const ais of scoped) {
       if (
         timeRangeOverlapsLeave(
@@ -372,8 +386,42 @@ export async function GET(req: NextRequest) {
         endTime: ais.endTime,
         fingerprint,
       });
-      if (linked) alreadyLinked += 1;
-      else missing += 1;
+      if (linked) {
+        alreadyLinked += 1;
+        continue;
+      }
+      missing += 1;
+      const ends = endpointsFromLineCoordinates(ais.coordinates);
+      missingPreview.push({
+        fingerprint,
+        vesselId: ais.vesselId,
+        startTime: ais.startTime,
+        endTime: ais.endTime,
+        distanceNm: ais.distanceNm ?? null,
+        avgSpeedKn: ais.avgSpeedKn ?? null,
+        pointCount: ais.pointCount ?? null,
+        departureLat: ends.departureLat,
+        departureLon: ends.departureLon,
+        arrivalLat: ends.arrivalLat,
+        arrivalLon: ends.arrivalLon,
+      });
+    }
+
+    missingPreview.sort(
+      (a, b) =>
+        new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+    );
+
+    const previewVesselIds = [...new Set(missingPreview.map((m) => m.vesselId))];
+    const vesselNameById = new Map<string, string>();
+    if (previewVesselIds.length > 0) {
+      const { data: vesselRows } = await supabaseAdmin
+        .from('vessels')
+        .select('id, name')
+        .in('id', previewVesselIds);
+      for (const v of vesselRows || []) {
+        if (v.id && v.name) vesselNameById.set(v.id as string, v.name as string);
+      }
     }
 
     let enrichableCount = 0;
@@ -390,6 +438,12 @@ export async function GET(req: NextRequest) {
       missingCount: missing,
       alreadyLinkedCount: alreadyLinked,
       enrichableCount,
+      source: 'crew_passage_month_cache',
+      sourceLabel: 'Passage Tracks (AIS month cache)',
+      missing: missingPreview.map((m) => ({
+        ...m,
+        vesselName: vesselNameById.get(m.vesselId) || 'Unknown vessel',
+      })),
     });
   } catch (error: any) {
     console.error('[passages-map/sync-logbook GET]', error);

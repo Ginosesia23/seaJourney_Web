@@ -243,6 +243,7 @@ const navGroups: NavGroup[] = [
     hideForRoles: ['admin', 'vessel'],
     items: [
       { href: "/dashboard/career-documents", label: "Career documents", icon: FileSignature, disabled: false, hideForRoles: ['vessel', 'admin'] },
+      { href: "/dashboard/training-records", label: "Training records", icon: BookOpen, disabled: false, hideForRoles: ['vessel', 'admin'], featureFlag: 'training_records' },
       { href: "/dashboard/career-progress", label: "Career progress", icon: Target, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true, featureFlag: 'career_progress' },
       { href: "/dashboard/apply", label: "Apply for tickets", icon: Award, disabled: false, hideForRoles: ['vessel', 'admin', 'captain'], hideForCrewLimited: true, featureFlag: 'apply_tickets' },
       { href: "/dashboard/certificates", label: "Certificates", icon: ShieldCheck, disabled: false, hideForCrewLimited: true, featureFlag: 'certificates' },
@@ -265,6 +266,7 @@ const navGroups: NavGroup[] = [
       { href: "/dashboard/crew", label: "Manage crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/crew-roles", label: "Assign roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] },
       { href: "/dashboard/requests", label: "Sea-time requests", icon: ClipboardList, requiredRole: "captain", disabled: false },
+      { href: "/dashboard/training-signoffs", label: "Training sign-offs", icon: BookOpen, requiredRole: "captain", disabled: false, featureFlag: 'training_records' },
       { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'], featureFlag: 'crew_rotation' },
     ]
   },
@@ -303,6 +305,7 @@ const navGroups: NavGroup[] = [
       { href: "/dashboard/ais-wrong-states", label: "AIS wrong states", icon: Flag, requiredRole: "admin", disabled: false },
       { href: "/dashboard/feature-flags", label: "Feature flags", icon: ToggleLeft, requiredRole: "admin", disabled: false },
       { href: "/dashboard/certificate-catalog", label: "Certificate catalog", icon: ShieldCheck, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/training-programmes", label: "Training programmes", icon: BookOpen, requiredRole: "admin", disabled: false },
       { href: "/dashboard/application-templates", label: "Apply templates", icon: ClipboardList, requiredRole: "admin", disabled: false },
       { href: "/dashboard/career-milestones", label: "Career milestones", icon: Award, requiredRole: "admin", disabled: false },
       { href: "/dashboard/admin-messages", label: "Broadcasts", icon: MessagesSquare, requiredRole: "admin", disabled: false },

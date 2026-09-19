@@ -15,6 +15,7 @@ export const VESSEL_LINKED_FEATURE_KEYS = [
   'testimonials',
   'apply_tickets',
   'career_progress',
+  'training_records',
   'passage_logbook',
   'passages_map',
   'bridge_watch_log',
@@ -139,6 +140,16 @@ export const VESSEL_LINKED_FEATURES: VesselLinkedFeatureDefinition[] = [
     defaultGranted: false,
     group: 'documents',
     platformFlagKey: 'career_progress',
+  },
+  {
+    key: 'training_records',
+    label: 'Training records',
+    description:
+      'Digital TRB Companion programmes, task evidence, and training sign-offs.',
+    hrefs: ['/dashboard/training-records', '/dashboard/training-signoffs'],
+    defaultGranted: false,
+    group: 'documents',
+    platformFlagKey: 'training_records',
   },
   {
     key: 'certificates',

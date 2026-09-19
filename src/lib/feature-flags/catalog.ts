@@ -20,6 +20,7 @@ export type FeatureFlagKey =
   | 'testimonials'
   | 'apply_tickets'
   | 'career_progress'
+  | 'training_records'
   | 'vessel_document_generator'
   | 'certificates'
   | 'proof_of_service'
@@ -147,6 +148,16 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
       'Crew career ladder — next-ticket requirements and milestone tracking.',
     audience: 'crew',
     routes: ['/dashboard/career-progress'],
+    defaultEnabled: true,
+    defaultMinCrewTier: 'premium',
+  },
+  {
+    key: 'training_records',
+    label: 'Training records',
+    description:
+      'Digital TRB Companion — crew training programmes, evidence, and captain sign-offs (pilot; not an official MCA/PYA TRB).',
+    audience: 'crew',
+    routes: ['/dashboard/training-records', '/dashboard/training-signoffs'],
     defaultEnabled: true,
     defaultMinCrewTier: 'premium',
   },

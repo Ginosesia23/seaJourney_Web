@@ -349,6 +349,21 @@ type EnrichProposal = {
   };
 };
 
+type ImportPreviewItem = {
+  fingerprint: string;
+  vesselId: string;
+  vesselName: string;
+  startTime: string;
+  endTime: string;
+  distanceNm: number | null;
+  avgSpeedKn: number | null;
+  pointCount: number | null;
+  departureLat: number | null;
+  departureLon: number | null;
+  arrivalLat: number | null;
+  arrivalLon: number | null;
+};
+
 export default function PassageLogbookPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -377,6 +392,13 @@ export default function PassageLogbookPage() {
   const [enrichAisCount, setEnrichAisCount] = useState(0);
   const [selectedEnrichIds, setSelectedEnrichIds] = useState<Set<string>>(new Set());
   const [isImportingFromMap, setIsImportingFromMap] = useState(false);
+  const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+  const [isLoadingImportPreview, setIsLoadingImportPreview] = useState(false);
+  const [importPreviewItems, setImportPreviewItems] = useState<ImportPreviewItem[]>([]);
+  const [importPreviewSourceLabel, setImportPreviewSourceLabel] = useState(
+    'Passage Tracks (AIS month cache)',
+  );
+  const [importPreviewCachedMonths, setImportPreviewCachedMonths] = useState(0);
   const [calendarConflictsOpen, setCalendarConflictsOpen] = useState(false);
   const [underwayWithoutPassageOpen, setUnderwayWithoutPassageOpen] = useState(false);
   const [mapMissingCount, setMapMissingCount] = useState<number | null>(null);
@@ -647,6 +669,51 @@ export default function PassageLogbookPage() {
     void refreshMapMissingCount();
   }, [hasAccess, canMatchAis, passages.length, refreshMapMissingCount]);
 
+  const openImportPreview = useCallback(async () => {
+    setIsImportPreviewOpen(true);
+    setIsLoadingImportPreview(true);
+    setImportPreviewItems([]);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Not signed in');
+      const res = await fetch('/api/passages-map/sync-logbook', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load import preview');
+      setMapMissingCount(
+        typeof json.missingCount === 'number' ? json.missingCount : 0,
+      );
+      setMapCachedMonthCount(
+        typeof json.cachedMonthCount === 'number' ? json.cachedMonthCount : 0,
+      );
+      setMapEnrichableCount(
+        typeof json.enrichableCount === 'number' ? json.enrichableCount : 0,
+      );
+      setImportPreviewCachedMonths(
+        typeof json.cachedMonthCount === 'number' ? json.cachedMonthCount : 0,
+      );
+      setImportPreviewSourceLabel(
+        typeof json.sourceLabel === 'string'
+          ? json.sourceLabel
+          : 'Passage Tracks (AIS month cache)',
+      );
+      setImportPreviewItems(
+        Array.isArray(json.missing) ? (json.missing as ImportPreviewItem[]) : [],
+      );
+    } catch (err) {
+      setIsImportPreviewOpen(false);
+      toast({
+        title: 'Could not preview import',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingImportPreview(false);
+    }
+  }, [supabase, toast]);
+
   const importFromPassagesMap = useCallback(async () => {
     setIsImportingFromMap(true);
     try {
@@ -672,6 +739,8 @@ export default function PassageLogbookPage() {
           json.message ||
           `Created ${json.createdCount ?? 0}, skipped ${json.skippedCount ?? 0}.`,
       });
+      setIsImportPreviewOpen(false);
+      setImportPreviewItems([]);
       await loadPassagesData();
       await refreshMapMissingCount();
     } catch (err) {
@@ -1492,11 +1561,11 @@ export default function PassageLogbookPage() {
               type="button"
               size="sm"
               className={toolbarBtn}
-              disabled={isImportingFromMap}
-              onClick={() => void importFromPassagesMap()}
-              title="Import AIS voyages that are not in the logbook yet"
+              disabled={isImportingFromMap || isLoadingImportPreview}
+              onClick={() => void openImportPreview()}
+              title="Preview AIS voyages before importing into the logbook"
             >
-              {isImportingFromMap ? (
+              {isLoadingImportPreview ? (
                 <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
               ) : (
                 <BookPlus className="h-3.5 w-3.5 mr-1.5" />
@@ -1504,6 +1573,156 @@ export default function PassageLogbookPage() {
               Import
               <span className="ml-1 tabular-nums opacity-80">{mapMissingCount}</span>
             </Button>
+          )}
+          {canMatchAis && (
+            <Dialog
+              open={isImportPreviewOpen}
+              onOpenChange={(open) => {
+                setIsImportPreviewOpen(open);
+                if (!open) setImportPreviewItems([]);
+              }}
+            >
+              <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col rounded-md">
+                <DialogHeader>
+                  <DialogTitle>Import from Passage Tracks</DialogTitle>
+                  <DialogDescription>
+                    Review the AIS voyages that will be added to your logbook.
+                    Nothing is imported until you confirm.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {isLoadingImportPreview ? (
+                  <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Loading import preview…
+                  </div>
+                ) : (
+                  <div className="space-y-4 overflow-y-auto flex-1 min-h-0 py-2">
+                    <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                      <div className="font-medium text-foreground">Source</div>
+                      <p className="mt-1 text-muted-foreground">
+                        {importPreviewSourceLabel}
+                        {importPreviewCachedMonths > 0
+                          ? ` · ${importPreviewCachedMonths} cached month${
+                              importPreviewCachedMonths === 1 ? '' : 's'
+                            }`
+                          : ''}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        These tracks come from months already loaded on the Passages Map.
+                        Open voyages that overlap leave periods, or that already exist in
+                        the logbook, are excluded.
+                      </p>
+                    </div>
+
+                    {importPreviewItems.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-6 text-center">
+                        Nothing new to import. Your logbook already has every cached
+                        AIS voyage in scope.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">
+                          {importPreviewItems.length} voyage
+                          {importPreviewItems.length === 1 ? '' : 's'} will be created
+                        </div>
+                        <div className="rounded-md border divide-y max-h-[45vh] overflow-y-auto">
+                          {importPreviewItems.map((item) => {
+                            const start = (() => {
+                              try {
+                                return format(parseISO(item.startTime), 'dd MMM yyyy HH:mm');
+                              } catch {
+                                return item.startTime;
+                              }
+                            })();
+                            const end = (() => {
+                              try {
+                                return format(parseISO(item.endTime), 'dd MMM yyyy HH:mm');
+                              } catch {
+                                return item.endTime;
+                              }
+                            })();
+                            const dep =
+                              item.departureLat != null && item.departureLon != null
+                                ? `${item.departureLat.toFixed(3)}, ${item.departureLon.toFixed(3)}`
+                                : null;
+                            const arr =
+                              item.arrivalLat != null && item.arrivalLon != null
+                                ? `${item.arrivalLat.toFixed(3)}, ${item.arrivalLon.toFixed(3)}`
+                                : null;
+                            return (
+                              <div
+                                key={item.fingerprint}
+                                className="px-3 py-2.5 text-sm space-y-1"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-medium">{item.vesselName}</span>
+                                  <Badge variant="secondary" className="text-[10px] font-normal">
+                                    AIS · Passage Tracks
+                                  </Badge>
+                                </div>
+                                <div className="text-muted-foreground text-xs">
+                                  {start} → {end}
+                                </div>
+                                <div className="text-muted-foreground text-xs flex flex-wrap gap-x-3 gap-y-0.5">
+                                  {item.distanceNm != null && (
+                                    <span>{item.distanceNm.toFixed(1)} nm</span>
+                                  )}
+                                  {item.avgSpeedKn != null && (
+                                    <span>avg {item.avgSpeedKn.toFixed(1)} kn</span>
+                                  )}
+                                  {dep && arr && (
+                                    <span>
+                                      {dep} → {arr}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <DialogFooter className="gap-2 sm:gap-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsImportPreviewOpen(false)}
+                    disabled={isImportingFromMap}
+                  >
+                    Cancel
+                  </Button>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href="/dashboard/passages-map">
+                      <MapIcon className="h-3.5 w-3.5 mr-1.5" />
+                      Open map
+                    </Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={
+                      isImportingFromMap ||
+                      isLoadingImportPreview ||
+                      importPreviewItems.length === 0
+                    }
+                    onClick={() => void importFromPassagesMap()}
+                  >
+                    {isImportingFromMap ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <BookPlus className="h-4 w-4 mr-2" />
+                    )}
+                    Confirm import
+                    {importPreviewItems.length > 0
+                      ? ` (${importPreviewItems.length})`
+                      : ''}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
           {canMatchAis && aisMonthsLoaded && hasEnrichableMatches && (
             <Dialog
@@ -2279,10 +2498,10 @@ export default function PassageLogbookPage() {
                   type="button"
                   size="sm"
                   className="h-8 rounded-md text-xs"
-                  disabled={isImportingFromMap}
-                  onClick={() => void importFromPassagesMap()}
+                  disabled={isImportingFromMap || isLoadingImportPreview}
+                  onClick={() => void openImportPreview()}
                 >
-                  {isImportingFromMap ? (
+                  {isLoadingImportPreview ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <BookPlus className="h-4 w-4 mr-2" />

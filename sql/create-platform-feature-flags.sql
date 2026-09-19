@@ -60,6 +60,7 @@ VALUES
   ('testimonials', true),
   ('apply_tickets', true),
   ('career_progress', true),
+  ('training_records', true),
   ('vessel_document_generator', true),
   ('certificates', true),
   ('proof_of_service', true),

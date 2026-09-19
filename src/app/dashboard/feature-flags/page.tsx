@@ -291,21 +291,23 @@ export default function FeatureFlagsAdminPage() {
     }
   };
 
-  const filtered = features.filter((f) => {
-    if (filter === 'disabled') {
-      if (f.enabled) return false;
-    } else if (filter !== 'all') {
-      if (f.audience !== filter && f.audience !== 'both') return false;
-    }
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      f.label.toLowerCase().includes(q) ||
-      f.key.toLowerCase().includes(q) ||
-      f.description.toLowerCase().includes(q) ||
-      f.routes.some((r) => r.toLowerCase().includes(q))
-    );
-  });
+  const filtered = features
+    .filter((f) => {
+      if (filter === 'disabled') {
+        if (f.enabled) return false;
+      } else if (filter !== 'all') {
+        if (f.audience !== filter && f.audience !== 'both') return false;
+      }
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        f.label.toLowerCase().includes(q) ||
+        f.key.toLowerCase().includes(q) ||
+        f.description.toLowerCase().includes(q) ||
+        f.routes.some((r) => r.toLowerCase().includes(q))
+      );
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
   const disabledCount = features.filter((f) => !f.enabled).length;
   const onCount = features.length - disabledCount;

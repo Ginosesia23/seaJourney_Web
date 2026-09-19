@@ -495,6 +495,7 @@ export function vesselLinkedKeyForFeatureFlag(
     key === 'testimonials' ||
     key === 'apply_tickets' ||
     key === 'career_progress' ||
+    key === 'training_records' ||
     key === 'certificates' ||
     key === 'proof_of_service' ||
     key === 'sea_time_request' ||
