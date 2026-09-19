@@ -46,10 +46,64 @@ export const requestSignoffSchema = z.object({
   idempotencyKey: z.string().min(8).max(120).optional(),
 });
 
+export const batchRequestSignoffSchema = z.object({
+  enrollmentId: z.string().uuid(),
+  taskProgressIds: z.array(z.string().uuid()).min(1).max(50),
+  signerName: z.string().min(2).max(120),
+  signerEmail: z.string().email().max(200),
+  authorisedConfirmation: z.literal(true),
+  optionalMessage: z.string().max(2000).optional(),
+  allowExternalInvite: z.boolean().optional(),
+  idempotencyKey: z.string().min(8).max(120).optional(),
+});
+
+export const cancelBatchSignoffSchema = z.object({
+  batchRequestId: z.string().uuid(),
+});
+
 export const cancelSignoffSchema = z.object({
   taskProgressId: z.string().uuid(),
   requestId: z.string().uuid().optional(),
 });
+
+export const batchCaptainDecisionSchema = z
+  .object({
+    token: z.string().min(16).max(200),
+    decisions: z
+      .array(
+        z.object({
+          itemId: z.string().uuid(),
+          decision: z.enum(['approved', 'changes_requested', 'rejected']),
+          decisionNotes: z.string().max(4000).optional().nullable(),
+        }),
+      )
+      .min(1)
+      .max(50),
+    signerName: z.string().min(2).max(120),
+    signerRank: z.string().min(1).max(80),
+    signerCocNumber: z.string().min(1).max(80),
+    signerIssuingAuthority: z.string().min(1).max(120),
+    authorisedConfirmation: z.literal(true),
+    personallyAssessedConfirmation: z.literal(true),
+    signerDeclaration: z.string().min(10).max(2000),
+    overallFeedback: z.string().max(4000).optional().nullable(),
+    idempotencyKey: z.string().min(8).max(120).optional(),
+  })
+  .superRefine((val, ctx) => {
+    for (let i = 0; i < val.decisions.length; i += 1) {
+      const d = val.decisions[i];
+      if (
+        (d.decision === 'changes_requested' || d.decision === 'rejected') &&
+        !d.decisionNotes?.trim()
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Decision notes are required when requesting changes or rejecting',
+          path: ['decisions', i, 'decisionNotes'],
+        });
+      }
+    }
+  });
 
 export const deleteEvidenceSchema = z.object({
   evidenceId: z.string().uuid(),

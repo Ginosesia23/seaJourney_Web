@@ -36,7 +36,16 @@ import {
   hashIpForAudit,
   hashTrbSignoffToken,
 } from '@/lib/trb/tokens';
-
+import {
+  mapAuditEventRow,
+  mapEvidenceRow,
+  mapParallelBookRow,
+  mapProgressRow,
+  mapSectionRow,
+  mapSignoffRequestRow,
+  mapSignoffRow,
+  mapTaskCatalogRow,
+} from '@/lib/trb/api-shape';
 type AuditCtx = {
   actorUserId?: string | null;
   actorEmail?: string | null;
@@ -357,6 +366,22 @@ export async function getEnrollmentDetail(
     .eq('enrollment_id', enrollmentId);
 
   const progressIds = (progress || []).map((p) => p.id as string);
+
+  const { data: pendingBatchItems } = progressIds.length
+    ? await admin
+        .from('trb_batch_signoff_items')
+        .select('task_progress_id, batch_request_id')
+        .in('task_progress_id', progressIds)
+        .eq('status', 'pending')
+    : { data: [] as { task_progress_id: string; batch_request_id: string }[] };
+
+  const pendingBatchByProgress = new Map(
+    (pendingBatchItems || []).map((row) => [
+      row.task_progress_id as string,
+      row.batch_request_id as string,
+    ]),
+  );
+
   const { data: parallelRows } = progressIds.length
     ? await admin
         .from('trb_parallel_book_confirmations')
@@ -379,22 +404,12 @@ export async function getEnrollmentDetail(
 
   const parallelByProgress = new Map<
     string,
-    Array<{
-      id: string;
-      task_progress_id: string;
-      reporter_role: string;
-      official_book_status: string;
-      official_book_signed_at: string | null;
-      official_book_signer_name: string | null;
-      official_book_signer_rank: string | null;
-      notes: string | null;
-      updated_at: string;
-    }>
+    Array<ReturnType<typeof mapParallelBookRow>>
   >();
   for (const row of parallelRows || []) {
     const key = row.task_progress_id as string;
     if (!parallelByProgress.has(key)) parallelByProgress.set(key, []);
-    parallelByProgress.get(key)!.push(row as {
+    parallelByProgress.get(key)!.push(mapParallelBookRow(row as {
       id: string;
       task_progress_id: string;
       reporter_role: string;
@@ -404,24 +419,29 @@ export async function getEnrollmentDetail(
       official_book_signer_rank: string | null;
       notes: string | null;
       updated_at: string;
-    });
+    }));
   }
 
   const taskRows = (tasks || []).map((t) => {
     const p = progressByTask.get(t.id);
     const parallels = p ? parallelByProgress.get(p.id) || [] : [];
-    const candidateBook = parallels.find((x) => x.reporter_role === 'candidate');
-    const captainBook = parallels.find((x) => x.reporter_role === 'captain');
+    const candidateBook = parallels.find((x) => x.reporterRole === 'candidate');
+    const captainBook = parallels.find((x) => x.reporterRole === 'captain');
     const discrepancy =
       Boolean(candidateBook && captainBook) &&
-      candidateBook!.official_book_status !== captainBook!.official_book_status;
+      candidateBook!.officialBookStatus !== captainBook!.officialBookStatus;
+    const batchRequestId = p
+      ? pendingBatchByProgress.get(p.id as string) ?? null
+      : null;
     return {
-      ...t,
+      ...mapTaskCatalogRow(t),
       progressId: p?.id ?? null,
       status: (p?.status ?? 'not_started') as TrbTaskStatus,
       claimedCompletedAt: p?.claimed_completed_at ?? null,
       approvedAt: p?.approved_at ?? null,
       updatedAt: p?.updated_at ?? null,
+      batchRequestId,
+      isBatchShadow: Boolean(batchRequestId),
       officialBookCandidate: candidateBook || null,
       officialBookCaptain: captainBook || null,
       officialBookDiscrepancy: discrepancy,
@@ -430,11 +450,11 @@ export async function getEnrollmentDetail(
 
   const overall = calculateTrbProgress(taskRows.map((t) => t.status));
   const bySection = groupProgressBySection(
-    taskRows.map((t) => ({ sectionId: t.section_id, status: t.status })),
+    taskRows.map((t) => ({ sectionId: t.sectionId, status: t.status })),
   );
 
   const officialSigned = taskRows.filter(
-    (t) => t.officialBookCandidate?.official_book_status === 'signed',
+    (t) => t.officialBookCandidate?.officialBookStatus === 'signed',
   ).length;
   const officialDiscrepancies = taskRows.filter((t) => t.officialBookDiscrepancy).length;
 
@@ -455,7 +475,7 @@ export async function getEnrollmentDetail(
       : null,
     sourceUrl: isMcaPilot ? MCA_PILOT_SOURCE_URL : null,
     oglUrl: isMcaPilot ? MCA_PILOT_OGL_URL : null,
-    sections: sections || [],
+    sections: (sections || []).map((s) => mapSectionRow(s)),
     tasks: taskRows,
     overall,
     officialBookProgress: {
@@ -468,7 +488,7 @@ export async function getEnrollmentDetail(
           : Math.round((officialSigned / taskRows.length) * 100),
     },
     bySection,
-    recentActivity: audit || [],
+    recentActivity: (audit || []).map((ev) => mapAuditEventRow(ev)),
   };
 }
 
@@ -493,12 +513,12 @@ export async function getTaskDetail(
   const task = detail.tasks.find((t) => t.id === progress.task_id);
   if (!task) return null;
 
-  const section = detail.sections.find((s) => s.id === task.section_id);
+  const section = detail.sections.find((s) => s.id === task.sectionId) || null;
 
   const { data: evidence } = await admin
     .from('trb_task_evidence')
     .select(
-      'id, original_filename, mime_type, file_size, evidence_type, description, created_at, uploaded_by',
+      'id, original_filename, mime_type, file_size, evidence_type, description, created_at, uploaded_by, task_progress_id',
     )
     .eq('task_progress_id', taskProgressId)
     .order('created_at', { ascending: false });
@@ -506,7 +526,7 @@ export async function getTaskDetail(
   const { data: requests } = await admin
     .from('trb_signoff_requests')
     .select(
-      'id, signer_email, signer_name, status, expires_at, used_at, created_at, updated_at',
+      'id, signer_email, signer_name, status, expires_at, used_at, created_at, updated_at, batch_request_id, batch_item_id, is_batch_shadow',
     )
     .eq('task_progress_id', taskProgressId)
     .order('created_at', { ascending: false });
@@ -514,12 +534,17 @@ export async function getTaskDetail(
   const { data: signoffs } = await admin
     .from('trb_signoffs')
     .select(
-      'id, decision, signer_name, signer_email, signer_rank, signer_coc_number, signer_issuing_authority, signer_verification_status, signer_declaration, decision_notes, signed_at, record_hash, created_at, signoff_request_id',
+      'id, decision, signer_name, signer_email, signer_rank, signer_coc_number, signer_issuing_authority, signer_verification_status, signer_declaration, decision_notes, signed_at, record_hash, created_at, signoff_request_id, task_progress_id',
     )
     .eq('task_progress_id', taskProgressId)
     .order('signed_at', { ascending: false });
 
-  const pending = (requests || []).find((r) => r.status === 'pending');
+  const mappedRequests = (requests || []).map((r) => mapSignoffRequestRow(r));
+  const pending = mappedRequests.find((r) => r.status === 'pending') || null;
+  const activeBatchRequestId =
+    pending?.batchRequestId ||
+    task.batchRequestId ||
+    null;
 
   return {
     enrollment: detail.enrollment,
@@ -530,11 +555,13 @@ export async function getTaskDetail(
     oglUrl: detail.oglUrl,
     section,
     task,
-    progress,
-    evidence: evidence || [],
-    requests: requests || [],
-    signoffs: signoffs || [],
-    pendingRequest: pending || null,
+    progress: mapProgressRow(progress),
+    evidence: (evidence || []).map((e) => mapEvidenceRow(e)),
+    requests: mappedRequests,
+    signoffs: (signoffs || []).map((s) => mapSignoffRow(s)),
+    pendingRequest: pending,
+    batchRequestId: activeBatchRequestId,
+    isBatchShadow: Boolean(pending?.isBatchShadow || task.isBatchShadow),
     officialBookCandidate: task.officialBookCandidate,
     officialBookCaptain: task.officialBookCaptain,
     officialBookDiscrepancy: task.officialBookDiscrepancy,
@@ -1352,7 +1379,7 @@ export async function resolveSignoffToken(
   const { data: priorSignoffs } = await admin
     .from('trb_signoffs')
     .select(
-      'id, decision, decision_notes, signed_at, signer_name, signer_verification_status',
+      'id, decision, decision_notes, signed_at, signer_name, signer_email, signer_verification_status, record_hash',
     )
     .eq('task_progress_id', progress.id)
     .eq('decision', 'changes_requested')
@@ -1423,8 +1450,24 @@ export async function resolveSignoffToken(
       sourceUrl: isMcaPilot ? MCA_PILOT_SOURCE_URL : null,
       oglUrl: isMcaPilot ? MCA_PILOT_OGL_URL : null,
     },
-    section,
-    task,
+    section: section
+      ? mapSectionRow(
+          section as {
+            id: string;
+            title: string;
+            description?: string | null;
+            sort_order?: number;
+            source_section_reference?: string | null;
+            source_page_start?: number | null;
+            source_page_end?: number | null;
+          },
+        )
+      : null,
+    task: task
+      ? mapTaskCatalogRow(
+          task as Parameters<typeof mapTaskCatalogRow>[0],
+        )
+      : null,
     progress: {
       id: progress.id,
       status: progress.status,
@@ -1432,12 +1475,49 @@ export async function resolveSignoffToken(
       claimedCompletedAt: progress.claimed_completed_at,
       enrollmentId: enrollment.id,
     },
-    evidence: evidence || [],
-    priorChangesRequested: priorSignoffs || [],
-    officialBookCandidate:
-      (parallelRows || []).find((r) => r.reporter_role === 'candidate') || null,
-    officialBookCaptain:
-      (parallelRows || []).find((r) => r.reporter_role === 'captain') || null,
+    evidence: (evidence || []).map((e) => mapEvidenceRow(e)),
+    priorChangesRequested: (priorSignoffs || []).map((s) => ({
+      id: s.id as string,
+      decision: s.decision as string,
+      decisionNotes: (s.decision_notes as string | null) ?? null,
+      signedAt: s.signed_at as string,
+      signerName: s.signer_name as string,
+      signerEmail: (s.signer_email as string) || '',
+      signerVerificationStatus: s.signer_verification_status as string,
+      recordHash: (s.record_hash as string) || '',
+    })),
+    officialBookCandidate: (() => {
+      const row = (parallelRows || []).find((r) => r.reporter_role === 'candidate');
+      return row
+        ? mapParallelBookRow({
+            id: '',
+            task_progress_id: progress.id as string,
+            reporter_role: row.reporter_role as string,
+            official_book_status: row.official_book_status as string,
+            official_book_signed_at: (row.official_book_signed_at as string | null) ?? null,
+            official_book_signer_name: null,
+            official_book_signer_rank: null,
+            notes: (row.notes as string | null) ?? null,
+            updated_at: (row.updated_at as string) || new Date().toISOString(),
+          })
+        : null;
+    })(),
+    officialBookCaptain: (() => {
+      const row = (parallelRows || []).find((r) => r.reporter_role === 'captain');
+      return row
+        ? mapParallelBookRow({
+            id: '',
+            task_progress_id: progress.id as string,
+            reporter_role: row.reporter_role as string,
+            official_book_status: row.official_book_status as string,
+            official_book_signed_at: (row.official_book_signed_at as string | null) ?? null,
+            official_book_signer_name: null,
+            official_book_signer_rank: null,
+            notes: (row.notes as string | null) ?? null,
+            updated_at: (row.updated_at as string) || new Date().toISOString(),
+          })
+        : null;
+    })(),
   };
 }
 
@@ -1702,16 +1782,38 @@ export async function createEvidenceDownloadUrl(
     if (!enrollment || enrollment.user_id !== opts.userId) throw new Error('Forbidden');
     evidence = data;
   } else {
-    const resolved = await resolveSignoffToken(admin, opts.rawToken, { recordView: false });
-    if (!resolved.ok) throw new Error('Forbidden');
-    const { data } = await admin
-      .from('trb_task_evidence')
-      .select('id, storage_path, original_filename, mime_type, task_progress_id')
-      .eq('id', opts.evidenceId)
-      .eq('task_progress_id', resolved.progress.id)
-      .maybeSingle();
-    if (!data) throw new Error('Evidence not found');
-    evidence = data;
+    // Batch tokens first (parent hashed token), then single-task tokens
+    const { resolveBatchSignoffToken } = await import('@/lib/trb/batch');
+    const batchResolved = await resolveBatchSignoffToken(admin, opts.rawToken, {
+      recordView: false,
+    });
+    if (batchResolved && batchResolved.ok) {
+      const allowedProgressIds = new Set(
+        batchResolved.items.map((i) => i.taskProgressId as string),
+      );
+      const { data } = await admin
+        .from('trb_task_evidence')
+        .select('id, storage_path, original_filename, mime_type, task_progress_id')
+        .eq('id', opts.evidenceId)
+        .maybeSingle();
+      if (!data || !allowedProgressIds.has(data.task_progress_id)) {
+        throw new Error('Evidence not found');
+      }
+      evidence = data;
+    } else {
+      const resolved = await resolveSignoffToken(admin, opts.rawToken, {
+        recordView: false,
+      });
+      if (!resolved.ok) throw new Error('Forbidden');
+      const { data } = await admin
+        .from('trb_task_evidence')
+        .select('id, storage_path, original_filename, mime_type, task_progress_id')
+        .eq('id', opts.evidenceId)
+        .eq('task_progress_id', resolved.progress.id)
+        .maybeSingle();
+      if (!data) throw new Error('Evidence not found');
+      evidence = data;
+    }
   }
 
   const { data: signed, error } = await admin.storage
@@ -1803,9 +1905,9 @@ export async function buildAuditReport(
     overall: detail.overall,
     sections: detail.sections,
     tasks: detail.tasks,
-    evidence: evidence || [],
-    signoffs: signoffs || [],
-    auditEvents: audit || [],
+    evidence: (evidence || []).map((e) => mapEvidenceRow(e)),
+    signoffs: (signoffs || []).map((s) => mapSignoffRow(s)),
+    auditEvents: (audit || []).map((ev) => mapAuditEventRow(ev)),
   };
 }
 
@@ -2001,9 +2103,10 @@ export async function listSignoffsForSignerEmail(
   let q = admin
     .from('trb_signoff_requests')
     .select(
-      'id, status, signer_email, signer_name, expires_at, used_at, created_at, task_progress_id, vessel_id, vessel_name_snapshot, required_signer_role, viewed_at',
+      'id, status, signer_email, signer_name, expires_at, used_at, created_at, task_progress_id, vessel_id, vessel_name_snapshot, required_signer_role, viewed_at, is_batch_shadow, batch_request_id',
     )
     .eq('signer_email', normalized)
+    .eq('is_batch_shadow', false)
     .order('created_at', { ascending: false })
     .limit(filters?.limit ?? 50);
   if (filters?.status) q = q.eq('status', filters.status);
@@ -2059,7 +2162,18 @@ export async function listSignoffsForSignerEmail(
       trb_programs?: { name?: string; code?: string } | null;
     } | null;
     return {
-      ...r,
+      id: r.id as string,
+      status: r.status as string,
+      signerEmail: r.signer_email as string,
+      signerName: (r.signer_name as string | null) ?? null,
+      expiresAt: r.expires_at as string,
+      usedAt: (r.used_at as string | null) ?? null,
+      createdAt: r.created_at as string,
+      taskProgressId: r.task_progress_id as string,
+      vesselId: (r.vessel_id as string | null) ?? null,
+      vesselNameSnapshot: (r.vessel_name_snapshot as string | null) ?? null,
+      requiredSignerRole: (r.required_signer_role as string | null) ?? null,
+      viewedAt: (r.viewed_at as string | null) ?? null,
       resourceType: 'training_task' as const,
       taskStatus: progress?.status ?? null,
       taskCode: task?.task_code ?? null,
@@ -2068,6 +2182,8 @@ export async function listSignoffsForSignerEmail(
       programmeCode: version?.trb_programs?.code ?? null,
       programmeVersion: version?.version ?? null,
       enrollmentId: progress?.enrollment_id ?? null,
+      isBatchShadow: false,
+      batchRequestId: null as string | null,
     };
   });
 }

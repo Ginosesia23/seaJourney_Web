@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -24,11 +24,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { MCA_PILOT_ATTRIBUTION, MCA_PILOT_DISCLAIMER, MCA_PILOT_OGL_URL, MCA_PILOT_SOURCE_URL } from '@/lib/trb/pilot';
+import {
+  MCA_PILOT_ATTRIBUTION,
+  MCA_PILOT_DISCLAIMER,
+  MCA_PILOT_OGL_URL,
+  MCA_PILOT_SOURCE_URL,
+} from '@/lib/trb/pilot';
 import { TRB_DISCLAIMER } from '@/lib/trb/constants';
 
-type ResolveOk = {
+type SingleResolve = {
   ok: true;
+  kind?: 'single';
   isMcaPilot?: boolean;
   candidate: { name: string; vesselName: string | null };
   programme: {
@@ -39,43 +45,36 @@ type ResolveOk = {
     sourceUrl?: string | null;
     oglUrl?: string | null;
   };
-  section: {
-    title: string;
-    source_section_reference?: string | null;
-  } | null;
+  section: { title: string; sourceSectionReference?: string | null } | null;
   task: {
-    task_code: string;
+    taskCode: string;
     title: string;
     description: string | null;
-    evidence_guidance: string | null;
-    seajourney_guidance?: string | null;
-    official_title?: string | null;
-    official_description?: string | null;
-    seajourney_summary?: string | null;
-    seajourney_completion_guidance?: string | null;
-    source_task_reference?: string | null;
-    source_page_start?: number | null;
-    source_page_end?: number | null;
-    source_page_reference?: string | null;
-    required_signer_role?: string | null;
+    evidenceGuidance: string | null;
+    seajourneyGuidance?: string | null;
+    officialTitle?: string | null;
+    officialDescription?: string | null;
+    seajourneySummary?: string | null;
+    seajourneyCompletionGuidance?: string | null;
+    sourceTaskReference?: string | null;
+    requiredSignerRole?: string | null;
   } | null;
   progress: {
     id: string;
-    enrollmentId?: string;
     candidateNotes: string | null;
     claimedCompletedAt: string | null;
   };
   evidence: {
     id: string;
-    original_filename: string;
-    mime_type: string;
-    file_size: number;
+    originalFilename: string;
+    mimeType: string;
+    fileSize: number;
   }[];
   priorChangesRequested: {
     id: string;
-    decision_notes: string | null;
-    signed_at: string;
-    signer_name: string;
+    decisionNotes: string | null;
+    signedAt: string;
+    signerName: string;
   }[];
   request: {
     expiresAt: string;
@@ -85,27 +84,92 @@ type ResolveOk = {
   };
 };
 
+type BatchItem = {
+  id: string;
+  status: string;
+  taskProgressId: string;
+  progress: { candidateNotes: string | null } | null;
+  section: { title: string } | null;
+  task: {
+    taskCode: string;
+    title: string;
+    description?: string | null;
+    officialTitle?: string | null;
+    officialDescription?: string | null;
+    seajourneySummary?: string | null;
+    seajourneyGuidance?: string | null;
+    evidenceGuidance?: string | null;
+  } | null;
+  evidence: {
+    id: string;
+    originalFilename: string;
+    mimeType: string;
+    fileSize: number;
+  }[];
+};
+
+type BatchResolve = {
+  ok: true;
+  kind: 'batch';
+  isMcaPilot?: boolean;
+  candidate: { name: string; userId?: string };
+  programme: {
+    name: string;
+    version: string | null;
+    disclaimer: string;
+    attribution?: string | null;
+    sourceUrl?: string | null;
+    oglUrl?: string | null;
+  };
+  batch: {
+    id: string;
+    status: string;
+    expiresAt: string;
+    optionalMessage: string | null;
+    signerEmail: string;
+    signerName: string | null;
+    vesselName: string | null;
+    requiredSignerRole?: string | null;
+  };
+  counts: { total: number };
+  items: BatchItem[];
+};
+
+type ItemDecision = {
+  decision: 'approved' | 'changes_requested' | 'rejected' | '';
+  decisionNotes: string;
+};
+
 export default function TrbSignoffClientPage() {
   const params = useParams<{ token: string }>();
   const token = params.token;
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<ResolveOk | null>(null);
+  const [single, setSingle] = useState<SingleResolve | null>(null);
+  const [batch, setBatch] = useState<BatchResolve | null>(null);
   const [errorReason, setErrorReason] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState<{ decision: string; recordHash?: string } | null>(null);
+  const [done, setDone] = useState<{
+    summary: string;
+    recordHash?: string;
+  } | null>(null);
 
   const [signerName, setSignerName] = useState('');
   const [signerRank, setSignerRank] = useState('');
   const [coc, setCoc] = useState('');
   const [authority, setAuthority] = useState('');
   const [declaration, setDeclaration] = useState(
-    'I confirm that I am authorised and have personally assessed the candidate against this demonstration training task.',
+    'I confirm that I am authorised and have personally assessed the candidate against these demonstration training tasks.',
   );
   const [notes, setNotes] = useState('');
+  const [overallFeedback, setOverallFeedback] = useState('');
   const [authorised, setAuthorised] = useState(false);
   const [assessed, setAssessed] = useState(false);
-  const [officialBookStatus, setOfficialBookStatus] = useState<string>('');
+  const [officialBookStatus, setOfficialBookStatus] = useState('');
   const [officialBookNotes, setOfficialBookNotes] = useState('');
+  const [itemDecisions, setItemDecisions] = useState<Record<string, ItemDecision>>(
+    {},
+  );
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [fbEase, setFbEase] = useState('3');
   const [fbClarity, setFbClarity] = useState('3');
   const [fbConfidence, setFbConfidence] = useState('3');
@@ -119,11 +183,24 @@ export default function TrbSignoffClientPage() {
       const json = await res.json();
       if (!res.ok || !json.ok) {
         setErrorReason(json.reason || json.error || 'unavailable');
-        setData(null);
+        setSingle(null);
+        setBatch(null);
         return;
       }
-      setData(json as ResolveOk);
-      if (json.request?.signerName) setSignerName(json.request.signerName);
+      if (json.kind === 'batch') {
+        setBatch(json as BatchResolve);
+        setSingle(null);
+        if (json.batch?.signerName) setSignerName(json.batch.signerName);
+        const init: Record<string, ItemDecision> = {};
+        for (const item of json.items || []) {
+          init[item.id] = { decision: '', decisionNotes: '' };
+        }
+        setItemDecisions(init);
+      } else {
+        setSingle(json as SingleResolve);
+        setBatch(null);
+        if (json.request?.signerName) setSignerName(json.request.signerName);
+      }
     } catch {
       setErrorReason('unavailable');
     } finally {
@@ -135,6 +212,13 @@ export default function TrbSignoffClientPage() {
     void load();
   }, [load]);
 
+  const allBatchDecided = useMemo(() => {
+    if (!batch) return false;
+    return batch.items.every(
+      (i) => itemDecisions[i.id]?.decision && itemDecisions[i.id].decision !== '',
+    );
+  }, [batch, itemDecisions]);
+
   async function openEvidence(evidenceId: string) {
     const res = await fetch(
       `/api/trb/evidence/download?evidenceId=${encodeURIComponent(evidenceId)}&token=${encodeURIComponent(token)}`,
@@ -144,7 +228,22 @@ export default function TrbSignoffClientPage() {
     window.open(json.signedUrl, '_blank', 'noopener,noreferrer');
   }
 
-  async function submit(decision: 'approved' | 'changes_requested' | 'rejected') {
+  function setAllDecisions(decision: 'approved' | 'changes_requested') {
+    if (!batch) return;
+    setItemDecisions((prev) => {
+      const next = { ...prev };
+      for (const item of batch.items) {
+        next[item.id] = {
+          decision,
+          decisionNotes:
+            decision === 'approved' ? prev[item.id]?.decisionNotes || '' : prev[item.id]?.decisionNotes || '',
+        };
+      }
+      return next;
+    });
+  }
+
+  async function submitSingle(decision: 'approved' | 'changes_requested' | 'rejected') {
     if (!authorised || !assessed) return;
     setSubmitting(true);
     try {
@@ -171,13 +270,58 @@ export default function TrbSignoffClientPage() {
         return;
       }
       setDone({
-        decision,
+        summary: decision.replace(/_/g, ' '),
         recordHash: json.result?.recordHash,
       });
     } finally {
       setSubmitting(false);
     }
   }
+
+  async function submitBatch() {
+    if (!authorised || !assessed || !batch || !allBatchDecided) return;
+    setSubmitting(true);
+    try {
+      const decisions = batch.items.map((item) => ({
+        itemId: item.id,
+        decision: itemDecisions[item.id].decision as
+          | 'approved'
+          | 'changes_requested'
+          | 'rejected',
+        decisionNotes: itemDecisions[item.id].decisionNotes || undefined,
+      }));
+      const res = await fetch(`/api/trb/signoff/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decisions,
+          signerName,
+          signerRank,
+          signerCocNumber: coc,
+          signerIssuingAuthority: authority,
+          authorisedConfirmation: true,
+          personallyAssessedConfirmation: true,
+          signerDeclaration: declaration,
+          overallFeedback: overallFeedback || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setErrorReason(json.error || json.code || 'submit_failed');
+        return;
+      }
+      const r = json.result || {};
+      setDone({
+        summary: `${r.approved ?? 0} approved · ${r.changes_requested ?? 0} changes · ${r.rejected ?? 0} rejected`,
+      });
+      setConfirmOpen(false);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const programme = single?.programme || batch?.programme;
+  const isMcaPilot = single?.isMcaPilot || batch?.isMcaPilot;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
@@ -208,7 +352,7 @@ export default function TrbSignoffClientPage() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>
-                Decision: <Badge>{done.decision.replace(/_/g, ' ')}</Badge>
+                Outcome: <Badge>{done.summary}</Badge>
               </p>
               {done.recordHash ? (
                 <p className="text-xs text-muted-foreground break-all">
@@ -225,9 +369,7 @@ export default function TrbSignoffClientPage() {
               </Alert>
               <Alert>
                 <AlertTitle>Pilot disclaimer</AlertTitle>
-                <AlertDescription>
-                  {MCA_PILOT_DISCLAIMER}
-                </AlertDescription>
+                <AlertDescription>{MCA_PILOT_DISCLAIMER}</AlertDescription>
               </Alert>
               {!fbSubmitted ? (
                 <div className="space-y-2 border-t pt-3">
@@ -296,25 +438,25 @@ export default function TrbSignoffClientPage() {
               This review link is invalid, expired, or already used ({errorReason}).
             </AlertDescription>
           </Alert>
-        ) : data ? (
+        ) : single || batch ? (
           <>
             <Alert>
               <AlertTitle>Pilot programme</AlertTitle>
               <AlertDescription>
-                {data.programme.disclaimer ||
-                  (data.isMcaPilot ? MCA_PILOT_DISCLAIMER : TRB_DISCLAIMER)}
+                {programme?.disclaimer ||
+                  (isMcaPilot ? MCA_PILOT_DISCLAIMER : TRB_DISCLAIMER)}
               </AlertDescription>
             </Alert>
 
-            {data.isMcaPilot ? (
+            {isMcaPilot ? (
               <Alert>
                 <AlertTitle>Attribution</AlertTitle>
                 <AlertDescription className="space-y-1">
-                  <p>{data.programme.attribution || MCA_PILOT_ATTRIBUTION}</p>
+                  <p>{programme?.attribution || MCA_PILOT_ATTRIBUTION}</p>
                   <p className="text-xs">
                     <a
                       className="underline"
-                      href={data.programme.sourceUrl || MCA_PILOT_SOURCE_URL}
+                      href={programme?.sourceUrl || MCA_PILOT_SOURCE_URL}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -323,7 +465,7 @@ export default function TrbSignoffClientPage() {
                     {' · '}
                     <a
                       className="underline"
-                      href={data.programme.oglUrl || MCA_PILOT_OGL_URL}
+                      href={programme?.oglUrl || MCA_PILOT_OGL_URL}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -334,114 +476,225 @@ export default function TrbSignoffClientPage() {
               </Alert>
             ) : null}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">
-                  {data.task?.task_code} ·{' '}
-                  {data.task?.official_title || data.task?.title}
-                </CardTitle>
-                <CardDescription>
-                  {data.programme.name}
-                  {data.programme.version ? ` · v${data.programme.version}` : ''} ·{' '}
-                  {data.section?.title}
-                  {data.task?.source_task_reference
-                    ? ` · ${data.task.source_task_reference}`
-                    : ''}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <p>
-                  <strong>Candidate:</strong> {data.candidate.name}
-                  {data.candidate.vesselName
-                    ? ` · Vessel: ${data.candidate.vesselName}`
-                    : ''}
-                </p>
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Official task wording
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap">
-                    {data.task?.official_description || data.task?.description}
-                  </p>
+            {batch ? (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">
+                      Multi-task review · {batch.counts.total} tasks
+                    </CardTitle>
+                    <CardDescription>
+                      {batch.programme.name}
+                      {batch.programme.version ? ` · v${batch.programme.version}` : ''}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <p>
+                      <strong>Candidate:</strong> {batch.candidate.name}
+                      {batch.batch.vesselName
+                        ? ` · Vessel: ${batch.batch.vesselName}`
+                        : ''}
+                    </p>
+                    {batch.batch.optionalMessage ? (
+                      <div>
+                        <p className="font-medium">Crew message</p>
+                        <p className="whitespace-pre-wrap text-muted-foreground">
+                          {batch.batch.optionalMessage}
+                        </p>
+                      </div>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      Link expires{' '}
+                      {new Date(batch.batch.expiresAt).toLocaleString('en-GB')}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAllDecisions('approved')}
+                  >
+                    Approve all
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAllDecisions('changes_requested')}
+                  >
+                    Request changes on all
+                  </Button>
                 </div>
-                <div className="rounded-md border bg-muted/40 px-3 py-2">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    SeaJourney guidance (not official)
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
-                    {data.task?.seajourney_summary ||
-                      data.task?.seajourney_guidance ||
-                      data.task?.seajourney_completion_guidance ||
-                      data.task?.evidence_guidance ||
-                      '—'}
-                  </p>
-                </div>
-                {data.request.requiredSignerRole || data.task?.required_signer_role ? (
-                  <p className="text-xs text-muted-foreground">
-                    Required signer role:{' '}
-                    {(
-                      data.request.requiredSignerRole ||
-                      data.task?.required_signer_role ||
-                      ''
-                    ).replace(/_/g, ' ')}
-                  </p>
-                ) : null}
-                <div>
-                  <p className="font-medium">Candidate notes</p>
-                  <p className="whitespace-pre-wrap text-muted-foreground">
-                    {data.progress.candidateNotes || '—'}
-                  </p>
-                </div>
-                {data.priorChangesRequested.length > 0 ? (
-                  <div>
-                    <p className="font-medium">Previous changes requested</p>
-                    {data.priorChangesRequested.map((p) => (
-                      <p key={p.id} className="text-muted-foreground">
-                        {p.signer_name}: {p.decision_notes} (
-                        {new Date(p.signed_at).toLocaleDateString('en-GB')})
+
+                {batch.items.map((item) => (
+                  <Card key={item.id}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">
+                        {item.task?.taskCode} ·{' '}
+                        {item.task?.officialTitle || item.task?.title}
+                      </CardTitle>
+                      <CardDescription>{item.section?.title}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3 text-sm">
+                      <p className="whitespace-pre-wrap">
+                        {item.task?.officialDescription || item.task?.description}
                       </p>
-                    ))}
+                      <div>
+                        <p className="font-medium">Candidate notes</p>
+                        <p className="whitespace-pre-wrap text-muted-foreground">
+                          {item.progress?.candidateNotes || '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="font-medium mb-1">Evidence</p>
+                        {item.evidence.length === 0 ? (
+                          <p className="text-muted-foreground">No files uploaded.</p>
+                        ) : (
+                          item.evidence.map((e) => (
+                            <button
+                              key={e.id}
+                              type="button"
+                              className="block text-left underline text-sm"
+                              onClick={() => void openEvidence(e.id)}
+                            >
+                              {e.originalFilename}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                      <div className="space-y-2 border-t pt-3">
+                        <Label>Decision</Label>
+                        <Select
+                          value={itemDecisions[item.id]?.decision || ''}
+                          onValueChange={(v) =>
+                            setItemDecisions((prev) => ({
+                              ...prev,
+                              [item.id]: {
+                                ...prev[item.id],
+                                decision: v as ItemDecision['decision'],
+                              },
+                            }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose decision" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="approved">Approve</SelectItem>
+                            <SelectItem value="changes_requested">
+                              Request changes
+                            </SelectItem>
+                            <SelectItem value="rejected">Reject</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Textarea
+                          rows={2}
+                          placeholder="Feedback (required for changes / reject)"
+                          value={itemDecisions[item.id]?.decisionNotes || ''}
+                          onChange={(e) =>
+                            setItemDecisions((prev) => ({
+                              ...prev,
+                              [item.id]: {
+                                ...prev[item.id],
+                                decisionNotes: e.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </>
+            ) : null}
+
+            {single ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">
+                    {single.task?.taskCode} ·{' '}
+                    {single.task?.officialTitle || single.task?.title}
+                  </CardTitle>
+                  <CardDescription>
+                    {single.programme.name}
+                    {single.programme.version ? ` · v${single.programme.version}` : ''} ·{' '}
+                    {single.section?.title}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <p>
+                    <strong>Candidate:</strong> {single.candidate.name}
+                    {single.candidate.vesselName
+                      ? ` · Vessel: ${single.candidate.vesselName}`
+                      : ''}
+                  </p>
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Official task wording
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap">
+                      {single.task?.officialDescription || single.task?.description}
+                    </p>
                   </div>
-                ) : null}
-                <div>
-                  <p className="font-medium mb-1">Evidence</p>
-                  {data.evidence.length === 0 ? (
-                    <p className="text-muted-foreground">No files uploaded.</p>
-                  ) : (
-                    data.evidence.map((e) => (
-                      <button
-                        key={e.id}
-                        type="button"
-                        className="block text-left underline text-sm"
-                        onClick={() => void openEvidence(e.id)}
-                      >
-                        {e.original_filename}
-                      </button>
-                    ))
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Link expires {new Date(data.request.expiresAt).toLocaleString('en-GB')}
-                </p>
-              </CardContent>
-            </Card>
+                  <div>
+                    <p className="font-medium">Candidate notes</p>
+                    <p className="whitespace-pre-wrap text-muted-foreground">
+                      {single.progress.candidateNotes || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-medium mb-1">Evidence</p>
+                    {single.evidence.length === 0 ? (
+                      <p className="text-muted-foreground">No files uploaded.</p>
+                    ) : (
+                      single.evidence.map((e) => (
+                        <button
+                          key={e.id}
+                          type="button"
+                          className="block text-left underline text-sm"
+                          onClick={() => void openEvidence(e.id)}
+                        >
+                          {e.originalFilename}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Link expires{' '}
+                    {new Date(single.request.expiresAt).toLocaleString('en-GB')}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Your decision</CardTitle>
+                <CardTitle className="text-base">
+                  {batch ? 'Confirm & submit decisions' : 'Your decision'}
+                </CardTitle>
                 <CardDescription>
-                  Credentials are self-declared unless SeaJourney has separately verified them.
+                  Credentials are self-declared unless SeaJourney has separately verified
+                  them.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label>Full name</Label>
-                    <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} />
+                    <Input
+                      value={signerName}
+                      onChange={(e) => setSignerName(e.target.value)}
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Rank</Label>
-                    <Input value={signerRank} onChange={(e) => setSignerRank(e.target.value)} />
+                    <Input
+                      value={signerRank}
+                      onChange={(e) => setSignerRank(e.target.value)}
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <Label>CoC number</Label>
@@ -449,7 +702,10 @@ export default function TrbSignoffClientPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Issuing authority</Label>
-                    <Input value={authority} onChange={(e) => setAuthority(e.target.value)} />
+                    <Input
+                      value={authority}
+                      onChange={(e) => setAuthority(e.target.value)}
+                    />
                   </div>
                 </div>
                 <div className="space-y-1.5">
@@ -460,29 +716,43 @@ export default function TrbSignoffClientPage() {
                     rows={3}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Decision notes (required for changes / reject)</Label>
-                  <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
-                </div>
+                {batch ? (
+                  <div className="space-y-1.5">
+                    <Label>Overall feedback (optional)</Label>
+                    <Textarea
+                      value={overallFeedback}
+                      onChange={(e) => setOverallFeedback(e.target.value)}
+                      rows={2}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label>Decision notes (required for changes / reject)</Label>
+                    <Textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+                )}
                 <label className="flex items-start gap-2 text-sm">
                   <Checkbox
                     checked={authorised}
                     onCheckedChange={(v) => setAuthorised(v === true)}
                   />
-                  <span>I am authorised to review this training task.</span>
+                  <span>I am authorised to review these training tasks.</span>
                 </label>
                 <label className="flex items-start gap-2 text-sm">
                   <Checkbox
                     checked={assessed}
                     onCheckedChange={(v) => setAssessed(v === true)}
                   />
-                  <span>I have personally assessed the candidate for this task.</span>
+                  <span>I have personally assessed the candidate for these tasks.</span>
                 </label>
-                {data.isMcaPilot ? (
+                {single?.isMcaPilot ? (
                   <div className="space-y-2 rounded-md border p-3">
                     <Label className="text-xs">
-                      Will or has the corresponding task also been signed in the
-                      candidate&apos;s official Training Record Book?
+                      Official Training Record Book status (optional)
                     </Label>
                     <Select
                       value={officialBookStatus}
@@ -504,38 +774,79 @@ export default function TrbSignoffClientPage() {
                     </Select>
                     <Textarea
                       rows={2}
-                      placeholder="Optional notes (stored separately from the candidate)"
+                      placeholder="Optional notes"
                       value={officialBookNotes}
                       onChange={(e) => setOfficialBookNotes(e.target.value)}
                     />
-                    <p className="text-[11px] text-muted-foreground">
-                      This does not change the digital decision. Digital approval does not mark
-                      the official book as signed.
-                    </p>
                   </div>
                 ) : null}
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <Button
-                    disabled={submitting || !authorised || !assessed}
-                    onClick={() => void submit('approved')}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={submitting || !authorised || !assessed}
-                    onClick={() => void submit('changes_requested')}
-                  >
-                    Request changes
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    disabled={submitting || !authorised || !assessed}
-                    onClick={() => void submit('rejected')}
-                  >
-                    Reject
-                  </Button>
-                </div>
+
+                {batch ? (
+                  confirmOpen ? (
+                    <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-sm font-medium">Confirm submission</p>
+                      <ul className="max-h-40 space-y-1 overflow-y-auto text-xs">
+                        {batch.items.map((item) => (
+                          <li key={item.id}>
+                            {item.task?.taskCode}:{' '}
+                            {(itemDecisions[item.id]?.decision || '').replace(/_/g, ' ')}
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          disabled={submitting}
+                          onClick={() => void submitBatch()}
+                        >
+                          {submitting ? (
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          Confirm & submit
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={submitting}
+                          onClick={() => setConfirmOpen(false)}
+                        >
+                          Back
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      disabled={
+                        submitting || !authorised || !assessed || !allBatchDecided
+                      }
+                      onClick={() => setConfirmOpen(true)}
+                    >
+                      Review & submit all decisions
+                    </Button>
+                  )
+                ) : (
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button
+                      disabled={submitting || !authorised || !assessed}
+                      onClick={() => void submitSingle('approved')}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={submitting || !authorised || !assessed}
+                      onClick={() => void submitSingle('changes_requested')}
+                    >
+                      Request changes
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      disabled={submitting || !authorised || !assessed}
+                      onClick={() => void submitSingle('rejected')}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>

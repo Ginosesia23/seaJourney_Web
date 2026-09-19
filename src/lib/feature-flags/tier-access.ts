@@ -4,6 +4,9 @@
  * Crew tiers are selected independently (no auto-cascade). Selecting
  * "crew limited" does not grant Standard / Premium / Professional.
  *
+ * Special crew tier `test` maps to `users.is_testing` accounts (independent
+ * chip — does not cascade with Free / Premium).
+ *
  * Vessel tiers still use a minimum: that plan and every higher plan inherit.
  *
  * Vessel-managed crew (crew_limited / paused personal plan) are gated by the
@@ -12,8 +15,9 @@
  * self-paying Standard+ accounts.
  *
  * Storage in `min_crew_tier`:
- * - null → all crew tiers
+ * - null → all crew tiers (including test)
  * - "premium" (legacy) → Premium and above (expanded on read)
+ * - "set:test" → testing accounts only
  * - "set:crew_limited,premium" → exact independent set
  */
 
@@ -22,7 +26,10 @@ import type {
   FeatureFlagDefinition,
   FeatureFlagKey,
 } from '@/lib/feature-flags/catalog';
-import { getFeatureDefinition } from '@/lib/feature-flags/catalog';
+import {
+  getFeatureDefinition,
+  profileIsTestingAccount,
+} from '@/lib/feature-flags/catalog';
 import {
   getEffectiveCrewFeatureTier,
   type CrewVesselFeatureBoost,
@@ -39,6 +46,7 @@ import {
 } from '@/lib/vessel-linked-features';
 
 export type CrewTierSlug =
+  | 'test'
   | 'free'
   | 'crew_limited'
   | 'standard'
@@ -93,6 +101,7 @@ export function isVesselManagedCrewAccount(profile: unknown): boolean {
 }
 
 export const CREW_TIER_LADDER: CrewTierSlug[] = [
+  'test',
   'free',
   'crew_limited',
   'standard',
@@ -117,6 +126,7 @@ export const VESSEL_TIER_LADDER: VesselTierSlug[] = [
 ];
 
 export const CREW_TIER_LABELS: Record<CrewTierSlug, string> = {
+  test: 'Test accounts',
   free: 'Free',
   crew_limited: 'Crew limited',
   standard: 'Standard',
@@ -134,6 +144,7 @@ export const VESSEL_TIER_LABELS: Record<VesselTierSlug, string> = {
 };
 
 const CREW_TIER_RANK: Record<CrewTierSlug, number> = {
+  test: -1, // independent; cascade must skip this slug
   free: 0,
   crew_limited: 1,
   standard: 2,
@@ -158,6 +169,7 @@ export function normalizeCrewTierSlug(
   if (!tier) return null;
   const t = tier.toLowerCase().trim();
   if (t === 'professional' || t === 'pro') return 'professional';
+  if (t === 'test' || t === 'testing' || t === 'test_accounts') return 'test';
   if (CREW_TIER_LADDER.includes(t as CrewTierSlug)) return t as CrewTierSlug;
   return null;
 }
@@ -285,7 +297,8 @@ export function crewTierSetAllows(
   return tiers.some((t) => canonicalCrewTierForAccess(t) === want);
 }
 
-/** Toggle a crew tier. Turning off also clears every lower tier. Turning on is independent. */
+/** Toggle a crew tier. Turning off also clears every lower tier. Turning on is independent.
+ *  `test` is fully independent (maps to users.is_testing) and never cascades. */
 export function toggleCrewTierInSet(
   tier: CrewTierSlug,
   selected: boolean,
@@ -294,13 +307,21 @@ export function toggleCrewTierInSet(
   const base = current == null ? [...CREW_TIER_LADDER] : [...current];
   const set = new Set(dedupeCrewTiers(base));
   const key = canonicalCrewTierForAccess(tier);
-  const tierRank = crewTierRank(key);
 
-  if (selected) {
-    set.add(key);
+  if (key === 'test') {
+    if (selected) set.add('test');
+    else set.delete('test');
   } else {
-    for (const t of CREW_TIER_LADDER) {
-      if (crewTierRank(t) <= tierRank) set.delete(canonicalCrewTierForAccess(t));
+    const tierRank = crewTierRank(key);
+    if (selected) {
+      set.add(key);
+    } else {
+      for (const t of CREW_TIER_LADDER) {
+        if (t === 'test') continue;
+        if (crewTierRank(t) <= tierRank) {
+          set.delete(canonicalCrewTierForAccess(t));
+        }
+      }
     }
   }
 
@@ -524,10 +545,12 @@ export function resolveFeatureTierAccess(
       crewTiers = parseCrewTiersAccess(row.min_crew_tier);
     }
   } else {
-    const fallback = normalizeCrewTierSlug(def.defaultMinCrewTier ?? null);
-    crewTiers = fallback
-      ? inheritedTiersFromMin(fallback, CREW_TIER_LADDER, crewTierRank)
-      : null;
+    // Catalog default: support legacy min slug and set: encoding (e.g. set:test).
+    if (def.defaultMinCrewTier == null || def.defaultMinCrewTier === '') {
+      crewTiers = null;
+    } else {
+      crewTiers = parseCrewTiersAccess(def.defaultMinCrewTier);
+    }
   }
 
   let vesselTiers: VesselTierSlug[] | null = null;
@@ -577,18 +600,34 @@ export function meetsFeatureTierAccess(
 
   if (role === 'crew' || role === 'captain') {
     if (def.audience === 'vessel') return false;
+
+    const crewTiers = access.crewTiers;
+    const emptyCrewSet = Array.isArray(crewTiers) && crewTiers.length === 0;
+    if (emptyCrewSet) return false;
+
+    const testOnly =
+      Array.isArray(crewTiers) &&
+      crewTiers.length > 0 &&
+      crewTiers.every((t) => canonicalCrewTierForAccess(t) === 'test');
+
+    // Test accounts tier (`users.is_testing`) — same chip as Free / Premium.
+    if (
+      profileIsTestingAccount(profile) &&
+      crewTierSetAllows(crewTiers, 'test')
+    ) {
+      return true;
+    }
+
+    // Vessel-linked grants must not bypass an explicit Test-only access set.
     const linkedKey = vesselLinkedKeyForFeatureFlag(def.key);
     if (
+      !testOnly &&
       linkedKey &&
       hasActiveSubscription(profile) &&
       isVesselLinkedFeatureGranted(profile, linkedKey)
     ) {
       return true;
     }
-
-    const crewTiers = access.crewTiers;
-    const emptyCrewSet = Array.isArray(crewTiers) && crewTiers.length === 0;
-    if (emptyCrewSet) return false;
 
     if (isVesselManagedCrewAccount(profile)) {
       if (!crewTierSetAllows(crewTiers, 'crew_limited')) return false;
@@ -601,6 +640,8 @@ export function meetsFeatureTierAccess(
     }
 
     const ownTier = canonicalCrewTierForAccess(getTierLower(profile));
+    // Never treat a normal subscription as the special `test` tier.
+    if (ownTier === 'test') return false;
     if (!crewTierSetAllows(crewTiers, ownTier)) return false;
     return true;
   }

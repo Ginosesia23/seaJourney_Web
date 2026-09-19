@@ -89,14 +89,15 @@ Run in order (if not already applied):
 
 Platform flag key: **`training_records`**
 
-- Catalog: `src/lib/feature-flags/catalog.ts`
-- Seed: `sql/add-training-records-feature-flag.sql`
+- Catalog: `src/lib/feature-flags/catalog.ts` (`defaultMinCrewTier: 'set:test'`)
+- Seed: `sql/add-training-records-feature-flag.sql` (`min_crew_tier = 'set:test'`)
 - Gates `/dashboard/training-records` and `/dashboard/training-signoffs` (nav + dashboard route guard)
+- **Test accounts tier:** crew access chip on Feature flags (same UI as Free / Premium). Maps to `users.is_testing`. Combine with other tiers to widen rollout.
 - Secure email sign-off links (`/training-records/signoff/[token]`) stay reachable when the flag is off
 - Admins always bypass; manage under Dashboard → Feature flags
-- Optional vessel-linked grant for secondary accounts (`training_records`)
+- Optional vessel-linked grant for secondary accounts (`training_records`) — skipped while access is Test-only
 
-Default: enabled for premium crew (admin can disable or raise/lower tier).
+Default: enabled for **Test accounts** only (admin can add Premium etc. when ready).
 
 ## Mobile / Flutter readiness
 

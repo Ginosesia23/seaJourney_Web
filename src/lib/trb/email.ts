@@ -155,6 +155,94 @@ export async function sendTrbSignoffRequestEmail(
   }
 }
 
+export type TrbBatchSignoffRequestEmailArgs = {
+  to: string;
+  signerName?: string | null;
+  crewName: string;
+  vesselName?: string | null;
+  programmeName: string;
+  taskCount: number;
+  tasks: Array<{ code: string; title: string }>;
+  requestedAt: string | Date;
+  expiresAt: string | Date;
+  reviewUrl: string;
+  optionalMessage?: string | null;
+  disclaimer?: string | null;
+};
+
+export async function sendTrbBatchSignoffRequestEmail(
+  args: TrbBatchSignoffRequestEmailArgs,
+): Promise<{ success: boolean; skipped?: boolean; error?: unknown }> {
+  if (!resend) {
+    console.warn('[TRB BATCH SIGNOFF EMAIL] Resend API key not configured – skipping');
+    return { success: false, skipped: true, error: new Error('Resend not configured') };
+  }
+
+  const greeting = args.signerName
+    ? `Hi ${escapeHtml(args.signerName)},`
+    : 'Hi Captain,';
+
+  const vesselRow = args.vesselName
+    ? `<div style="margin-bottom:6px;"><strong>Vessel:</strong> ${escapeHtml(args.vesselName)}</div>`
+    : '';
+
+  const taskList = args.tasks
+    .slice(0, 20)
+    .map(
+      (t) =>
+        `<li style="margin:0 0 4px;">${escapeHtml(t.code ? `${t.code} · ${t.title}` : t.title)}</li>`,
+    )
+    .join('');
+  const more =
+    args.tasks.length > 20
+      ? `<li style="margin:0;">…and ${args.tasks.length - 20} more</li>`
+      : '';
+
+  const messageRow = args.optionalMessage?.trim()
+    ? `<p style="margin:16px 0 0;color:#374151;font-size:14px;"><strong>Message from candidate:</strong> ${escapeHtml(args.optionalMessage.trim())}</p>`
+    : '';
+
+  const disclaimer = escapeHtml(args.disclaimer || TRB_DISCLAIMER);
+
+  const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;"><tr><td align="center">
+    <table width="100%" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;">
+      <tr><td style="padding:20px 24px;background:${EMAIL_PRIMARY_BLUE};color:#fff;font-size:18px;font-weight:700;">SeaJourney · Training sign-off</td></tr>
+      <tr><td style="padding:24px;color:#111827;font-size:15px;line-height:1.55;">
+        <p style="margin:0 0 16px;">${greeting}</p>
+        <p style="margin:0 0 16px;"><strong>${escapeHtml(args.crewName)}</strong> requested review of <strong>${args.taskCount}</strong> Digital TRB Companion task${args.taskCount === 1 ? '' : 's'}.</p>
+        <div style="margin:0 0 16px;padding:14px 16px;background:#f4f7fb;border-radius:8px;color:#374151;font-size:14px;">
+          <div style="margin-bottom:6px;"><strong>Programme:</strong> ${escapeHtml(args.programmeName)}</div>
+          ${vesselRow}
+          <div style="margin-bottom:6px;"><strong>Requested:</strong> ${escapeHtml(formatDateForEmail(args.requestedAt))}</div>
+          <div><strong>Expires:</strong> ${escapeHtml(formatDateForEmail(args.expiresAt))}</div>
+        </div>
+        <p style="margin:0 0 8px;font-weight:600;">Tasks</p>
+        <ul style="margin:0 0 16px;padding-left:18px;color:#374151;font-size:14px;">${taskList}${more}</ul>
+        ${messageRow}
+        <p style="margin:20px 0 0;"><a href="${escapeHtml(args.reviewUrl)}" style="display:inline-block;background:${EMAIL_PRIMARY_BLUE};color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">Review all tasks</a></p>
+        <p style="margin:16px 0 0;color:#6b7280;font-size:12px;">${disclaimer}</p>
+        <p style="margin:8px 0 0;color:#9ca3af;font-size:11px;">Questions? ${escapeHtml(SUPPORT_EMAIL)}</p>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+
+  try {
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [args.to],
+      subject: `Training review – ${args.crewName} (${args.taskCount} tasks)`,
+      html,
+    });
+    console.log('[TRB BATCH SIGNOFF EMAIL] Sent to', args.to);
+    return { success: true };
+  } catch (err) {
+    console.error('[TRB BATCH SIGNOFF EMAIL] Failed', args.to, err);
+    return { success: false, error: err };
+  }
+}
+
 export function trbAppBaseUrl(): string {
   return SITE_URL.replace(/\/$/, '');
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
@@ -21,17 +22,19 @@ import { useSupabase } from '@/supabase';
 type Row = {
   id: string;
   status: string;
-  signer_email: string;
-  signer_name: string | null;
-  expires_at: string;
-  created_at: string;
-  used_at: string | null;
-  vessel_name_snapshot?: string | null;
+  signerEmail: string;
+  signerName: string | null;
+  expiresAt: string;
+  createdAt: string;
+  usedAt: string | null;
+  vesselNameSnapshot?: string | null;
   taskTitle?: string | null;
   taskCode?: string | null;
   programmeName?: string | null;
   programmeCode?: string | null;
   resourceType?: string;
+  taskCount?: number;
+  enrollmentId?: string;
 };
 
 export default function TrainingSignoffsPage() {
@@ -105,6 +108,7 @@ export default function TrainingSignoffsPage() {
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="completed">Completed (grouped)</SelectItem>
             <SelectItem value="changes_requested">Changes requested</SelectItem>
             <SelectItem value="approved">Approved</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
@@ -129,7 +133,7 @@ export default function TrainingSignoffsPage() {
 
       <TrainingRecordsSection
         title="Your queue"
-        description="Training-task requests only — filter by status and programme"
+        description="Single-task and multi-task requests — decide via the secure email link"
         flush
       >
         {filtered.length === 0 ? (
@@ -139,30 +143,43 @@ export default function TrainingSignoffsPage() {
           />
         ) : (
           <ul className="divide-y divide-border">
-            {filtered.map((r) => (
-              <li
-                key={r.id}
-                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
-              >
-                <div className="min-w-0 space-y-0.5">
-                  <p className="text-sm font-medium text-foreground">
-                    {r.taskCode ? `${r.taskCode} · ` : ''}
-                    {r.taskTitle || r.signer_name || r.signer_email}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {r.programmeName || 'Training programme'}
-                    {r.vessel_name_snapshot ? ` · ${r.vessel_name_snapshot}` : ''}
-                  </p>
-                  <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                    Requested {new Date(r.created_at).toLocaleString('en-GB')}
-                    {r.status === 'pending'
-                      ? ` · expires ${new Date(r.expires_at).toLocaleString('en-GB')}`
-                      : ''}
-                  </p>
-                </div>
-                <TrainingStatusPill status={r.status} />
-              </li>
-            ))}
+            {filtered.map((r) => {
+              const isBatch = r.resourceType === 'training_task_batch';
+              return (
+                <li
+                  key={`${r.resourceType || 'single'}-${r.id}`}
+                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-sm font-medium text-foreground">
+                      {isBatch
+                        ? `${r.taskCount ?? 0} tasks · grouped request`
+                        : `${r.taskCode ? `${r.taskCode} · ` : ''}${r.taskTitle || r.signerName || r.signerEmail}`}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {r.programmeName || 'Training programme'}
+                      {r.vesselNameSnapshot ? ` · ${r.vesselNameSnapshot}` : ''}
+                      {isBatch ? ' · Multi-task' : ''}
+                    </p>
+                    <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                      Requested {new Date(r.createdAt).toLocaleString('en-GB')}
+                      {r.status === 'pending'
+                        ? ` · expires ${new Date(r.expiresAt).toLocaleString('en-GB')}`
+                        : ''}
+                    </p>
+                    {isBatch && r.enrollmentId ? (
+                      <Link
+                        href={`/dashboard/training-records/${r.enrollmentId}/requests/${r.id}`}
+                        className="text-[11px] underline text-muted-foreground"
+                      >
+                        View request details
+                      </Link>
+                    ) : null}
+                  </div>
+                  <TrainingStatusPill status={r.status} />
+                </li>
+              );
+            })}
           </ul>
         )}
       </TrainingRecordsSection>

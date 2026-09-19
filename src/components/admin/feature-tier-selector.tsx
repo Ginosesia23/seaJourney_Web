@@ -127,7 +127,9 @@ function CrewTierChipGroup({
               label={CREW_TIER_LABELS[tier] ?? tier}
               checked={checked}
               disabled={disabled}
-              emphasis={tier === 'crew_limited' ? 'amber' : 'default'}
+              emphasis={
+                tier === 'crew_limited' || tier === 'test' ? 'amber' : 'default'
+              }
               onClick={() => {
                 onChange(toggleCrewTierInSet(tier, !checked, crewTiers));
               }}
@@ -137,8 +139,10 @@ function CrewTierChipGroup({
       </div>
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         Turning a crew tier on selects only that tier. Turning it off also clears
-        every lower tier. Crew limited does not auto-include Standard or above —
-        select those separately for self-paying accounts.
+        every lower tier. <strong className="font-medium text-foreground">Test
+        accounts</strong> is independent — it maps to users marked testing
+        (`is_testing`) and does not cascade with Free / Premium. Crew limited
+        does not auto-include Standard or above.
         {crewTiers != null &&
         !isFullCrewTierSet(crewTiers) &&
         crewTiers.length === 0

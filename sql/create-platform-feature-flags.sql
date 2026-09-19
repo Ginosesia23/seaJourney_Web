@@ -68,3 +68,9 @@ VALUES
   ('export_reports', true),
   ('vessel_team_accounts', true)
 ON CONFLICT (key) DO NOTHING;
+
+-- Training records default: Test accounts crew tier only (`users.is_testing`).
+UPDATE public.platform_feature_flags
+SET min_crew_tier = 'set:test'
+WHERE key = 'training_records'
+  AND (min_crew_tier IS NULL OR min_crew_tier = '');

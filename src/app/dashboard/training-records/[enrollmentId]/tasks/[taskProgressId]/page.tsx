@@ -41,64 +41,64 @@ type TaskDetail = {
   oglUrl?: string | null;
   section: {
     title: string;
-    source_section_reference?: string | null;
-    source_page_start?: number | null;
-    source_page_end?: number | null;
+    sourceSectionReference?: string | null;
+    sourcePageStart?: number | null;
+    sourcePageEnd?: number | null;
   } | null;
   task: {
-    task_code: string;
+    taskCode: string;
     title: string;
     description: string | null;
-    evidence_guidance: string | null;
-    seajourney_guidance?: string | null;
-    official_title?: string | null;
-    official_description?: string | null;
-    seajourney_summary?: string | null;
-    seajourney_completion_guidance?: string | null;
-    source_task_reference?: string | null;
-    source_page_start?: number | null;
-    source_page_end?: number | null;
-    source_page_reference?: string | null;
-    official_signer_instruction?: string | null;
-    required_signer_role?: string | null;
+    evidenceGuidance: string | null;
+    seajourneyGuidance?: string | null;
+    officialTitle?: string | null;
+    officialDescription?: string | null;
+    seajourneySummary?: string | null;
+    seajourneyCompletionGuidance?: string | null;
+    sourceTaskReference?: string | null;
+    sourcePageStart?: number | null;
+    sourcePageEnd?: number | null;
+    sourcePageReference?: string | null;
+    officialSignerInstruction?: string | null;
+    requiredSignerRole?: string | null;
   };
   progress: {
     id: string;
     status: string;
-    candidate_notes: string | null;
+    candidateNotes: string | null;
   };
   evidence: {
     id: string;
-    original_filename: string;
-    mime_type: string;
-    file_size: number;
-    created_at: string;
+    originalFilename: string;
+    mimeType: string;
+    fileSize: number;
+    createdAt: string;
   }[];
   requests: {
     id: string;
     status: string;
-    signer_email: string;
-    signer_name: string | null;
-    expires_at: string;
-    created_at: string;
+    signerEmail: string;
+    signerName: string | null;
+    expiresAt: string;
+    createdAt: string;
   }[];
   signoffs: {
     id: string;
     decision: string;
-    decision_notes: string | null;
-    signer_name: string;
-    signer_verification_status: string;
-    signed_at: string;
-    record_hash: string;
+    decisionNotes: string | null;
+    signerName: string;
+    signerVerificationStatus: string;
+    signedAt: string;
+    recordHash: string;
   }[];
-  pendingRequest: { id: string; expires_at: string; signer_email: string } | null;
+  pendingRequest: { id: string; expiresAt: string; signerEmail: string; batchRequestId?: string | null; isBatchShadow?: boolean } | null;
   officialBookCandidate?: {
-    official_book_status: string;
-    official_book_signer_name?: string | null;
+    officialBookStatus: string;
+    officialBookSignerName?: string | null;
     notes?: string | null;
   } | null;
   officialBookCaptain?: {
-    official_book_status: string;
+    officialBookStatus: string;
     notes?: string | null;
   } | null;
   officialBookDiscrepancy?: boolean;
@@ -154,12 +154,12 @@ export default function TaskProgressPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load');
       setDetail(json);
-      setNotes(json.progress?.candidate_notes || '');
-      if (json.officialBookCandidate?.official_book_status) {
-        setBookStatus(json.officialBookCandidate.official_book_status);
+      setNotes(json.progress?.candidateNotes || '');
+      if (json.officialBookCandidate?.officialBookStatus) {
+        setBookStatus(json.officialBookCandidate.officialBookStatus);
       }
-      if (json.officialBookCandidate?.official_book_signer_name) {
-        setBookSigner(json.officialBookCandidate.official_book_signer_name);
+      if (json.officialBookCandidate?.officialBookSignerName) {
+        setBookSigner(json.officialBookCandidate.officialBookSignerName);
       }
       if (json.officialBookCandidate?.notes) {
         setBookNotes(json.officialBookCandidate.notes);
@@ -512,8 +512,8 @@ export default function TaskProgressPage() {
   return (
     <div className="flex flex-col gap-6">
       <TrainingRecordsPageHeader
-        title={`${detail.task.task_code} · ${detail.task.official_title || detail.task.title}`}
-        breadcrumb={detail.task.task_code}
+        title={`${detail.task.taskCode} · ${detail.task.officialTitle || detail.task.title}`}
+        breadcrumb={detail.task.taskCode}
         description={`${detail.section?.title || 'Section'} · Digital TRB Companion`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -545,8 +545,8 @@ export default function TaskProgressPage() {
       <TrainingRecordsSection
         title="Official task wording"
         description={
-          detail.task.source_task_reference || detail.task.source_page_reference
-            ? `${detail.task.source_task_reference || ''} · ${detail.task.source_page_reference || `pp. ${detail.task.source_page_start ?? '—'}–${detail.task.source_page_end ?? '—'}`}`
+          detail.task.sourceTaskReference || detail.task.sourcePageReference
+            ? `${detail.task.sourceTaskReference || ''} · ${detail.task.sourcePageReference || `pp. ${detail.task.sourcePageStart ?? '—'}–${detail.task.sourcePageEnd ?? '—'}`}`
             : 'Source text is not editable by candidates'
         }
       >
@@ -555,14 +555,14 @@ export default function TaskProgressPage() {
             Official source (read-only)
           </p>
           <p className="font-medium text-foreground">
-            {detail.task.official_title || detail.task.title}
+            {detail.task.officialTitle || detail.task.title}
           </p>
           <p className="whitespace-pre-wrap text-muted-foreground">
-            {detail.task.official_description || detail.task.description}
+            {detail.task.officialDescription || detail.task.description}
           </p>
-          {detail.task.official_signer_instruction ? (
+          {detail.task.officialSignerInstruction ? (
             <p className="text-xs text-muted-foreground">
-              {detail.task.official_signer_instruction}
+              {detail.task.officialSignerInstruction}
             </p>
           ) : null}
         </div>
@@ -574,27 +574,27 @@ export default function TaskProgressPage() {
       >
         <div className="space-y-2 text-sm text-muted-foreground">
           <p className="whitespace-pre-wrap">
-            {detail.task.seajourney_summary ||
-              detail.task.seajourney_guidance ||
+            {detail.task.seajourneySummary ||
+              detail.task.seajourneyGuidance ||
               'No SeaJourney summary for this task.'}
           </p>
-          {detail.task.seajourney_completion_guidance ||
-          detail.task.evidence_guidance ? (
+          {detail.task.seajourneyCompletionGuidance ||
+          detail.task.evidenceGuidance ? (
             <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
               <p className="text-[11px] font-medium text-foreground">
                 Completion / evidence guidance
               </p>
               <p className="mt-0.5 whitespace-pre-wrap text-xs">
-                {detail.task.seajourney_completion_guidance ||
-                  detail.task.evidence_guidance}
+                {detail.task.seajourneyCompletionGuidance ||
+                  detail.task.evidenceGuidance}
               </p>
             </div>
           ) : null}
-          {detail.task.required_signer_role ? (
+          {detail.task.requiredSignerRole ? (
             <p className="text-[11px]">
               Required signer role:{' '}
               <span className="font-medium text-foreground">
-                {detail.task.required_signer_role.replace(/_/g, ' ')}
+                {detail.task.requiredSignerRole.replace(/_/g, ' ')}
               </span>
             </p>
           ) : null}
@@ -667,11 +667,11 @@ export default function TaskProgressPage() {
                   className="text-left text-sm font-medium text-foreground underline-offset-2 hover:underline"
                   onClick={() => void openEvidence(ev.id)}
                 >
-                  {ev.original_filename}
+                  {ev.originalFilename}
                 </button>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                    {(ev.file_size / 1024).toFixed(0)} KB
+                    {(ev.fileSize / 1024).toFixed(0)} KB
                   </span>
                   {editable ? (
                     <Button
@@ -731,8 +731,8 @@ export default function TaskProgressPage() {
             <div className="rounded-md border border-sky-500/25 bg-sky-500/[0.06] px-3 py-2.5">
               <p className="text-xs font-medium text-foreground">Pending request</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Waiting for {detail.pendingRequest.signer_email}. Expires{' '}
-                {new Date(detail.pendingRequest.expires_at).toLocaleString('en-GB')}.
+                Waiting for {detail.pendingRequest.signerEmail}. Expires{' '}
+                {new Date(detail.pendingRequest.expiresAt).toLocaleString('en-GB')}.
               </p>
             </div>
             <Button
@@ -883,17 +883,17 @@ export default function TaskProgressPage() {
               <li key={s.id} className="space-y-1.5 px-4 py-3 sm:px-5">
                 <div className="flex flex-wrap items-center gap-2">
                   <TrainingStatusPill status={s.decision} />
-                  <span className="text-sm font-medium">{s.signer_name}</span>
+                  <span className="text-sm font-medium">{s.signerName}</span>
                   <span className="text-[10px] text-muted-foreground">
-                    {s.signer_verification_status.replace(/_/g, ' ')}
+                    {s.signerVerificationStatus.replace(/_/g, ' ')}
                   </span>
                 </div>
-                {s.decision_notes ? (
-                  <p className="text-xs text-muted-foreground">{s.decision_notes}</p>
+                {s.decisionNotes ? (
+                  <p className="text-xs text-muted-foreground">{s.decisionNotes}</p>
                 ) : null}
                 <p className="font-mono text-[10px] text-muted-foreground">
-                  {new Date(s.signed_at).toLocaleString('en-GB')} ·{' '}
-                  {s.record_hash.slice(0, 12)}…
+                  {new Date(s.signedAt).toLocaleString('en-GB')} ·{' '}
+                  {s.recordHash.slice(0, 12)}…
                 </p>
               </li>
             ))}
@@ -909,7 +909,7 @@ export default function TaskProgressPage() {
           {detail.officialBookDiscrepancy ? (
             <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-900">
               Discrepancy: your status differs from the captain&apos;s reported official-book
-              status ({detail.officialBookCaptain?.official_book_status}).
+              status ({detail.officialBookCaptain?.officialBookStatus}).
             </div>
           ) : null}
           <div className="space-y-3">

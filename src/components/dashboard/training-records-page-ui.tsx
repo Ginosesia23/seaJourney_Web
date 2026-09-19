@@ -204,6 +204,8 @@ const STATUS_TONE: Record<string, string> = {
   not_started: 'bg-muted/60 text-muted-foreground border-border',
   superseded: 'bg-muted text-muted-foreground border-border',
   pending: 'bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20',
+  completed:
+    'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
   active: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
   cancelled: 'bg-muted text-muted-foreground border-border',
   expired: 'bg-muted text-muted-foreground border-border',

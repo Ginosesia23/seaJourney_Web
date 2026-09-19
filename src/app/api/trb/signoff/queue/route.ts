@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireBearerUser } from '@/lib/trb/auth';
+import { listBatchRequestsForSignerEmail } from '@/lib/trb/batch';
 import { listSignoffsForSignerEmail } from '@/lib/trb/service';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -13,12 +14,21 @@ export async function GET(req: NextRequest) {
   }
   const status = req.nextUrl.searchParams.get('status') || undefined;
   try {
-    const requests = await listSignoffsForSignerEmail(supabaseAdmin, auth.email, {
-      status,
-    });
+    const [single, batch] = await Promise.all([
+      listSignoffsForSignerEmail(supabaseAdmin, auth.email, { status }),
+      listBatchRequestsForSignerEmail(supabaseAdmin, auth.email, { status }),
+    ]);
+    const requests = [
+      ...single.map((r) => ({ ...r, resourceType: 'training_task' as const })),
+      ...batch,
+    ].sort(
+      (a, b) =>
+        new Date(String((b as { createdAt?: string }).createdAt)).getTime() -
+        new Date(String((a as { createdAt?: string }).createdAt)).getTime(),
+    );
     return NextResponse.json({
       requests,
-      resourceType: 'training_task',
+      resourceType: 'training_signoff_queue',
       serverTime: new Date().toISOString(),
     });
   } catch (e) {

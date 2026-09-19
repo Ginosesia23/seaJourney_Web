@@ -70,12 +70,24 @@ type AdminFeature = {
   hasDbRow: boolean;
 };
 
-type FilterId = 'all' | FeatureAudience | 'disabled';
+type FilterId = 'all' | FeatureAudience | 'test' | 'disabled';
 
 function audienceLabel(audience: FeatureAudience): string {
   if (audience === 'crew') return 'Crew';
   if (audience === 'vessel') return 'Vessel';
   return 'Both';
+}
+
+/** Features that grant the Test accounts crew tier (possibly among others). */
+function includesTestTier(f: AdminFeature): boolean {
+  if (f.crewTiers == null) return false;
+  return f.crewTiers.includes('test');
+}
+
+/** Features restricted to Test accounts only (no other crew tiers). */
+function isTestOnlyFeature(f: AdminFeature): boolean {
+  if (!f.crewTiers || f.crewTiers.length === 0) return false;
+  return f.crewTiers.every((t) => t === 'test');
 }
 
 function formatWhen(iso: string | null | undefined): {
@@ -295,6 +307,8 @@ export default function FeatureFlagsAdminPage() {
     .filter((f) => {
       if (filter === 'disabled') {
         if (f.enabled) return false;
+      } else if (filter === 'test') {
+        if (!includesTestTier(f)) return false;
       } else if (filter !== 'all') {
         if (f.audience !== filter && f.audience !== 'both') return false;
       }
@@ -304,18 +318,21 @@ export default function FeatureFlagsAdminPage() {
         f.label.toLowerCase().includes(q) ||
         f.key.toLowerCase().includes(q) ||
         f.description.toLowerCase().includes(q) ||
-        f.routes.some((r) => r.toLowerCase().includes(q))
+        f.routes.some((r) => r.toLowerCase().includes(q)) ||
+        (includesTestTier(f) && (q === 'test' || q.includes('test')))
       );
     })
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 
   const disabledCount = features.filter((f) => !f.enabled).length;
   const onCount = features.length - disabledCount;
+  const testCount = features.filter((f) => includesTestTier(f)).length;
 
   const filters: { id: FilterId; label: string; count?: number }[] = [
     { id: 'all', label: 'All', count: features.length },
     { id: 'crew', label: 'Crew' },
     { id: 'vessel', label: 'Vessel' },
+    { id: 'test', label: 'Test', count: testCount },
     { id: 'disabled', label: 'Disabled', count: disabledCount },
   ];
 
@@ -351,7 +368,9 @@ export default function FeatureFlagsAdminPage() {
             </h1>
             <p className="max-w-2xl text-sm text-muted-foreground">
               Control which product features are live and which subscription tiers
-              can access them. Admins always bypass disabled flags.
+              can access them. Use the <span className="font-medium text-foreground">Test
+              accounts</span> crew tier for users marked testing (`is_testing`).
+              Admins always bypass disabled flags.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -510,9 +529,20 @@ export default function FeatureFlagsAdminPage() {
                         </Tooltip>
                       </TableCell>
                       <TableCell className="py-2.5 align-middle">
-                        <span className="inline-flex rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                          {audienceLabel(feature.audience)}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="inline-flex rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                            {audienceLabel(feature.audience)}
+                          </span>
+                          {isTestOnlyFeature(feature) ? (
+                            <span className="inline-flex rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-800 dark:text-amber-300">
+                              Test only
+                            </span>
+                          ) : includesTestTier(feature) ? (
+                            <span className="inline-flex rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-800 dark:text-amber-300">
+                              Test
+                            </span>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell className="hidden py-2.5 align-middle md:table-cell">
                         <span className="line-clamp-1 text-[11px] text-muted-foreground">

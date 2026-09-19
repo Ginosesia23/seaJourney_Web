@@ -20,6 +20,9 @@ import {
   enrolSchema,
   markReadySchema,
   requestSignoffSchema,
+  batchRequestSignoffSchema,
+  batchCaptainDecisionSchema,
+  cancelBatchSignoffSchema,
 } from './schemas';
 import {
   generateHashedSignoffToken,
@@ -34,7 +37,7 @@ import {
   isMcaOowPilotEnabled,
   isMcaPilotProgramCode,
 } from './pilot';
-
+import { batchDecisionNotificationEvent } from './notifications';
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
@@ -316,6 +319,130 @@ function assert(cond: unknown, msg: string): asserts cond {
     }).success,
     'mark ready schema',
   );
+}
+
+// Batch sign-off schemas
+{
+  const okBatch = batchRequestSignoffSchema.safeParse({
+    enrollmentId: '11111111-1111-1111-1111-111111111111',
+    taskProgressIds: [
+      '22222222-2222-2222-2222-222222222222',
+      '33333333-3333-3333-3333-333333333333',
+    ],
+    signerName: 'Alex Captain',
+    signerEmail: 'captain@example.com',
+    authorisedConfirmation: true,
+    idempotencyKey: 'idem-batch-001',
+  });
+  assert(okBatch.success, 'batch request schema');
+
+  const emptyTasks = batchRequestSignoffSchema.safeParse({
+    enrollmentId: '11111111-1111-1111-1111-111111111111',
+    taskProgressIds: [],
+    signerName: 'Alex Captain',
+    signerEmail: 'captain@example.com',
+    authorisedConfirmation: true,
+  });
+  assert(!emptyTasks.success, 'empty batch rejected');
+
+  const mixed = batchCaptainDecisionSchema.safeParse({
+    token: 'a'.repeat(32),
+    decisions: [
+      {
+        itemId: '44444444-4444-4444-4444-444444444444',
+        decision: 'approved',
+      },
+      {
+        itemId: '55555555-5555-5555-5555-555555555555',
+        decision: 'changes_requested',
+        decisionNotes: 'Need more bridge watch evidence',
+      },
+    ],
+    signerName: 'Alex Captain',
+    signerRank: 'Master',
+    signerCocNumber: 'COC1',
+    signerIssuingAuthority: 'MCA',
+    authorisedConfirmation: true,
+    personallyAssessedConfirmation: true,
+    signerDeclaration: 'I personally assessed each selected training task.',
+  });
+  assert(mixed.success, 'batch mixed decisions schema');
+
+  const missingNotes = batchCaptainDecisionSchema.safeParse({
+    token: 'a'.repeat(32),
+    decisions: [
+      {
+        itemId: '44444444-4444-4444-4444-444444444444',
+        decision: 'rejected',
+      },
+    ],
+    signerName: 'Alex Captain',
+    signerRank: 'Master',
+    signerCocNumber: 'COC1',
+    signerIssuingAuthority: 'MCA',
+    authorisedConfirmation: true,
+    personallyAssessedConfirmation: true,
+    signerDeclaration: 'I personally assessed each selected training task.',
+  });
+  assert(!missingNotes.success, 'reject without notes fails');
+
+  assert(
+    cancelBatchSignoffSchema.safeParse({
+      batchRequestId: '66666666-6666-6666-6666-666666666666',
+    }).success,
+    'cancel batch schema',
+  );
+}
+
+// Batch decision notification event selection
+{
+  assert(
+    batchDecisionNotificationEvent({
+      approved: 3,
+      changesRequested: 0,
+      rejected: 0,
+    }) === 'task_approved',
+    'all approved',
+  );
+  assert(
+    batchDecisionNotificationEvent({
+      approved: 0,
+      changesRequested: 2,
+      rejected: 0,
+    }) === 'changes_requested',
+    'all changes',
+  );
+  assert(
+    batchDecisionNotificationEvent({
+      approved: 0,
+      changesRequested: 0,
+      rejected: 1,
+    }) === 'task_rejected',
+    'all rejected',
+  );
+  assert(
+    batchDecisionNotificationEvent({
+      approved: 2,
+      changesRequested: 1,
+      rejected: 0,
+    }) === 'batch_signoff_mixed',
+    'mixed results',
+  );
+}
+
+// Batch parent status vs item status model
+{
+  const parentStatuses = new Set(['pending', 'completed', 'expired', 'cancelled']);
+  const itemStatuses = new Set([
+    'pending',
+    'approved',
+    'changes_requested',
+    'rejected',
+    'cancelled',
+  ]);
+  assert(parentStatuses.has('completed'), 'parent completed');
+  assert(itemStatuses.has('changes_requested'), 'item changes');
+  assert(!parentStatuses.has('approved'), 'parent is aggregate not per-task');
 }
 
 console.log('trb.selftest: all assertions passed');

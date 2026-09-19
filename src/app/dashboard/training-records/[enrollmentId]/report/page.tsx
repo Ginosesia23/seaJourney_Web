@@ -42,7 +42,7 @@ type Report = {
   candidate: { name: string; email: string | null };
   enrollment: {
     id: string;
-    started_at: string;
+    startedAt: string;
     status: string;
     trb_program_versions: {
       version: string;
@@ -53,47 +53,47 @@ type Report = {
   sections: { id: string; title: string }[];
   tasks: {
     id: string;
-    section_id: string;
-    task_code: string;
+    sectionId: string;
+    taskCode: string;
     title: string;
     progressId: string | null;
     status: string;
     claimedCompletedAt: string | null;
     approvedAt: string | null;
-    source_task_reference?: string | null;
-    source_page_start?: number | null;
-    source_page_end?: number | null;
-    officialBookCandidate?: { official_book_status: string } | null;
-    officialBookCaptain?: { official_book_status: string } | null;
+    sourceTaskReference?: string | null;
+    sourcePageStart?: number | null;
+    sourcePageEnd?: number | null;
+    officialBookCandidate?: { officialBookStatus: string } | null;
+    officialBookCaptain?: { officialBookStatus: string } | null;
     officialBookDiscrepancy?: boolean;
   }[];
   evidence: {
     id: string;
-    task_progress_id: string;
-    original_filename: string;
-    mime_type: string;
-    file_size: number;
-    created_at: string;
+    taskProgressId: string;
+    originalFilename: string;
+    mimeType: string;
+    fileSize: number;
+    createdAt: string;
   }[];
   signoffs: {
     id: string;
-    task_progress_id: string;
+    taskProgressId: string;
     decision: string;
-    signer_name: string;
-    signer_email: string;
-    signer_rank: string | null;
-    signer_coc_number: string | null;
-    signer_issuing_authority: string | null;
-    signer_verification_status: string;
-    decision_notes: string | null;
-    signed_at: string;
-    record_hash: string;
+    signerName: string;
+    signerEmail: string;
+    signerRank: string | null;
+    signerCocNumber: string | null;
+    signerIssuingAuthority: string | null;
+    signerVerificationStatus: string;
+    decisionNotes: string | null;
+    signedAt: string;
+    recordHash: string;
   }[];
   auditEvents: {
     id: string;
-    event_type: string;
-    created_at: string;
-    actor_email: string | null;
+    eventType: string;
+    createdAt: string;
+    actorEmail: string | null;
   }[];
 };
 
@@ -233,23 +233,23 @@ export default function TrbAuditReportPage() {
       </div>
 
       {report.sections.map((section) => {
-        const tasks = report.tasks.filter((t) => t.section_id === section.id);
+        const tasks = report.tasks.filter((t) => t.sectionId === section.id);
         return (
           <TrainingRecordsSection key={section.id} title={section.title} flush>
             <ul className="divide-y divide-border">
               {tasks.map((task) => {
                 const evidence = report.evidence.filter(
-                  (e) => e.task_progress_id === task.progressId,
+                  (e) => e.taskProgressId === task.progressId,
                 );
                 const signoffs = report.signoffs.filter(
-                  (s) => s.task_progress_id === task.progressId,
+                  (s) => s.taskProgressId === task.progressId,
                 );
                 return (
                   <li key={task.id} className="space-y-2 px-4 py-3 sm:px-5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-medium">
                         <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">
-                          {task.task_code}
+                          {task.taskCode}
                         </span>
                         {task.title}
                       </p>
@@ -258,12 +258,12 @@ export default function TrbAuditReportPage() {
                         {task.officialBookCandidate ? (
                           <span className="text-[10px] text-muted-foreground">
                             Official (candidate):{' '}
-                            {task.officialBookCandidate.official_book_status}
+                            {task.officialBookCandidate.officialBookStatus}
                           </span>
                         ) : null}
                         {task.officialBookCaptain ? (
                           <span className="text-[10px] text-muted-foreground">
-                            Official (captain): {task.officialBookCaptain.official_book_status}
+                            Official (captain): {task.officialBookCaptain.officialBookStatus}
                           </span>
                         ) : null}
                         {task.officialBookDiscrepancy ? (
@@ -273,10 +273,10 @@ export default function TrbAuditReportPage() {
                         ) : null}
                       </div>
                     </div>
-                    {task.source_task_reference ? (
+                    {task.sourceTaskReference ? (
                       <p className="text-[10px] text-muted-foreground">
-                        Source: {task.source_task_reference} · pp. {task.source_page_start}–
-                        {task.source_page_end}
+                        Source: {task.sourceTaskReference} · pp. {task.sourcePageStart}–
+                        {task.sourcePageEnd}
                       </p>
                     ) : null}
                     <p className="font-mono text-[10px] text-muted-foreground">
@@ -293,7 +293,7 @@ export default function TrbAuditReportPage() {
                       <ul className="list-disc pl-4 text-[11px] text-muted-foreground">
                         {evidence.map((e) => (
                           <li key={e.id}>
-                            {e.original_filename} ({e.mime_type}, {e.file_size} bytes) — no
+                            {e.originalFilename} ({e.mimeType}, {e.fileSize} bytes) — no
                             public URL
                           </li>
                         ))}
@@ -306,17 +306,17 @@ export default function TrbAuditReportPage() {
                       >
                         <p>
                           <TrainingStatusPill status={s.decision} />{' '}
-                          <span className="font-medium">{s.signer_name}</span> (
-                          {s.signer_email}) · {s.signer_rank} · CoC {s.signer_coc_number} ·{' '}
-                          {s.signer_issuing_authority}
+                          <span className="font-medium">{s.signerName}</span> (
+                          {s.signerEmail}) · {s.signerRank} · CoC {s.signerCocNumber} ·{' '}
+                          {s.signerIssuingAuthority}
                         </p>
                         <p className="text-muted-foreground">
-                          Credential status: {s.signer_verification_status} (self-declared
+                          Credential status: {s.signerVerificationStatus} (self-declared
                           unless separately verified)
                         </p>
-                        {s.decision_notes ? <p>Notes: {s.decision_notes}</p> : null}
+                        {s.decisionNotes ? <p>Notes: {s.decisionNotes}</p> : null}
                         <p className="font-mono text-[10px] text-muted-foreground break-all">
-                          {new Date(s.signed_at).toLocaleString('en-GB')} · {s.record_hash}
+                          {new Date(s.signedAt).toLocaleString('en-GB')} · {s.recordHash}
                         </p>
                       </div>
                     ))}
@@ -336,11 +336,11 @@ export default function TrbAuditReportPage() {
               className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-[11px] sm:px-5"
             >
               <span className="capitalize">
-                {ev.event_type.replace(/_/g, ' ')}
-                {ev.actor_email ? ` · ${ev.actor_email}` : ''}
+                {ev.eventType.replace(/_/g, ' ')}
+                {ev.actorEmail ? ` · ${ev.actorEmail}` : ''}
               </span>
               <span className="font-mono tabular-nums text-muted-foreground">
-                {new Date(ev.created_at).toLocaleString('en-GB')}
+                {new Date(ev.createdAt).toLocaleString('en-GB')}
               </span>
             </li>
           ))}

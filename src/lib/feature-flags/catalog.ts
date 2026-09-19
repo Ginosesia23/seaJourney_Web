@@ -4,6 +4,9 @@
  *
  * Missing DB row → treated as enabled (fail-open until migration is applied).
  * Admins always bypass disabled flags in the UI so they can still test.
+ *
+ * Crew access can include the special `test` tier (`users.is_testing`) via
+ * Feature flags → Access tiers — same control surface as Standard / Premium.
  */
 
 export type FeatureAudience = 'crew' | 'vessel' | 'both';
@@ -37,7 +40,11 @@ export type FeatureFlagDefinition = {
   routes: string[];
   /** Default when no DB row exists. */
   defaultEnabled: boolean;
-  /** Lowest crew tier with access when globally enabled (higher tiers inherit). */
+  /**
+   * Default crew access when DB `min_crew_tier` is unset.
+   * Single slug = that tier and above (legacy). Prefer `set:test` / `set:premium,…`
+   * for an exact independent set (includes special `test` accounts tier).
+   */
   defaultMinCrewTier?: string | null;
   /** Lowest vessel tier with access when globally enabled (higher tiers inherit). */
   defaultMinVesselTier?: string | null;
@@ -155,11 +162,11 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     key: 'training_records',
     label: 'Training records',
     description:
-      'Digital TRB Companion — crew training programmes, evidence, and captain sign-offs (pilot; not an official MCA/PYA TRB).',
+      'Digital TRB Companion — crew training programmes, evidence, and captain sign-offs (pilot; not an official MCA/PYA TRB). Default access: Test accounts tier only.',
     audience: 'crew',
     routes: ['/dashboard/training-records', '/dashboard/training-signoffs'],
     defaultEnabled: true,
-    defaultMinCrewTier: 'premium',
+    defaultMinCrewTier: 'set:test',
   },
   {
     key: 'vessel_document_generator',
@@ -224,6 +231,13 @@ export function getFeatureDefinition(
   key: string,
 ): FeatureFlagDefinition | undefined {
   return FEATURE_FLAG_CATALOG.find((f) => f.key === key);
+}
+
+/** True when profile is marked testing/demo (`users.is_testing`). */
+export function profileIsTestingAccount(profile: unknown): boolean {
+  if (!profile || typeof profile !== 'object') return false;
+  const p = profile as { is_testing?: boolean; isTesting?: boolean };
+  return p.is_testing === true || p.isTesting === true;
 }
 
 function normalizeDashboardPath(pathname: string): string {

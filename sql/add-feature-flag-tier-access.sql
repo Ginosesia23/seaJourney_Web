@@ -7,7 +7,7 @@ ALTER TABLE public.platform_feature_flags
   ADD COLUMN IF NOT EXISTS min_vessel_tier text;
 
 COMMENT ON COLUMN public.platform_feature_flags.min_crew_tier IS
-  'Crew tier access. Prefer set encoding: set:crew_limited,premium (independent tiers). Legacy single slug still means that tier and above.';
+  'Crew tier access. Prefer set encoding: set:crew_limited,premium or set:test (independent tiers; test = users.is_testing). Legacy single slug still means that tier and above.';
 
 COMMENT ON COLUMN public.platform_feature_flags.min_vessel_tier IS
   'Lowest vessel-manager tier with access when the feature is globally enabled. Higher tiers inherit automatically.';
