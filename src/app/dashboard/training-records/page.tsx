@@ -2,10 +2,21 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { BookOpen, Loader2, Plus } from 'lucide-react';
+import { BookOpen, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   TrainingRecordsAttribution,
   TrainingRecordsDisclaimer,
@@ -33,17 +44,29 @@ type Program = {
   code: string;
   name: string;
   description: string | null;
-  is_official: boolean;
+  is_official?: boolean;
+  isOfficial?: boolean;
   isMcaPilot?: boolean;
+  isOowYachts3000?: boolean;
+  recognitionStatus?: string;
   recognition_status?: string;
+  sourceAuthority?: string | null;
+  sourceUrl?: string | null;
   source_url?: string | null;
+  sourcePublishedAt?: string | null;
+  sourceRevisionLabel?: string | null;
+  companionNotice?: string | null;
   versions: {
     id: string;
     version: string;
     status: string;
     disclaimer: string;
+    companionNotice?: string;
     pilot_disclaimer?: string;
+    pilotDisclaimer?: string;
     attribution_html?: string;
+    attributionHtml?: string;
+    sourceVersionReference?: string | null;
   }[];
 };
 
@@ -69,7 +92,7 @@ const emptyConsent = {
 };
 
 export default function TrainingRecordsPage() {
-  const { session } = useSupabase();
+  const { session, supabase, user } = useSupabase();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
@@ -77,6 +100,11 @@ export default function TrainingRecordsPage() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [consentOpenFor, setConsentOpenFor] = useState<string | null>(null);
   const [consent, setConsent] = useState(emptyConsent);
+  const [enrollmentToDelete, setEnrollmentToDelete] = useState<Enrollment | null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const load = useCallback(async () => {
     if (!session?.access_token) return;
@@ -117,7 +145,7 @@ export default function TrainingRecordsPage() {
       if (!all) {
         toast({
           title: 'Consent required',
-          description: 'Confirm all pilot consent statements before enroling.',
+          description: 'Confirm all companion consent statements before enroling.',
           variant: 'destructive',
         });
         return;
@@ -156,8 +184,8 @@ export default function TrainingRecordsPage() {
         description: json.alreadyEnrolled
           ? 'Opening your existing programme.'
           : isMca
-            ? 'MCA digital companion pilot started. Continue maintaining your official TRB.'
-            : 'Demonstration task tracker started for this pilot programme.',
+            ? 'OOW Training Record companion started. Continue maintaining your official TRB.'
+            : 'Training record enrolment started.',
       });
       setConsentOpenFor(null);
       setConsent(emptyConsent);
@@ -173,6 +201,69 @@ export default function TrainingRecordsPage() {
       });
     } finally {
       setEnrolling(false);
+    }
+  }
+
+
+  function closeDeleteDialog() {
+    if (isDeleting || isVerifyingPassword) return;
+    setEnrollmentToDelete(null);
+    setDeletePassword('');
+    setPasswordError('');
+  }
+
+  async function confirmDeleteEnrollment() {
+    if (!enrollmentToDelete || !session?.access_token || !supabase) return;
+    const email = user?.email || session.user?.email;
+    if (!email) {
+      setPasswordError('Your account email is unavailable. Sign out and back in, then try again.');
+      return;
+    }
+    if (!deletePassword.trim()) {
+      setPasswordError('Password is required');
+      return;
+    }
+
+    setIsVerifyingPassword(true);
+    setPasswordError('');
+    try {
+      const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password: deletePassword,
+      });
+      if (signInError || !authData.session?.access_token) {
+        setPasswordError('Incorrect password. Please try again.');
+        return;
+      }
+
+      setIsDeleting(true);
+      const res = await fetch(`/api/trb/enrollments/${enrollmentToDelete.id}`, {
+        method: 'DELETE',
+        headers: bearerHeaders(authData.session.access_token),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to delete enrolment');
+      }
+
+      toast({
+        title: 'Enrolment deleted',
+        description:
+          'All progress, evidence, and digital sign-offs for this programme have been permanently removed.',
+      });
+      setEnrollmentToDelete(null);
+      setDeletePassword('');
+      setPasswordError('');
+      await load();
+    } catch (e) {
+      toast({
+        title: 'Could not delete enrolment',
+        description: e instanceof Error ? e.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsVerifyingPassword(false);
+      setIsDeleting(false);
     }
   }
 
@@ -193,8 +284,8 @@ export default function TrainingRecordsPage() {
   return (
     <div className="flex flex-col gap-6">
       <TrainingRecordsPageHeader
-        title="Digital TRB Companion"
-        description="Pilot training-task tracker for captain-reviewed training evidence."
+        title="Training Records"
+        description="Digital companion for officer-reviewed training evidence — not an official MCA/PYA Training Record Book."
       />
 
       <TrainingRecordsDisclaimer>{TRB_DISCLAIMER}</TrainingRecordsDisclaimer>
@@ -207,7 +298,7 @@ export default function TrainingRecordsPage() {
         {enrollments.length === 0 ? (
           <TrainingRecordsEmpty
             title="No enrolments yet"
-            description="Enrol in a demonstration or (if authorised) the private MCA pilot below."
+            description="Enrol in an available Training Record programme below."
           />
         ) : (
           <ul className="divide-y divide-border">
@@ -226,14 +317,9 @@ export default function TrainingRecordsPage() {
                       </p>
                       <TrainingStatusPill status={e.status} />
                       {isMca ? (
-                        <>
-                          <span className="rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
-                            Private pilot
-                          </span>
-                          <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                            Not officially approved
-                          </span>
-                        </>
+                        <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                          Digital companion · not MCA/PYA approved
+                        </span>
                       ) : null}
                       <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
                         v{e.trb_program_versions?.version}
@@ -243,12 +329,28 @@ export default function TrainingRecordsPage() {
                       Started {new Date(e.started_at).toLocaleDateString('en-GB')}
                     </p>
                   </div>
-                  <Button asChild size="sm" className="h-8 rounded-md text-xs">
-                    <Link href={`/dashboard/training-records/${e.id}`}>
-                      <BookOpen className="mr-1.5 h-3.5 w-3.5" />
-                      Open
-                    </Link>
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button asChild size="sm" className="h-8 rounded-md text-xs">
+                      <Link href={`/dashboard/training-records/${e.id}`}>
+                        <BookOpen className="mr-1.5 h-3.5 w-3.5" />
+                        Open
+                      </Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-md text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => {
+                        setEnrollmentToDelete(e);
+                        setDeletePassword('');
+                        setPasswordError('');
+                      }}
+                    >
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                      Remove
+                    </Button>
+                  </div>
                 </li>
               );
             })}
@@ -258,13 +360,13 @@ export default function TrainingRecordsPage() {
 
       <TrainingRecordsSection
         title="Available programmes"
-        description="Demonstration content always listed; MCA pilot only if enabled and you are allowlisted"
+        description="Source-verified Training Record programmes available to your account"
         flush={programs.length > 0}
       >
         {programs.length === 0 ? (
           <TrainingRecordsEmpty
             title="No programmes available"
-            description="Ask an admin to run the demonstration seed SQL."
+            description="If you expect to see a programme here, ask an admin to confirm Training Records is enabled for your account."
           />
         ) : (
           <ul className="divide-y divide-border">
@@ -286,17 +388,12 @@ export default function TrainingRecordsPage() {
                           {p.code}
                         </span>
                         {isMca ? (
-                          <>
-                            <span className="rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
-                              Private pilot
-                            </span>
-                            <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                              Not officially approved
-                            </span>
-                          </>
+                          <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                            Digital companion · not MCA/PYA approved
+                          </span>
                         ) : (
                           <span className="inline-flex items-center rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            Demonstration
+                            Training programme
                           </span>
                         )}
                       </div>
@@ -319,41 +416,69 @@ export default function TrainingRecordsPage() {
                       ) : (
                         <Plus className="mr-1.5 h-3.5 w-3.5" />
                       )}
-                      {isMca ? 'Enrol in private pilot' : 'Enrol in pilot'}
+                      {isMca ? 'Enrol in Training Record' : 'Enrol'}
                     </Button>
                   </div>
 
                   {showConsent && isMca ? (
                     <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
-                      <TrainingRecordsDisclaimer title="Mandatory pilot disclaimer">
-                        {p.versions[0]?.pilot_disclaimer ||
+                      <TrainingRecordsDisclaimer title="About this digital record">
+                        {p.companionNotice ||
+                          p.versions[0]?.companionNotice ||
+                          p.versions[0]?.pilot_disclaimer ||
                           p.versions[0]?.disclaimer ||
                           MCA_PILOT_DISCLAIMER}
                       </TrainingRecordsDisclaimer>
                       <TrainingRecordsAttribution
-                        text={p.versions[0]?.attribution_html || MCA_PILOT_ATTRIBUTION}
-                        sourceUrl={p.source_url || MCA_PILOT_SOURCE_URL}
+                        text={
+                          p.versions[0]?.attributionHtml ||
+                          p.versions[0]?.attribution_html ||
+                          MCA_PILOT_ATTRIBUTION
+                        }
+                        sourceUrl={p.sourceUrl || p.source_url || MCA_PILOT_SOURCE_URL}
                         oglUrl={MCA_PILOT_OGL_URL}
                       />
-                      <p className="text-[11px] text-muted-foreground">
-                        This trial includes <strong>one official section only</strong>: PART 3 —
-                        Maintain a Safe Navigational Watch (PDF pages 55–57). You must continue
-                        obtaining signatures in your official TRB in parallel.
-                      </p>
+                      {(p.sourceRevisionLabel || p.sourceAuthority || p.versions[0]?.sourceVersionReference) ? (
+                        <div className="rounded-md border border-border bg-background px-3 py-2 text-[11px] text-muted-foreground space-y-1">
+                          <p>
+                            <span className="font-medium text-foreground">Source:</span>{' '}
+                            {p.sourceAuthority || 'Maritime and Coastguard Agency'}
+                            {p.sourceRevisionLabel ? ` · ${p.sourceRevisionLabel}` : ''}
+                          </p>
+                          {p.sourcePublishedAt ? (
+                            <p>Source revision date (GOV.UK): {p.sourcePublishedAt}</p>
+                          ) : null}
+                          <p>
+                            Currently published in SeaJourney: Parts 1–5 signable task sections from
+                            the MCA Yacht Training Record Book (personal details / service forms
+                            excluded).
+                          </p>
+                          {(p.sourceUrl || MCA_PILOT_SOURCE_URL) ? (
+                            <a
+                              className="text-sky-700 underline"
+                              href={p.sourceUrl || MCA_PILOT_SOURCE_URL}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              View source
+                            </a>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {(
                         [
-                          ['understandsTrial', 'I understand this is a digital companion trial.'],
+                          ['understandsTrial', 'I understand this is a SeaJourney digital companion, not an official MCA digital TRB.'],
                           [
                             'doesNotReplaceOfficialTrb',
                             'I understand it does not replace the official Training Record Book.',
                           ],
                           [
                             'willMaintainOfficialTrb',
-                            'I will continue maintaining and obtaining required signatures in the official TRB.',
+                            'I will continue maintaining any record required by the MCA or my recognised verification body.',
                           ],
                           [
                             'feedbackMayBeAnalysed',
-                            'I agree that trial activity and feedback may be analysed to improve the workflow.',
+                            'I agree that activity and feedback may be analysed to improve the workflow.',
                           ],
                           [
                             'noMcaPyaApprovalImplied',
@@ -404,6 +529,101 @@ export default function TrainingRecordsPage() {
           </ul>
         )}
       </TrainingRecordsSection>
+
+      <AlertDialog
+        open={Boolean(enrollmentToDelete)}
+        onOpenChange={(open) => {
+          if (!open) closeDeleteDialog();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently remove this enrolment?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  This permanently deletes{' '}
+                  <span className="font-medium text-foreground">
+                    {enrollmentToDelete?.trb_program_versions?.trb_programs?.name ||
+                      'this Training Record programme'}
+                  </span>{' '}
+                  from your account.
+                </p>
+                <ul className="list-disc space-y-1 pl-5">
+                  <li>All task progress and candidate notes</li>
+                  <li>All uploaded evidence files</li>
+                  <li>All digital sign-off requests and sign-offs</li>
+                  <li>Batch review history and audit entries for this enrolment</li>
+                </ul>
+                <p className="font-medium text-destructive">
+                  This cannot be undone. Your official paper Training Record Book is not affected.
+                </p>
+                <div className="space-y-2 pt-1">
+                  <Label htmlFor="trb-delete-password">Confirm your password to continue</Label>
+                  <Input
+                    id="trb-delete-password"
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="Enter your password"
+                    value={deletePassword}
+                    disabled={isVerifyingPassword || isDeleting}
+                    onChange={(e) => {
+                      setDeletePassword(e.target.value);
+                      setPasswordError('');
+                    }}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === 'Enter' &&
+                        deletePassword &&
+                        !isVerifyingPassword &&
+                        !isDeleting
+                      ) {
+                        e.preventDefault();
+                        void confirmDeleteEnrollment();
+                      }
+                    }}
+                  />
+                  {passwordError ? (
+                    <p className="text-sm text-destructive">{passwordError}</p>
+                  ) : null}
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={isDeleting || isVerifyingPassword}
+              onClick={() => {
+                setDeletePassword('');
+                setPasswordError('');
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={
+                isDeleting || isVerifyingPassword || !deletePassword.trim()
+              }
+              onClick={() => void confirmDeleteEnrollment()}
+            >
+              {isDeleting || isVerifyingPassword ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {isVerifyingPassword && !isDeleting ? 'Verifying…' : 'Deleting…'}
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete permanently
+                </>
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }

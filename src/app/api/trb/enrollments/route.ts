@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       auth.userId,
       {
         programVersionId: parsed.data.programVersionId,
-        programCode: parsed.data.programCode || 'SJ-DEMO-TRB-OOW',
+        programCode: parsed.data.programCode || 'SJ-PILOT-MCA-OOW-YACHTS',
         consent: parsed.data.consent,
         actorEmail: auth.email,
         isAdmin: profile.isAdmin,

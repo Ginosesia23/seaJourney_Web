@@ -9,6 +9,7 @@ import {
   type DatalasticVesselPosition,
 } from '@/lib/datalastic/client';
 import { getNormalizedAisNavStatus } from '@/lib/ais/map-ais-to-state';
+import type { AisProviderRequestMeta } from '@/lib/ais/fetch-audit-shared';
 import type {
   AISProvider,
   AISProviderLookup,
@@ -47,15 +48,28 @@ export class DatalasticAISProvider implements AISProvider {
       };
     }
 
+    // refreshVesselAIS writes the audit row (with trigger / schedule context).
+    let requestMeta: AisProviderRequestMeta | undefined;
+    const audit = {
+      triggerSource: 'unknown' as const,
+      onRequestComplete: (meta: AisProviderRequestMeta) => {
+        requestMeta = meta;
+      },
+    };
+
     try {
-      const raw = await fetchVesselPosition({
-        mmsi: lookup.mmsi,
-        imo: lookup.imo,
-      });
+      const raw = await fetchVesselPosition(
+        {
+          mmsi: lookup.mmsi,
+          imo: lookup.imo,
+        },
+        audit,
+      );
       return {
         ok: true,
         position: toProviderPosition(raw),
-        responseStatus: 200,
+        responseStatus: requestMeta?.httpStatus ?? 200,
+        requestMeta,
       };
     } catch (err: unknown) {
       const status = err instanceof DatalasticApiError ? err.status : 500;
@@ -66,6 +80,7 @@ export class DatalasticAISProvider implements AISProvider {
         position: null,
         responseStatus: status,
         errorMessage: message,
+        requestMeta,
       };
     }
   }

@@ -1,4 +1,6 @@
-# MCA OOW (Yachts) TRB — Digital Companion Pilot source manifest
+# MCA OOW (Yachts) TRB — source task manifest
+
+Task-level page map for the OOW companion. Full verification report: [`oow-yachts-3000gt-source-verification.md`](./oow-yachts-3000gt-source-verification.md).
 
 **Access / check date:** 2026-09-19  
 

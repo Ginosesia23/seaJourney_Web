@@ -3,14 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Download, Loader2, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Download, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import {
   Dialog,
   DialogContent,
@@ -35,10 +45,21 @@ import {
   TrainingRecordsStatTiles,
   TrainingStatusPill,
 } from '@/components/dashboard/training-records-page-ui';
+import { cn } from '@/lib/utils';
 import { MCA_PILOT_ATTRIBUTION, MCA_PILOT_OGL_URL, MCA_PILOT_SOURCE_URL } from '@/lib/trb/pilot';
 import { bearerHeaders } from '@/lib/applications/client';
 import { useToast } from '@/hooks/use-toast';
 import { useSupabase } from '@/supabase';
+
+type TaskSignoffSummary = {
+  id: string;
+  decision: string;
+  signerName: string;
+  signerEmail: string;
+  signerRank?: string | null;
+  decisionNotes?: string | null;
+  signedAt: string;
+};
 
 type TaskRow = {
   id: string;
@@ -47,16 +68,41 @@ type TaskRow = {
   title: string;
   progressId: string | null;
   status: string;
+  latestSignoff?: TaskSignoffSummary | null;
   officialBookDiscrepancy?: boolean;
   officialBookCandidate?: { officialBookStatus: string } | null;
 };
 
 type Detail = {
   disclaimer: string;
+  companionNotice?: string | null;
   isMcaPilot?: boolean;
+  isOowYachts3000?: boolean;
   attribution?: string | null;
   sourceUrl?: string | null;
   oglUrl?: string | null;
+  programmeSource?: {
+    programCode?: string | null;
+    programName?: string | null;
+    programVersion?: string | null;
+    versionStatus?: string | null;
+    recognitionStatus?: string | null;
+    sourceAuthority?: string | null;
+    sourceTitle?: string | null;
+    sourceUrl?: string | null;
+    sourcePublishedAt?: string | null;
+    sourceLicense?: string | null;
+    sourceLicenseUrl?: string | null;
+    sourcePdfFilename?: string | null;
+    sourceDocumentSha256?: string | null;
+    sourceRevisionLabel?: string | null;
+    sourceVersionReference?: string | null;
+    sourceCheckedAt?: string | null;
+    contentProvenance?: string | null;
+    companionNotice?: string | null;
+    supersededByVersionId?: string | null;
+    isOfficial?: boolean;
+  } | null;
   enrollment: {
     id: string;
     status: string;
@@ -109,11 +155,15 @@ type EligibleTask = {
 };
 
 type Signer = {
-  userId: string;
+  userId: string | null;
   email: string;
   fullName: string | null;
   rank: string | null;
   source: string;
+  eligibilityLabel?: string;
+  isVesselManager?: boolean;
+  vesselRole?: string | null;
+  authorityExpiresAt?: string | null;
 };
 
 type BatchRequestSummary = {
@@ -142,12 +192,15 @@ export default function EnrollmentDetailPage() {
   const [batchRequests, setBatchRequests] = useState<BatchRequestSummary[]>([]);
   const [requestOpen, setRequestOpen] = useState(false);
   const [signers, setSigners] = useState<Signer[]>([]);
+  const [signerUserId, setSignerUserId] = useState<string | null>(null);
   const [signerEmail, setSignerEmail] = useState('');
   const [signerName, setSignerName] = useState('');
   const [optionalMessage, setOptionalMessage] = useState('');
   const [vesselName, setVesselName] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loadingSigners, setLoadingSigners] = useState(false);
+  const [openSections, setOpenSections] = useState<string[]>([]);
+  const [sectionsInitialized, setSectionsInitialized] = useState(false);
 
   const load = useCallback(async () => {
     if (!session?.access_token || !params.enrollmentId) return;
@@ -191,6 +244,29 @@ export default function EnrollmentDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Reset accordion defaults when switching enrolments.
+  useEffect(() => {
+    setSectionsInitialized(false);
+    setOpenSections([]);
+  }, [params.enrollmentId]);
+
+  // Default: expand the first incomplete section (or the first section).
+  useEffect(() => {
+    if (!detail?.sections?.length || sectionsInitialized) return;
+    const firstIncomplete = detail.sections.find((section) => {
+      const prog = detail.bySection[section.id];
+      if (!prog) return true;
+      return prog.approved < prog.total;
+    });
+    setOpenSections([(firstIncomplete || detail.sections[0]).id]);
+    setSectionsInitialized(true);
+  }, [detail, sectionsInitialized]);
+
+  const allSectionIds = useMemo(
+    () => (detail?.sections || []).map((s) => s.id),
+    [detail?.sections],
+  );
 
   const eligibleIds = useMemo(
     () => new Set(eligible.map((t) => t.taskProgressId)),
@@ -250,6 +326,7 @@ export default function EnrollmentDetailPage() {
       setSigners(json.signers || []);
       setVesselName(json.vesselName || null);
       if (json.signers?.[0]) {
+        setSignerUserId(json.signers[0].userId || null);
         setSignerEmail(json.signers[0].email);
         setSignerName(json.signers[0].fullName || '');
       }
@@ -266,7 +343,7 @@ export default function EnrollmentDetailPage() {
   }
 
   async function submitBatchRequest() {
-    if (!session?.access_token || !signerEmail || !signerName.trim()) return;
+    if (!session?.access_token || !signerUserId) return;
     setSubmitting(true);
     try {
       const idempotencyKey =
@@ -282,8 +359,9 @@ export default function EnrollmentDetailPage() {
         body: JSON.stringify({
           enrollmentId: params.enrollmentId,
           taskProgressIds: [...selected],
-          signerName: signerName.trim(),
-          signerEmail: signerEmail.trim(),
+          signerUserId,
+          signerName: signerName.trim() || undefined,
+          signerEmail: signerEmail.trim() || undefined,
           authorisedConfirmation: true,
           optionalMessage: optionalMessage.trim() || undefined,
           idempotencyKey,
@@ -295,7 +373,7 @@ export default function EnrollmentDetailPage() {
       }
       toast({
         title: 'Sign-off requested',
-        description: `${json.taskCount || selected.size} task(s) sent to ${signerEmail}.`,
+        description: `${json.taskCount || selected.size} task(s) sent to ${signerName || signerEmail}.`,
       });
       setRequestOpen(false);
       setSelected(new Set());
@@ -355,7 +433,7 @@ export default function EnrollmentDetailPage() {
       <TrainingRecordsPageHeader
         title={prog?.name || 'Training programme'}
         breadcrumb={prog?.name || 'Programme'}
-        description={`Version ${detail.enrollment.trb_program_versions?.version} · Digital TRB Companion`}
+        description={`Version ${detail.enrollment.trb_program_versions?.version} · Training Record`}
         actions={
           <>
             <Button asChild variant="outline" size="sm" className="h-8 rounded-md text-xs">
@@ -375,7 +453,7 @@ export default function EnrollmentDetailPage() {
       />
 
       <TrainingRecordsDisclaimer
-        title={detail.isMcaPilot ? 'Mandatory pilot disclaimer' : 'Pilot disclaimer'}
+        title={detail.isMcaPilot ? 'About this digital record' : 'Training Record notice'}
       >
         {detail.disclaimer}
       </TrainingRecordsDisclaimer>
@@ -386,6 +464,40 @@ export default function EnrollmentDetailPage() {
           sourceUrl={detail.sourceUrl || MCA_PILOT_SOURCE_URL}
           oglUrl={detail.oglUrl || MCA_PILOT_OGL_URL}
         />
+      ) : null}
+
+      {detail.programmeSource?.sourceRevisionLabel ||
+      detail.programmeSource?.sourceAuthority ? (
+        <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground space-y-1">
+          <p>
+            <span className="font-medium text-foreground">Source:</span>{' '}
+            {detail.programmeSource.sourceAuthority || 'Maritime and Coastguard Agency'}
+            {detail.programmeSource.sourceRevisionLabel
+              ? ` · ${detail.programmeSource.sourceRevisionLabel}`
+              : ''}
+          </p>
+          {detail.programmeSource.sourcePublishedAt ? (
+            <p>GOV.UK publication: {detail.programmeSource.sourcePublishedAt}</p>
+          ) : null}
+          {detail.programmeSource.contentProvenance ? (
+            <p>{detail.programmeSource.contentProvenance}</p>
+          ) : (
+            <p>
+              Currently published in SeaJourney: Parts 1–5 signable task sections from the MCA
+              Yacht Training Record Book (personal details / service forms excluded).
+            </p>
+          )}
+          {(detail.programmeSource.sourceUrl || detail.sourceUrl) ? (
+            <a
+              className="text-sky-700 underline"
+              href={detail.programmeSource.sourceUrl || detail.sourceUrl || MCA_PILOT_SOURCE_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View source
+            </a>
+          ) : null}
+        </div>
       ) : null}
 
       <TrainingRecordsStatTiles
@@ -480,112 +592,288 @@ export default function EnrollmentDetailPage() {
         </TrainingRecordsSection>
       ) : null}
 
-      {detail.sections.map((section) => {
-        const sectionTasks = detail.tasks.filter((t) => t.sectionId === section.id);
-        const sectionProg = detail.bySection[section.id];
-        const sectionEligible = eligible.filter((t) => t.sectionId === section.id);
-        return (
-          <TrainingRecordsSection
-            key={section.id}
-            title={section.title}
-            description={`${sectionProg?.approved ?? 0}/${sectionProg?.total ?? sectionTasks.length} approved`}
-            flush
-            action={
-              <div className="flex items-center gap-2">
-                {sectionEligible.length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 rounded-md text-xs"
-                    onClick={() => selectAllInSection(section.id)}
-                  >
-                    Select eligible
-                  </Button>
-                ) : null}
-                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                  {sectionProg?.percentComplete ?? 0}%
-                </span>
-              </div>
-            }
-          >
-            {sectionTasks.length === 0 ? (
-              <p className="px-4 py-3 text-xs text-muted-foreground sm:px-5">
-                No tasks in this section.
-              </p>
-            ) : (
-              <>
-                <div className="border-b border-border px-4 py-2 sm:px-5">
-                  <Progress
-                    value={sectionProg?.percentComplete ?? 0}
-                    className="h-1"
-                  />
-                </div>
-                <ul className="divide-y divide-border">
-                  {sectionTasks.map((task) => {
-                    const canSelect =
-                      Boolean(task.progressId) &&
-                      eligibleIds.has(task.progressId as string);
-                    return (
-                      <li
-                        key={task.id}
-                        className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 sm:px-5"
-                      >
-                        <div className="flex min-w-0 items-start gap-3">
-                          {canSelect ? (
-                            <Checkbox
-                              checked={selected.has(task.progressId as string)}
-                              onCheckedChange={() =>
-                                toggleTask(task.progressId as string)
-                              }
-                              aria-label={`Select ${task.taskCode}`}
-                              className="mt-0.5"
-                            />
-                          ) : (
-                            <span className="mt-0.5 inline-block h-4 w-4" aria-hidden />
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-foreground">
-                              <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">
-                                {task.taskCode}
-                              </span>
-                              {task.title}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <TrainingStatusPill status={task.status} />
-                          {task.officialBookCandidate?.officialBookStatus === 'signed' ? (
-                            <span className="text-[10px] text-emerald-700">Official book</span>
-                          ) : null}
-                          {task.officialBookDiscrepancy ? (
-                            <span className="text-[10px] text-amber-700">Discrepancy</span>
-                          ) : null}
-                          {task.progressId ? (
-                            <Button
-                              asChild
-                              variant="outline"
-                              size="sm"
-                              className="h-7 rounded-md text-xs"
-                            >
-                              <Link
-                                href={`/dashboard/training-records/${params.enrollmentId}/tasks/${task.progressId}`}
-                              >
-                                Open
-                              </Link>
-                            </Button>
-                          ) : null}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </>
-            )}
-          </TrainingRecordsSection>
-        );
-      })}
+      <div className="overflow-hidden rounded-md border border-border bg-background">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2.5">
+          <div className="min-w-0">
+            <h2 className="text-xs font-medium text-foreground">Programme sections</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {detail.sections.length} sections · {detail.overall.total} tasks · expand a
+              section to work through its tasks
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 rounded-md text-xs"
+              onClick={() => setOpenSections(allSectionIds)}
+              disabled={allSectionIds.length === 0}
+            >
+              Expand all
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 rounded-md text-xs"
+              onClick={() => setOpenSections([])}
+              disabled={openSections.length === 0}
+            >
+              Collapse all
+            </Button>
+          </div>
+        </div>
 
+        {detail.sections.length === 0 ? (
+          <p className="px-4 py-3 text-xs text-muted-foreground sm:px-5">
+            No sections in this programme yet.
+          </p>
+        ) : (
+          <Accordion
+            type="multiple"
+            value={openSections}
+            onValueChange={setOpenSections}
+            className="divide-y divide-border"
+          >
+            {detail.sections.map((section) => {
+              const sectionTasks = detail.tasks.filter((t) => t.sectionId === section.id);
+              const sectionProg = detail.bySection[section.id];
+              const sectionEligible = eligible.filter((t) => t.sectionId === section.id);
+              const approved = sectionProg?.approved ?? 0;
+              const total = sectionProg?.total ?? sectionTasks.length;
+              const percent = sectionProg?.percentComplete ?? 0;
+
+              return (
+                <AccordionItem
+                  key={section.id}
+                  value={section.id}
+                  className="border-0"
+                >
+                  <div className="flex items-stretch gap-1 pr-2 sm:pr-3">
+                    <AccordionTrigger className="flex-1 items-center gap-3 px-4 py-3 text-left hover:no-underline sm:px-5 [&[data-state=open]>svg]:rotate-180">
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="text-sm font-medium text-foreground">
+                            {section.title}
+                          </span>
+                          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                            {approved}/{total} approved · {percent}%
+                          </span>
+                          {sectionEligible.length > 0 ? (
+                            <span className="rounded border border-violet-500/25 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">
+                              {sectionEligible.length} ready
+                            </span>
+                          ) : null}
+                        </div>
+                        <Progress value={percent} className="h-1 max-w-md" />
+                      </div>
+                    </AccordionTrigger>
+                    {sectionEligible.length > 0 ? (
+                      <div className="flex items-center py-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 shrink-0 rounded-md text-xs"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            selectAllInSection(section.id);
+                            setOpenSections((prev) =>
+                              prev.includes(section.id) ? prev : [...prev, section.id],
+                            );
+                          }}
+                        >
+                          Select eligible
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <AccordionContent className="pb-0 pt-0">
+                    {sectionTasks.length === 0 ? (
+                      <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground sm:px-5">
+                        No tasks in this section.
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-border border-t border-border">
+                        {sectionTasks.map((task) => {
+                          const canSelect =
+                            Boolean(task.progressId) &&
+                            eligibleIds.has(task.progressId as string);
+                          const signoff = task.latestSignoff;
+                          const canExpandSignoff = Boolean(signoff);
+
+                          const rowMain = (
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex min-w-0 items-start gap-3">
+                                {canSelect ? (
+                                  <Checkbox
+                                    checked={selected.has(task.progressId as string)}
+                                    onCheckedChange={() =>
+                                      toggleTask(task.progressId as string)
+                                    }
+                                    aria-label={`Select ${task.taskCode}`}
+                                    className="mt-0.5"
+                                  />
+                                ) : (
+                                  <span
+                                    className="mt-0.5 inline-block h-4 w-4"
+                                    aria-hidden
+                                  />
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-foreground">
+                                    <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">
+                                      {task.taskCode}
+                                    </span>
+                                    {task.title}
+                                  </p>
+                                  {signoff ? (
+                                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                      {signoff.decision === 'approved'
+                                        ? 'Signed off'
+                                        : signoff.decision === 'changes_requested'
+                                          ? 'Changes requested'
+                                          : signoff.decision === 'rejected'
+                                            ? 'Rejected'
+                                            : 'Reviewed'}{' '}
+                                      by {signoff.signerName || signoff.signerEmail}
+                                      {' · '}
+                                      {new Date(signoff.signedAt).toLocaleDateString('en-GB')}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <TrainingStatusPill status={task.status} />
+                                {task.officialBookCandidate?.officialBookStatus ===
+                                'signed' ? (
+                                  <span className="text-[10px] text-emerald-700">
+                                    Official book
+                                  </span>
+                                ) : null}
+                                {task.officialBookDiscrepancy ? (
+                                  <span className="text-[10px] text-amber-700">
+                                    Discrepancy
+                                  </span>
+                                ) : null}
+                                {canExpandSignoff ? (
+                                  <CollapsibleTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground"
+                                    >
+                                      Details
+                                      <ChevronDown className="ml-1 h-3.5 w-3.5 transition-transform group-data-[state=open]/signoff:rotate-180" />
+                                    </Button>
+                                  </CollapsibleTrigger>
+                                ) : null}
+                                {task.progressId ? (
+                                  <Button
+                                    asChild
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 rounded-md text-xs"
+                                  >
+                                    <Link
+                                      href={`/dashboard/training-records/${params.enrollmentId}/tasks/${task.progressId}`}
+                                    >
+                                      Open
+                                    </Link>
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+
+                          if (!canExpandSignoff || !signoff) {
+                            return (
+                              <li key={task.id} className="px-4 py-2.5 sm:px-5">
+                                {rowMain}
+                              </li>
+                            );
+                          }
+
+                          return (
+                            <li key={task.id} className="px-4 py-2.5 sm:px-5">
+                              <Collapsible className="group/signoff">
+                                {rowMain}
+                                <CollapsibleContent>
+                                  <div
+                                    className={cn(
+                                      'mt-2.5 rounded-md border px-3 py-2.5 text-xs',
+                                      signoff.decision === 'approved' &&
+                                        'border-emerald-500/20 bg-emerald-500/[0.06]',
+                                      signoff.decision === 'changes_requested' &&
+                                        'border-amber-500/20 bg-amber-500/[0.06]',
+                                      signoff.decision === 'rejected' &&
+                                        'border-destructive/20 bg-destructive/[0.06]',
+                                      !['approved', 'changes_requested', 'rejected'].includes(
+                                        signoff.decision,
+                                      ) && 'border-border bg-muted/30',
+                                    )}
+                                  >
+                                    <dl className="grid gap-2 sm:grid-cols-2">
+                                      <div>
+                                        <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                          Decision
+                                        </dt>
+                                        <dd className="mt-0.5 capitalize text-foreground">
+                                          {signoff.decision.replace(/_/g, ' ')}
+                                        </dd>
+                                      </div>
+                                      <div>
+                                        <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                          When
+                                        </dt>
+                                        <dd className="mt-0.5 font-mono tabular-nums text-foreground">
+                                          {new Date(signoff.signedAt).toLocaleString('en-GB')}
+                                        </dd>
+                                      </div>
+                                      <div className="sm:col-span-2">
+                                        <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                          Signed by
+                                        </dt>
+                                        <dd className="mt-0.5 text-foreground">
+                                          {signoff.signerName || 'Officer'}
+                                          {signoff.signerRank
+                                            ? ` · ${signoff.signerRank}`
+                                            : ''}
+                                          <span className="mt-0.5 block text-muted-foreground">
+                                            {signoff.signerEmail}
+                                          </span>
+                                        </dd>
+                                      </div>
+                                      <div className="sm:col-span-2">
+                                        <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                          Comments
+                                        </dt>
+                                        <dd className="mt-0.5 whitespace-pre-wrap text-foreground">
+                                          {signoff.decisionNotes?.trim()
+                                            ? signoff.decisionNotes.trim()
+                                            : 'No comments left with this decision.'}
+                                        </dd>
+                                      </div>
+                                    </dl>
+                                  </div>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+        )}
+      </div>
       <TrainingRecordsSection title="Recent activity" flush>
         {detail.recentActivity.length === 0 ? (
           <TrainingRecordsEmpty
@@ -684,55 +972,45 @@ export default function EnrollmentDetailPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Officer / captain</Label>
+                <Label>Eligible Training Record signer</Label>
                 {signers.length > 0 ? (
                   <Select
-                    value={signerEmail}
-                    onValueChange={(email) => {
-                      setSignerEmail(email);
-                      const s = signers.find((x) => x.email === email);
-                      if (s?.fullName) setSignerName(s.fullName);
+                    value={signerUserId || ''}
+                    onValueChange={(id) => {
+                      setSignerUserId(id);
+                      const s = signers.find((x) => x.userId === id);
+                      if (s) {
+                        setSignerEmail(s.email);
+                        setSignerName(s.fullName || '');
+                      }
                     }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select signer" />
                     </SelectTrigger>
                     <SelectContent>
-                      {signers.map((s) => (
-                        <SelectItem key={s.userId || s.email} value={s.email}>
-                          {s.fullName || s.email}
-                          {s.rank ? ` · ${s.rank}` : ''}
-                        </SelectItem>
-                      ))}
+                      {signers
+                        .filter((s) => s.userId)
+                        .map((s) => (
+                          <SelectItem key={s.userId!} value={s.userId!}>
+                            {s.fullName || s.email}
+                            {s.eligibilityLabel
+                              ? ` · ${s.eligibilityLabel}`
+                              : s.rank
+                                ? ` · ${s.rank}`
+                                : ''}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 ) : (
                   <p className="text-xs text-amber-700">
-                    No roster officers found for your active vessel. Confirm vessel
-                    assignment and signing authorities, or add details below if your
-                    programme allows external invite.
+                    No eligible Training Record signers yet. Ask the vessel manager to enable{' '}
+                    <span className="font-medium">Training Record sign-off</span> for a captain or
+                    themselves under Dashboard → Vessel roles (managing the vessel alone is not
+                    enough).
                   </p>
                 )}
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="signerName">Signer name</Label>
-                  <Input
-                    id="signerName"
-                    value={signerName}
-                    onChange={(e) => setSignerName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="signerEmail">Signer email</Label>
-                  <Input
-                    id="signerEmail"
-                    type="email"
-                    value={signerEmail}
-                    onChange={(e) => setSignerEmail(e.target.value)}
-                  />
-                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -763,8 +1041,7 @@ export default function EnrollmentDetailPage() {
               disabled={
                 submitting ||
                 loadingSigners ||
-                !signerEmail.trim() ||
-                !signerName.trim()
+                !signerUserId
               }
             >
               {submitting ? (

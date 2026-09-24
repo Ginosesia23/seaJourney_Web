@@ -42,10 +42,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const position = await fetchVesselPosition({
-      mmsi: vessel.mmsi,
-      imo: vessel.imo,
-    });
+    const isAdmin = String(authResult.auth.profile.role || '').toLowerCase() === 'admin';
+    const position = await fetchVesselPosition(
+      {
+        mmsi: vessel.mmsi,
+        imo: vessel.imo,
+      },
+      {
+        vesselId,
+        triggerSource: isAdmin ? 'manual_admin' : 'manual_user',
+        triggerDetail: 'ais-preview',
+      },
+    );
 
     const mappedState = mapAisToDailyStatus(position);
     const logDate = logDateForLiveAisSync(req.nextUrl.searchParams.get('logDate'));

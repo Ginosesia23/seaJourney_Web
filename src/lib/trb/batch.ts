@@ -125,10 +125,7 @@ export async function listEligibleTasksForBatch(
     blocked.add(r.task_progress_id as string);
   }
 
-  const eligibleProgress = (progress || []).filter(
-    (p) =>
-      !blocked.has(p.id) && Boolean((p.candidate_notes || '').trim()),
-  );
+  const eligibleProgress = (progress || []).filter((p) => !blocked.has(p.id));
   const taskIds = eligibleProgress.map((p) => p.task_id);
 
   const { data: tasks } = taskIds.length
@@ -217,8 +214,9 @@ export async function createBatchSignoffRequest(
   args: {
     enrollmentId: string;
     taskProgressIds: string[];
-    signerName: string;
-    signerEmail: string;
+    signerUserId?: string | null;
+    signerName?: string | null;
+    signerEmail?: string | null;
     optionalMessage?: string;
     allowExternalInvite?: boolean;
     idempotencyKey?: string;
@@ -273,31 +271,68 @@ export async function createBatchSignoffRequest(
 
   const roles = uniqueIds.map((id) => byId.get(id)!.requiredSignerRole);
   const requiredRole = mostRestrictiveRole(roles);
-  const email = args.signerEmail.trim().toLowerCase();
+
+  if (args.signerUserId && args.signerUserId === userId) {
+    throw Object.assign(new Error('Candidates cannot request sign-off from themselves'), {
+      code: 'CANNOT_SIGN_OWN_TASK',
+    });
+  }
 
   const { data: candidateUser } = await admin
     .from('users')
     .select('first_name, last_name, email')
     .eq('id', userId)
     .maybeSingle();
-  if (candidateUser?.email?.trim().toLowerCase() === email) {
-    throw Object.assign(new Error('Candidates cannot request sign-off from themselves'), {
-      code: 'self_signoff_forbidden',
-    });
-  }
 
   const eligibility = await evaluateSignerEligibility(admin, {
     candidateUserId: userId,
-    signerEmail: email,
+    signerUserId: args.signerUserId,
+    signerEmail: args.signerEmail,
     requiredSignerRole: requiredRole,
     allowExternalInvite: Boolean(args.allowExternalInvite),
   });
-  if (!eligibility.eligible || !eligibility.signer) {
+  if (!eligibility.eligible || !eligibility.signer || !eligibility.signer.userId) {
     throw Object.assign(
       new Error(eligibility.reason || 'Proposed signer is not eligible'),
-      { code: 'signer_ineligible' },
+      { code: eligibility.code || 'SIGNER_ELIGIBILITY_CHANGED' },
     );
   }
+
+  const signer = eligibility.signer;
+  if (
+    args.signerEmail &&
+    args.signerEmail.trim().toLowerCase() !== signer.email
+  ) {
+    throw Object.assign(
+      new Error('signerEmail does not match selected signerUserId'),
+      { code: 'SIGNER_ELIGIBILITY_CHANGED' },
+    );
+  }
+
+  const email = signer.email;
+  const signerName = signer.fullName || args.signerName?.trim() || email;
+
+  if (
+    candidateUser?.email &&
+    candidateUser.email.trim().toLowerCase() === email
+  ) {
+    throw Object.assign(new Error('Candidates cannot request sign-off from themselves'), {
+      code: 'CANNOT_SIGN_OWN_TASK',
+    });
+  }
+
+  const eligibilitySnapshot = {
+    source: signer.source,
+    selfDeclared: signer.selfDeclared,
+    reason: eligibility.reason ?? null,
+    authorityId: signer.authorityId,
+    authorityType: signer.authorityType,
+    vesselRole: signer.vesselRole,
+    isVesselManager: signer.isVesselManager,
+    qualificationSummary: signer.qualificationSummary,
+    authorityExpiresAt: signer.authorityExpiresAt,
+    eligibilityLabel: signer.eligibilityLabel,
+  };
 
   const { rawToken, tokenHash, expiresAt } = generateTrbSignoffToken();
   const expiresIso = expiresAt.toISOString();
@@ -308,9 +343,9 @@ export async function createBatchSignoffRequest(
       enrollment_id: args.enrollmentId,
       requested_by: userId,
       signer_email: email,
-      signer_name: args.signerName.trim() || eligibility.signer.fullName,
-      signer_user_id: eligibility.signer.userId,
-      signer_assignment_id: eligibility.signer.assignmentId,
+      signer_name: signerName,
+      signer_user_id: signer.userId,
+      signer_assignment_id: signer.assignmentId,
       required_signer_role: requiredRole,
       token_hash: tokenHash,
       status: 'pending',
@@ -319,11 +354,7 @@ export async function createBatchSignoffRequest(
       vessel_id: eligibility.vesselId,
       vessel_name_snapshot: eligibility.vesselName,
       candidate_assignment_id: eligibility.candidateAssignmentId,
-      eligibility_snapshot: {
-        source: eligibility.signer.source,
-        selfDeclared: eligibility.signer.selfDeclared,
-        reason: eligibility.reason ?? null,
-      },
+      eligibility_snapshot: eligibilitySnapshot,
       idempotency_key: idemKey,
     })
     .select('id, expires_at, created_at')
@@ -362,7 +393,7 @@ export async function createBatchSignoffRequest(
         task_progress_id: item.task_progress_id,
         requested_by: userId,
         signer_email: email,
-        signer_name: args.signerName.trim() || eligibility.signer.fullName,
+        signer_name: signerName,
         required_signer_role: requiredRole,
         token_hash: shadowTokenHash(batch.id, item.id),
         status: 'pending',
@@ -373,8 +404,9 @@ export async function createBatchSignoffRequest(
         vessel_id: eligibility.vesselId,
         vessel_name_snapshot: eligibility.vesselName,
         candidate_assignment_id: eligibility.candidateAssignmentId,
-        signer_user_id: eligibility.signer.userId,
-        signer_assignment_id: eligibility.signer.assignmentId,
+        signer_user_id: signer.userId,
+        signer_assignment_id: signer.assignmentId,
+        eligibility_snapshot: eligibilitySnapshot,
       })
       .select('id')
       .single();
@@ -406,7 +438,10 @@ export async function createBatchSignoffRequest(
       batch_request_id: batch.id,
       task_count: uniqueIds.length,
       task_progress_ids: uniqueIds,
+      signer_user_id: signer.userId,
       signer_email: email,
+      authority_id: signer.authorityId,
+      eligibility_source: signer.source,
     },
     ...ctx,
     actorUserId: userId,
@@ -443,7 +478,7 @@ export async function createBatchSignoffRequest(
 
   const emailResult = await sendTrbBatchSignoffRequestEmail({
     to: email,
-    signerName: args.signerName.trim() || eligibility.signer.fullName,
+    signerName,
     crewName,
     vesselName: eligibility.vesselName,
     programmeName,
@@ -468,24 +503,28 @@ export async function createBatchSignoffRequest(
   await notifyTrbEvent({
     userId,
     event: 'signoff_requested',
-    body: `Sign-off requested for ${uniqueIds.length} training task${uniqueIds.length === 1 ? '' : 's'}.`,
+    body: `Sign-off requested for ${uniqueIds.length} training task${uniqueIds.length === 1 ? '' : 's'} from ${signerName} (${signer.eligibilityLabel}).`,
     metadata: {
+      domain: 'trb',
       batchRequestId: batch.id,
       enrollmentId: args.enrollmentId,
       taskCount: uniqueIds.length,
+      signerUserId: signer.userId,
       deepLink: `/dashboard/training-records/${args.enrollmentId}/requests/${batch.id}`,
     },
   });
 
-  if (eligibility.signer.userId && eligibility.signer.userId !== userId) {
+  if (signer.userId && signer.userId !== userId) {
     await notifyTrbEvent({
-      userId: eligibility.signer.userId,
+      userId: signer.userId,
       event: 'signoff_requested',
-      body: `${crewName} requested review of ${uniqueIds.length} training task${uniqueIds.length === 1 ? '' : 's'}. Check your email for the secure link.`,
+      body: `${crewName} requested review of ${uniqueIds.length} training task${uniqueIds.length === 1 ? '' : 's'} (${signer.eligibilityLabel}). Review in your Inbox or the email link.`,
       metadata: {
+        domain: 'trb',
         batchRequestId: batch.id,
         enrollmentId: args.enrollmentId,
         taskCount: uniqueIds.length,
+        deepLink: `/dashboard/inbox`,
       },
     });
   }
@@ -502,10 +541,13 @@ export async function createBatchSignoffRequest(
     idempotent: false,
     reviewUrl: allowDevReviewUrl ? reviewUrl : undefined,
     eligibility: {
-      source: eligibility.signer.source,
-      selfDeclared: eligibility.signer.selfDeclared,
+      source: signer.source,
+      selfDeclared: signer.selfDeclared,
       vesselId: eligibility.vesselId,
       vesselName: eligibility.vesselName,
+      signerUserId: signer.userId,
+      authorityId: signer.authorityId,
+      eligibilityLabel: signer.eligibilityLabel,
     },
   };
 }
@@ -616,10 +658,13 @@ export async function getBatchRequestDetail(
     .eq('id', opts.userId)
     .maybeSingle();
   const isOwner = enrollment.user_id === opts.userId;
-  const isSigner =
-    viewer?.email &&
-    viewer.email.trim().toLowerCase() ===
+  const isSignerByUser =
+    Boolean(batch.signer_user_id) && batch.signer_user_id === opts.userId;
+  const isSignerByEmail =
+    Boolean(viewer?.email) &&
+    viewer!.email!.trim().toLowerCase() ===
       String(batch.signer_email).trim().toLowerCase();
+  const isSigner = isSignerByUser || isSignerByEmail;
   if (!isOwner && !isSigner && viewer?.role !== 'admin') return null;
 
   return buildBatchDetailPayload(admin, batch, enrollment);
@@ -842,7 +887,9 @@ export async function resolveBatchSignoffToken(
 export async function submitBatchCaptainDecision(
   admin: SupabaseClient,
   args: {
-    rawToken: string;
+    rawToken?: string;
+    /** When reviewing as the authenticated assigned signer (no email token). */
+    tokenHash?: string;
     decisions: Array<{
       itemId: string;
       decision: 'approved' | 'changes_requested' | 'rejected';
@@ -857,7 +904,12 @@ export async function submitBatchCaptainDecision(
   },
   ctx: AuditCtx,
 ) {
-  const tokenHash = hashTrbSignoffToken(args.rawToken);
+  const tokenHash =
+    args.tokenHash ||
+    (args.rawToken ? hashTrbSignoffToken(args.rawToken) : null);
+  if (!tokenHash) {
+    throw Object.assign(new Error('invalid_token'), { code: 'invalid_token' });
+  }
   const signedAt = new Date().toISOString();
 
   const { data: batch } = await admin
@@ -923,7 +975,7 @@ export async function submitBatchCaptainDecision(
   });
 
   await admin.from('officer_credentials').insert({
-    user_id: null,
+    user_id: ctx.actorUserId ?? null,
     email: batch.signer_email,
     full_name: args.signerName.trim(),
     rank: args.signerRank.trim(),
@@ -975,6 +1027,47 @@ export async function submitBatchCaptainDecision(
     rejected: number;
   };
 
+  // Enrich immutable sign-off snapshots from batch eligibility
+  try {
+    const { data: batchRow } = await admin
+      .from('trb_batch_signoff_requests')
+      .select('eligibility_snapshot, signer_user_id, signer_assignment_id')
+      .eq('id', result.batch_request_id)
+      .maybeSingle();
+    const snap = batchRow?.eligibility_snapshot as {
+      authorityId?: string;
+      authorityType?: string;
+      source?: string;
+      vesselRole?: string;
+      isVesselManager?: boolean;
+    } | null;
+    if (snap || batchRow?.signer_user_id) {
+      const { data: shadowIds } = await admin
+        .from('trb_signoff_requests')
+        .select('id')
+        .eq('batch_request_id', result.batch_request_id);
+      const requestIds = (shadowIds || []).map((r) => r.id as string);
+      if (requestIds.length) {
+        await admin
+          .from('trb_signoffs')
+          .update({
+            signer_user_id: batchRow?.signer_user_id ?? null,
+            signer_assignment_id: batchRow?.signer_assignment_id ?? null,
+            authority_id: snap?.authorityId ?? null,
+            authority_source: snap?.authorityType || snap?.source || null,
+            signer_vessel_role: snap?.vesselRole ?? null,
+            is_vessel_manager_snapshot: Boolean(snap?.isVesselManager),
+          })
+          .in('signoff_request_id', requestIds);
+      }
+    }
+  } catch (enrichErr) {
+    console.warn(
+      '[TRB] batch signoff snapshot enrich failed',
+      enrichErr instanceof Error ? enrichErr.message : enrichErr,
+    );
+  }
+
   const { data: enrollment } = await admin
     .from('trb_enrollments')
     .select('user_id')
@@ -992,6 +1085,7 @@ export async function submitBatchCaptainDecision(
       event,
       body: `Training sign-off reviewed: ${result.approved} approved, ${result.changes_requested} changes requested, ${result.rejected} rejected.`,
       metadata: {
+        domain: 'trb',
         batchRequestId: result.batch_request_id,
         enrollmentId: result.enrollment_id,
         approved: result.approved,
@@ -1015,26 +1109,130 @@ export async function submitBatchCaptainDecision(
   };
 }
 
-export async function listBatchRequestsForSignerEmail(
+/** Authenticated signer reviews a batch without the emailed raw token. */
+export async function submitBatchDecisionAsSigner(
   admin: SupabaseClient,
-  email: string,
-  filters?: { status?: string; limit?: number },
+  userId: string,
+  args: {
+    batchRequestId: string;
+    decisions: Array<{
+      itemId: string;
+      decision: 'approved' | 'changes_requested' | 'rejected';
+      decisionNotes?: string | null;
+    }>;
+    signerName: string;
+    signerRank: string;
+    signerCocNumber: string;
+    signerIssuingAuthority: string;
+    signerDeclaration: string;
+    overallFeedback?: string | null;
+  },
+  ctx: AuditCtx,
 ) {
-  const normalized = email.trim().toLowerCase();
-  let q = admin
+  const { data: batch } = await admin
     .from('trb_batch_signoff_requests')
-    .select(
-      'id, status, signer_email, signer_name, expires_at, used_at, created_at, vessel_name_snapshot, enrollment_id, optional_message',
-    )
-    .eq('signer_email', normalized)
-    .order('created_at', { ascending: false })
-    .limit(filters?.limit ?? 50);
-  if (filters?.status) q = q.eq('status', filters.status);
-  const { data, error } = await q;
-  if (error) throw error;
+    .select('id, token_hash, signer_user_id, signer_email, status')
+    .eq('id', args.batchRequestId)
+    .maybeSingle();
+  if (!batch) {
+    throw Object.assign(new Error('Not found'), { code: 'not_found' });
+  }
+
+  const { data: viewer } = await admin
+    .from('users')
+    .select('id, email, role')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const isSigner =
+    batch.signer_user_id === userId ||
+    (viewer?.email &&
+      viewer.email.trim().toLowerCase() ===
+        String(batch.signer_email).trim().toLowerCase());
+
+  if (!isSigner && viewer?.role !== 'admin') {
+    throw Object.assign(new Error('Forbidden'), { code: 'forbidden' });
+  }
+
+  return submitBatchCaptainDecision(
+    admin,
+    {
+      tokenHash: batch.token_hash as string,
+      decisions: args.decisions,
+      signerName: args.signerName,
+      signerRank: args.signerRank,
+      signerCocNumber: args.signerCocNumber,
+      signerIssuingAuthority: args.signerIssuingAuthority,
+      signerDeclaration: args.signerDeclaration,
+      overallFeedback: args.overallFeedback,
+    },
+    { ...ctx, actorUserId: userId },
+  );
+}
+
+export async function listBatchRequestsForSigner(
+  admin: SupabaseClient,
+  opts: { email?: string | null; userId?: string | null; status?: string; limit?: number },
+) {
+  const normalized = opts.email?.trim().toLowerCase() || null;
+  const limit = opts.limit ?? 50;
+  type Row = {
+    id: string;
+    status: string;
+    signer_email: string;
+    signer_name: string | null;
+    expires_at: string;
+    used_at: string | null;
+    created_at: string;
+    vessel_name_snapshot: string | null;
+    enrollment_id: string;
+    optional_message: string | null;
+    signer_user_id?: string | null;
+  };
+
+  let byUser: Row[] = [];
+  let byEmail: Row[] = [];
+  const selectCols =
+    'id, status, signer_email, signer_name, expires_at, used_at, created_at, vessel_name_snapshot, enrollment_id, optional_message, signer_user_id';
+
+  if (opts.userId) {
+    let q = admin
+      .from('trb_batch_signoff_requests')
+      .select(selectCols)
+      .eq('signer_user_id', opts.userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (opts.status) q = q.eq('status', opts.status);
+    const { data, error } = await q;
+    if (error) throw error;
+    byUser = (data || []) as Row[];
+  }
+  if (normalized) {
+    let q = admin
+      .from('trb_batch_signoff_requests')
+      .select(selectCols)
+      .eq('signer_email', normalized)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (opts.status) q = q.eq('status', opts.status);
+    const { data, error } = await q;
+    if (error) throw error;
+    byEmail = (data || []) as Row[];
+  }
+
+  const seen = new Set<string>();
+  const data: Row[] = [];
+  for (const r of [...byUser, ...byEmail]) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    data.push(r);
+  }
+  data.sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
 
   const enriched = [];
-  for (const r of data || []) {
+  for (const r of data.slice(0, limit)) {
     const { count } = await admin
       .from('trb_batch_signoff_items')
       .select('id', { count: 'exact', head: true })
@@ -1055,6 +1253,7 @@ export async function listBatchRequestsForSignerEmail(
       status: r.status,
       signerEmail: r.signer_email,
       signerName: r.signer_name,
+      signerUserId: r.signer_user_id ?? null,
       expiresAt: r.expires_at,
       usedAt: r.used_at,
       createdAt: r.created_at,
@@ -1069,6 +1268,19 @@ export async function listBatchRequestsForSignerEmail(
     });
   }
   return enriched;
+}
+
+/** @deprecated Prefer listBatchRequestsForSigner with userId. */
+export async function listBatchRequestsForSignerEmail(
+  admin: SupabaseClient,
+  email: string,
+  filters?: { status?: string; limit?: number },
+) {
+  return listBatchRequestsForSigner(admin, {
+    email,
+    status: filters?.status,
+    limit: filters?.limit,
+  });
 }
 
 export async function listBatchRequestsForCrew(

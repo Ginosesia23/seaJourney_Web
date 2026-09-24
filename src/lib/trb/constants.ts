@@ -1,10 +1,10 @@
 /**
  * Digital TRB Companion — shared constants & types.
- * Pilot / demonstration only — not an official MCA/PYA TRB.
+ * Digital companion only — not an official MCA/PYA Training Record Book.
  */
 
 export const TRB_DISCLAIMER =
-  'Demonstration content only. This is not the official MCA/PYA OOW 3000 Training Record Book.';
+  'SeaJourney provides a digital companion to the identified Training Record Book. Continue maintaining any record required by the MCA or your recognised verification body until digital acceptance is confirmed.';
 
 export const TRB_SIGNOFF_TOKEN_TTL_DAYS = 7;
 
@@ -46,12 +46,12 @@ export type TrbRequiredSignerRole =
 
 /** Valid candidate-driven transitions (server enforces; approvals via sign-off flow). */
 export const TRB_CANDIDATE_TRANSITIONS: Record<TrbTaskStatus, TrbTaskStatus[]> = {
-  not_started: ['in_progress'],
+  not_started: ['in_progress', 'ready_for_assessment'],
   in_progress: ['ready_for_assessment'],
   ready_for_assessment: ['awaiting_signoff', 'in_progress'],
   awaiting_signoff: ['ready_for_assessment'], // cancel pending request
-  changes_requested: ['in_progress'],
-  rejected: ['in_progress'],
+  changes_requested: ['in_progress', 'ready_for_assessment'],
+  rejected: ['in_progress', 'ready_for_assessment'],
   approved: [],
   superseded: [],
 };

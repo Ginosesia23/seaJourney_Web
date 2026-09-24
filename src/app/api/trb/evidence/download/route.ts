@@ -29,12 +29,24 @@ export async function GET(req: NextRequest) {
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
-    const result = await createEvidenceDownloadUrl(supabaseAdmin, {
-      mode: 'candidate',
-      userId: auth.userId,
-      evidenceId,
-    });
-    return NextResponse.json(result);
+    const batchRequestId = req.nextUrl.searchParams.get('batchRequestId');
+    // Signer review (dashboard) — try signer access first, then candidate ownership
+    try {
+      const result = await createEvidenceDownloadUrl(supabaseAdmin, {
+        mode: 'signer',
+        userId: auth.userId,
+        evidenceId,
+        batchRequestId: batchRequestId || undefined,
+      });
+      return NextResponse.json(result);
+    } catch {
+      const result = await createEvidenceDownloadUrl(supabaseAdmin, {
+        mode: 'candidate',
+        userId: auth.userId,
+        evidenceId,
+      });
+      return NextResponse.json(result);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Forbidden';
     const status = msg === 'Forbidden' || msg === 'Evidence not found' ? 403 : 400;

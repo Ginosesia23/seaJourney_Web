@@ -846,12 +846,19 @@ export async function GET(req: NextRequest) {
             continue;
           }
 
-          const { positions, requestCount } = await fetchVesselHistoryRange({
-            mmsi: vessel.mmsi,
-            imo: vessel.imo,
-            from: range.from,
-            to: range.to,
-          });
+          const { positions, requestCount } = await fetchVesselHistoryRange(
+            {
+              mmsi: vessel.mmsi,
+              imo: vessel.imo,
+              from: range.from,
+              to: range.to,
+            },
+            {
+              vesselId: vessel.id,
+              triggerSource: 'history_import',
+              triggerDetail: 'passages-map:tracks',
+            },
+          );
           datalasticChunks += requestCount;
 
           const fixes: RawAisFix[] = positions

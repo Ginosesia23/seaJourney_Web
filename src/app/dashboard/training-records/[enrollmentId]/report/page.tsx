@@ -150,7 +150,7 @@ export default function TrbAuditReportPage() {
         <TrainingRecordsPageHeader
           title="Pilot programme audit report"
           breadcrumb="Audit report"
-          description="Printable demonstration audit trail — not an official TRB export."
+          description="Printable training-record audit trail — not an official MCA/PYA export."
           actions={
             <>
               <Button asChild variant="outline" size="sm" className="h-8 rounded-md text-xs">
@@ -174,7 +174,7 @@ export default function TrbAuditReportPage() {
 
       <div className="hidden print:block space-y-1 border-b border-border pb-3">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-          SeaJourney · Digital TRB Companion
+          SeaJourney · Training Records
         </p>
         <h1 className="text-lg font-medium">Pilot programme audit report</h1>
       </div>
@@ -197,7 +197,7 @@ export default function TrbAuditReportPage() {
         ) : null}
 
       <TrainingRecordsDisclaimer
-        title={report.isMcaPilot ? 'Mandatory pilot disclaimer' : 'Demonstration programme'}
+        title={report.isMcaPilot ? 'About this digital record' : 'Training Record notice'}
       >
         {report.disclaimer || TRB_DISCLAIMER}
       </TrainingRecordsDisclaimer>
@@ -348,7 +348,7 @@ export default function TrbAuditReportPage() {
       </TrainingRecordsSection>
 
       <p className="border-t border-border pt-4 text-[11px] text-muted-foreground">
-        Demonstration / pilot use only. Does not claim MCA or PYA acceptance of an electronic
+        Digital companion only. Does not claim MCA or PYA acceptance of an electronic
         Training Record Book.
       </p>
       </div>

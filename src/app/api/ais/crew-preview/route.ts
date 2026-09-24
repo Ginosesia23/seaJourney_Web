@@ -102,10 +102,13 @@ export async function GET(req: NextRequest) {
     }
 
     // Live Datalastic fetch (does not record).
-    const position = await fetchVesselPosition({
-      mmsi: vessel.mmsi as string | null,
-      imo: vessel.imo as string | null,
-    });
+    const position = await fetchVesselPosition(
+      {
+        mmsi: vessel.mmsi as string | null,
+        imo: vessel.imo as string | null,
+      },
+      { vesselId, triggerSource: 'manual_user', triggerDetail: 'crew-ais-preview' },
+    );
     const mappedState = mapAisToDailyStatus(position);
     const logDate = logDateForLiveAisSync(req.nextUrl.searchParams.get('logDate'));
     const positionLogDate = logDateFromAisPosition(position);

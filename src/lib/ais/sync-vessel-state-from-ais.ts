@@ -14,6 +14,7 @@
 
 import type { DatalasticVesselPosition } from '@/lib/datalastic/client';
 import { getVesselAIS } from '@/lib/ais/ais-service';
+import type { AisTriggerSource } from '@/lib/ais/fetch-audit-shared';
 import { finalizeYesterdayIfNeeded } from '@/lib/ais/daily-summary';
 import {
   buildAisStateNote,
@@ -248,7 +249,13 @@ async function aggregateAndUpsertDay(opts: {
  */
 export async function syncVesselStateFromAis(
   vessel: VesselRow,
-  options?: { force?: boolean; managerUserId?: string; logDate?: string | null },
+  options?: {
+    force?: boolean;
+    managerUserId?: string;
+    logDate?: string | null;
+    /** Audit trigger for a forced fetch (cron without force is always adaptive_scheduler). */
+    triggerSource?: AisTriggerSource;
+  },
 ): Promise<AisSyncResult> {
   const vesselId = vessel.id;
 
@@ -310,7 +317,10 @@ export async function syncVesselStateFromAis(
     const aisSnapshot = await getVesselAIS(vesselId, {
       force: options?.force === true,
       refreshIfStale: options?.force !== true,
-      triggerSource: options?.force ? 'vessel-sync:manual' : 'vessel-sync:cron',
+      triggerSource: options?.force
+        ? (options.triggerSource ?? 'unknown')
+        : 'adaptive_scheduler',
+      triggerDetail: options?.force ? 'vessel-sync:manual' : 'vessel-sync:cron',
       classificationContext: {
         previousSample,
         yesterdayAnchor: previousDay

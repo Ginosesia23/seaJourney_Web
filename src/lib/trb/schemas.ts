@@ -35,27 +35,65 @@ export const markReadySchema = z.object({
   idempotencyKey: z.string().min(8).max(120).optional(),
 });
 
-export const requestSignoffSchema = z.object({
-  taskProgressId: z.string().uuid(),
-  signerName: z.string().min(2).max(120),
-  signerEmail: z.string().email().max(200),
-  authorisedConfirmation: z.literal(true),
-  optionalMessage: z.string().max(2000).optional(),
-  /** When true, allow email not on vessel roster (self-declared external). Default false. */
-  allowExternalInvite: z.boolean().optional(),
-  idempotencyKey: z.string().min(8).max(120).optional(),
-});
+export const requestSignoffSchema = z
+  .object({
+    taskProgressId: z.string().uuid(),
+    /** Preferred stable signer identity (SeaJourney user id). */
+    signerUserId: z.string().uuid().optional(),
+    /** Legacy / display; verified against selected user when provided with signerUserId. */
+    signerName: z.string().min(2).max(120).optional(),
+    signerEmail: z.string().email().max(200).optional(),
+    authorisedConfirmation: z.literal(true),
+    optionalMessage: z.string().max(2000).optional(),
+    /** Deprecated for TRB — external invites no longer grant eligibility. */
+    allowExternalInvite: z.boolean().optional(),
+    idempotencyKey: z.string().min(8).max(120).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (!val.signerUserId && !val.signerEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'signerUserId or signerEmail is required',
+        path: ['signerUserId'],
+      });
+    }
+    if (!val.signerUserId && !val.signerName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'signerName is required when using signerEmail',
+        path: ['signerName'],
+      });
+    }
+  });
 
-export const batchRequestSignoffSchema = z.object({
-  enrollmentId: z.string().uuid(),
-  taskProgressIds: z.array(z.string().uuid()).min(1).max(50),
-  signerName: z.string().min(2).max(120),
-  signerEmail: z.string().email().max(200),
-  authorisedConfirmation: z.literal(true),
-  optionalMessage: z.string().max(2000).optional(),
-  allowExternalInvite: z.boolean().optional(),
-  idempotencyKey: z.string().min(8).max(120).optional(),
-});
+export const batchRequestSignoffSchema = z
+  .object({
+    enrollmentId: z.string().uuid(),
+    taskProgressIds: z.array(z.string().uuid()).min(1).max(50),
+    signerUserId: z.string().uuid().optional(),
+    signerName: z.string().min(2).max(120).optional(),
+    signerEmail: z.string().email().max(200).optional(),
+    authorisedConfirmation: z.literal(true),
+    optionalMessage: z.string().max(2000).optional(),
+    allowExternalInvite: z.boolean().optional(),
+    idempotencyKey: z.string().min(8).max(120).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (!val.signerUserId && !val.signerEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'signerUserId or signerEmail is required',
+        path: ['signerUserId'],
+      });
+    }
+    if (!val.signerUserId && !val.signerName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'signerName is required when using signerEmail',
+        path: ['signerName'],
+      });
+    }
+  });
 
 export const cancelBatchSignoffSchema = z.object({
   batchRequestId: z.string().uuid(),
@@ -126,34 +164,48 @@ export const parallelBookSchema = z.object({
   notes: z.string().max(2000).optional().nullable(),
 });
 
+const captainDecisionFields = {
+  decision: z.enum(['approved', 'changes_requested', 'rejected']),
+  signerName: z.string().min(2).max(120),
+  signerRank: z.string().min(1).max(80),
+  signerCocNumber: z.string().min(1).max(80),
+  signerIssuingAuthority: z.string().min(1).max(120),
+  authorisedConfirmation: z.literal(true),
+  personallyAssessedConfirmation: z.literal(true),
+  signerDeclaration: z.string().min(10).max(2000),
+  decisionNotes: z.string().max(4000).optional(),
+  /** Optional captain-reported official-book status — never overwrites candidate row */
+  officialBookStatus: officialBookStatusSchema.optional(),
+  officialBookNotes: z.string().max(2000).optional(),
+} as const;
+
+function refineCaptainDecisionNotes(
+  val: { decision: string; decisionNotes?: string | null },
+  ctx: z.RefinementCtx,
+) {
+  if (
+    (val.decision === 'changes_requested' || val.decision === 'rejected') &&
+    !val.decisionNotes?.trim()
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Decision notes are required when requesting changes or rejecting',
+      path: ['decisionNotes'],
+    });
+  }
+}
+
 export const captainDecisionSchema = z
   .object({
     token: z.string().min(16).max(200),
-    decision: z.enum(['approved', 'changes_requested', 'rejected']),
-    signerName: z.string().min(2).max(120),
-    signerRank: z.string().min(1).max(80),
-    signerCocNumber: z.string().min(1).max(80),
-    signerIssuingAuthority: z.string().min(1).max(120),
-    authorisedConfirmation: z.literal(true),
-    personallyAssessedConfirmation: z.literal(true),
-    signerDeclaration: z.string().min(10).max(2000),
-    decisionNotes: z.string().max(4000).optional(),
-    /** Optional captain-reported official-book status — never overwrites candidate row */
-    officialBookStatus: officialBookStatusSchema.optional(),
-    officialBookNotes: z.string().max(2000).optional(),
+    ...captainDecisionFields,
   })
-  .superRefine((val, ctx) => {
-    if (
-      (val.decision === 'changes_requested' || val.decision === 'rejected') &&
-      !val.decisionNotes?.trim()
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Decision notes are required when requesting changes or rejecting',
-        path: ['decisionNotes'],
-      });
-    }
-  });
+  .superRefine(refineCaptainDecisionNotes);
+
+/** Dashboard/inbox decide — same fields as email token decide, without raw token. */
+export const authenticatedCaptainDecisionSchema = z
+  .object(captainDecisionFields)
+  .superRefine(refineCaptainDecisionNotes);
 
 export const pilotFeedbackSchema = z.object({
   enrollmentId: z.string().uuid(),

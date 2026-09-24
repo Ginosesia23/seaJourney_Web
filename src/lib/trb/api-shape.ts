@@ -113,6 +113,7 @@ export function mapSignoffRequestRow(r: {
   id: string;
   signer_email: string;
   signer_name?: string | null;
+  signer_user_id?: string | null;
   status: string;
   expires_at: string;
   used_at?: string | null;
@@ -131,6 +132,7 @@ export function mapSignoffRequestRow(r: {
     id: r.id,
     signerEmail: r.signer_email,
     signerName: r.signer_name ?? null,
+    signerUserId: r.signer_user_id ?? null,
     status: r.status,
     expiresAt: r.expires_at,
     usedAt: r.used_at ?? null,

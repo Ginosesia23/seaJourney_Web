@@ -187,6 +187,7 @@ const adminNavGroups: NavGroup[] = [
   {
     title: "AIS",
     items: [
+      { href: "/dashboard/ais-monitor", label: "AIS monitor", icon: Activity, requiredRole: "admin", disabled: false },
       { href: "/dashboard/ais-tracking", label: "AIS tracking", icon: Radar, requiredRole: "admin", disabled: false },
       { href: "/dashboard/ais-wrong-states", label: "Wrong states", icon: Flag, requiredRole: "admin", disabled: false },
     ],
@@ -266,7 +267,6 @@ const navGroups: NavGroup[] = [
       { href: "/dashboard/crew", label: "Manage crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/crew-roles", label: "Assign roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] },
       { href: "/dashboard/requests", label: "Sea-time requests", icon: ClipboardList, requiredRole: "captain", disabled: false },
-      { href: "/dashboard/training-signoffs", label: "Training sign-offs", icon: BookOpen, requiredRole: "captain", disabled: false, featureFlag: 'training_records' },
       { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'], featureFlag: 'crew_rotation' },
     ]
   },
@@ -301,6 +301,7 @@ const navGroups: NavGroup[] = [
       { href: "/dashboard/users/transfer", label: "Transfer account", icon: ArrowRightLeft, requiredRole: "admin", disabled: false },
       { href: "/dashboard/crew-analytics", label: "Crew analytics", icon: Users, requiredRole: "admin", disabled: false },
       { href: "/dashboard/login-activity", label: "Login activity", icon: LogIn, requiredRole: "admin", disabled: false },
+      { href: "/dashboard/ais-monitor", label: "AIS monitor", icon: Activity, requiredRole: "admin", disabled: false },
       { href: "/dashboard/ais-tracking", label: "AIS tracking", icon: Radar, requiredRole: "admin", disabled: false },
       { href: "/dashboard/ais-wrong-states", label: "AIS wrong states", icon: Flag, requiredRole: "admin", disabled: false },
       { href: "/dashboard/feature-flags", label: "Feature flags", icon: ToggleLeft, requiredRole: "admin", disabled: false },
@@ -358,7 +359,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 
 export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
   const pathname = usePathname()
-  const { supabase } = useSupabase()
+  const { supabase, session } = useSupabase()
   const { user } = useUser()
   const { isEnabled: isFeatureEnabled, flags, tierAccess, isAdmin: isFeatureAdmin } = useFeatureFlags()
   const [inboxIncomingCount, setInboxIncomingCount] = React.useState<number>(0)
@@ -625,6 +626,22 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
       const userRole = userProfile.role?.toLowerCase() || '';
       const isCaptain = userRole === 'captain' || userRole === 'vessel' || userRole === 'admin';
 
+      const fetchTrainingSignoffCount = async (): Promise<number> => {
+        if (!session?.access_token) return 0;
+        try {
+          const res = await fetch('/api/trb/signoff/queue?status=pending', {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          });
+          if (!res.ok) return 0;
+          const json = await res.json().catch(() => ({}));
+          return Array.isArray(json.requests) ? json.requests.length : 0;
+        } catch {
+          return 0;
+        }
+      };
+
       try {
         if (userRole === 'admin') {
           // Admins see captaincy requests that need approval (pending, vessel_approved, admin_approved)
@@ -661,7 +678,10 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
             testimonialQuery = testimonialQuery.ilike('captain_email', user.email);
           }
           
-          const { count: testimonialCount } = await testimonialQuery;
+          const [{ count: testimonialCount }, trainingCount] = await Promise.all([
+            testimonialQuery,
+            fetchTrainingSignoffCount(),
+          ]);
           
           // Also fetch sea time requests for vessel accounts only (not captains)
           let seaTimeCount = 0;
@@ -722,16 +742,19 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
               (testimonialCount || 0) +
                 seaTimeCount +
                 captaincyCount +
-                (planCoverageCount || 0),
+                (planCoverageCount || 0) +
+                trainingCount,
             );
             setInboxSentCount(sentTestimonialCount + sentAccessCount);
           } else {
-            setInboxIncomingCount((testimonialCount || 0) + seaTimeCount + captaincyCount);
+            setInboxIncomingCount(
+              (testimonialCount || 0) + seaTimeCount + captaincyCount + trainingCount,
+            );
             setInboxSentCount(0);
           }
         } else {
-          // Crew: vessel sea time access requests, vessel sea time offers, and pending testimonials (where user is captain)
-          const [accessResult, offersResult, testimonialResult] = await Promise.all([
+          // Crew: vessel sea time access requests, vessel sea time offers, testimonials, training sign-offs
+          const [accessResult, offersResult, testimonialResult, trainingCount] = await Promise.all([
             supabase
               .from('vessel_sea_time_access_requests')
               .select('id', { count: 'exact', head: true })
@@ -756,11 +779,12 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
               }
               return q;
             })(),
+            fetchTrainingSignoffCount(),
           ]);
           const accessCount = accessResult.count ?? 0;
           const offersCount = offersResult.count ?? 0;
           const testimonialCount = testimonialResult.count ?? 0;
-          setInboxIncomingCount(accessCount + offersCount + testimonialCount);
+          setInboxIncomingCount(accessCount + offersCount + testimonialCount + trainingCount);
           setInboxSentCount(0);
         }
       } catch (error) {
@@ -885,7 +909,7 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, user?.email, userProfile, supabase, activeVesselId]);
+  }, [user?.id, user?.email, userProfile, supabase, activeVesselId, session?.access_token]);
 
   // Fetch feedback count for all users
   React.useEffect(() => {

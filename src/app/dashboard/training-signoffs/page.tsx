@@ -35,6 +35,7 @@ type Row = {
   resourceType?: string;
   taskCount?: number;
   enrollmentId?: string;
+  taskProgressId?: string;
 };
 
 export default function TrainingSignoffsPage() {
@@ -97,7 +98,7 @@ export default function TrainingSignoffsPage() {
     <div className="flex flex-col gap-6">
       <TrainingRecordsPageHeader
         title="Training sign-offs"
-        description="Digital TRB Companion requests associated with your email. Use the secure email link to review evidence and decide. Testimonials remain on the existing testimonial approval flow."
+        description="Training Record sign-off requests also appear in Inbox. Open a pending request to review evidence and decide. Email review links still work when configured."
       />
 
       <div className="flex flex-wrap gap-3">
@@ -133,13 +134,13 @@ export default function TrainingSignoffsPage() {
 
       <TrainingRecordsSection
         title="Your queue"
-        description="Single-task and multi-task requests — decide via the secure email link"
+        description="Single-task and multi-task requests assigned to your SeaJourney account"
         flush
       >
         {filtered.length === 0 ? (
           <TrainingRecordsEmpty
             title="No requests found"
-            description="When a crew member requests your review, it will appear here. Decisions are still made via the secure email link."
+            description="When a crew member requests your review, it will appear here. You can decide on the website from this queue."
           />
         ) : (
           <ul className="divide-y divide-border">
@@ -167,14 +168,21 @@ export default function TrainingSignoffsPage() {
                         ? ` · expires ${new Date(r.expiresAt).toLocaleString('en-GB')}`
                         : ''}
                     </p>
-                    {isBatch && r.enrollmentId ? (
+                    {isBatch ? (
                       <Link
-                        href={`/dashboard/training-records/${r.enrollmentId}/requests/${r.id}`}
-                        className="text-[11px] underline text-muted-foreground"
+                        href={`/dashboard/training-signoffs/batch/${r.id}`}
+                        className="text-[11px] font-medium text-sky-700 underline"
                       >
-                        View request details
+                        {r.status === 'pending' ? 'Review & decide' : 'View request'}
                       </Link>
-                    ) : null}
+                    ) : (
+                      <Link
+                        href={`/dashboard/training-signoffs/${r.id}`}
+                        className="text-[11px] font-medium text-sky-700 underline"
+                      >
+                        {r.status === 'pending' ? 'Review & decide' : 'View request'}
+                      </Link>
+                    )}
                   </div>
                   <TrainingStatusPill status={r.status} />
                 </li>

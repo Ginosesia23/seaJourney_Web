@@ -3,9 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Loader2, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Loader2, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -91,7 +96,13 @@ type TaskDetail = {
     signedAt: string;
     recordHash: string;
   }[];
-  pendingRequest: { id: string; expiresAt: string; signerEmail: string; batchRequestId?: string | null; isBatchShadow?: boolean } | null;
+  pendingRequest: {
+    id: string;
+    expiresAt: string;
+    signerEmail: string;
+    batchRequestId?: string | null;
+    isBatchShadow?: boolean;
+  } | null;
   officialBookCandidate?: {
     officialBookStatus: string;
     officialBookSignerName?: string | null;
@@ -104,6 +115,14 @@ type TaskDetail = {
   officialBookDiscrepancy?: boolean;
 };
 
+const REQUESTABLE_STATUSES = new Set([
+  'not_started',
+  'in_progress',
+  'ready_for_assessment',
+  'changes_requested',
+  'rejected',
+]);
+
 export default function TaskProgressPage() {
   const params = useParams<{ enrollmentId: string; taskProgressId: string }>();
   const { session } = useSupabase();
@@ -111,9 +130,13 @@ export default function TaskProgressPage() {
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState('');
+  const [showNotes, setShowNotes] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [showOfficialBook, setShowOfficialBook] = useState(false);
   const [saving, setSaving] = useState(false);
   const [signerName, setSignerName] = useState('');
   const [signerEmail, setSignerEmail] = useState('');
+  const [signerUserId, setSignerUserId] = useState<string | null>(null);
   const [optionalMessage, setOptionalMessage] = useState('');
   const [authorised, setAuthorised] = useState(false);
   const [requesting, setRequesting] = useState(false);
@@ -124,24 +147,20 @@ export default function TaskProgressPage() {
   const [bookDeclaration, setBookDeclaration] = useState('');
   const [bookNotes, setBookNotes] = useState('');
   const [savingBook, setSavingBook] = useState(false);
-  const [feedbackEase, setFeedbackEase] = useState('3');
-  const [feedbackClarity, setFeedbackClarity] = useState('3');
-  const [feedbackConfidence, setFeedbackConfidence] = useState('3');
-  const [feedbackWorked, setFeedbackWorked] = useState('');
-  const [feedbackUnclear, setFeedbackUnclear] = useState('');
-  const [feedbackChange, setFeedbackChange] = useState('');
-  const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [eligibleSigners, setEligibleSigners] = useState<
     {
+      userId: string | null;
       email: string;
       fullName: string;
       rank: string | null;
       source: string;
       selfDeclared: boolean;
+      eligibilityLabel?: string;
+      isVesselManager?: boolean;
+      vesselRole?: string | null;
+      authorityExpiresAt?: string | null;
     }[]
   >([]);
-  const [allowExternal, setAllowExternal] = useState(false);
-  const [markingReady, setMarkingReady] = useState(false);
 
   const load = useCallback(async () => {
     if (!session?.access_token) return;
@@ -154,9 +173,13 @@ export default function TaskProgressPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load');
       setDetail(json);
-      setNotes(json.progress?.candidateNotes || '');
+      const existingNotes = json.progress?.candidateNotes || '';
+      setNotes(existingNotes);
+      setShowNotes(Boolean(existingNotes.trim()));
+      setShowEvidence((json.evidence || []).length > 0);
       if (json.officialBookCandidate?.officialBookStatus) {
         setBookStatus(json.officialBookCandidate.officialBookStatus);
+        setShowOfficialBook(true);
       }
       if (json.officialBookCandidate?.officialBookSignerName) {
         setBookSigner(json.officialBookCandidate.officialBookSignerName);
@@ -191,13 +214,14 @@ export default function TaskProgressPage() {
     })();
   }, [session?.access_token, detail?.progress.id]);
 
-  const editable =
+  const canEditExtras =
     detail &&
-    !['approved', 'awaiting_signoff', 'ready_for_assessment', 'superseded'].includes(
-      detail.progress.status,
-    );
-  const canMarkReady = detail?.progress.status === 'in_progress';
-  const canRequestSignoff = detail?.progress.status === 'ready_for_assessment';
+    !['approved', 'awaiting_signoff', 'superseded'].includes(detail.progress.status);
+
+  const canRequestSignoff =
+    Boolean(detail) &&
+    !detail!.pendingRequest &&
+    REQUESTABLE_STATUSES.has(detail!.progress.status);
 
   async function saveNotes() {
     if (!session?.access_token || !detail) return;
@@ -244,6 +268,7 @@ export default function TaskProgressPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Upload failed');
       toast({ title: 'Evidence uploaded' });
+      setShowEvidence(true);
       await load();
     } catch (e) {
       toast({
@@ -266,7 +291,7 @@ export default function TaskProgressPage() {
         body: JSON.stringify({ evidenceId }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Delete failed');
+      if (!res.ok) throw new Error(json.error || 'Remove failed');
       toast({ title: 'Evidence removed' });
       await load();
     } catch (e) {
@@ -296,39 +321,20 @@ export default function TaskProgressPage() {
     window.open(json.signedUrl, '_blank', 'noopener,noreferrer');
   }
 
-  async function markReady() {
-    if (!session?.access_token || !detail) return;
-    setMarkingReady(true);
-    try {
-      const res = await fetch('/api/trb/tasks/ready', {
-        method: 'POST',
-        headers: {
-          ...bearerHeaders(session.access_token),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ taskProgressId: detail.progress.id }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed');
-      toast({ title: 'Ready for assessment' });
-      await load();
-    } catch (e) {
-      toast({
-        title: 'Could not mark ready',
-        description: e instanceof Error ? e.message : 'Unknown error',
-        variant: 'destructive',
-      });
-    } finally {
-      setMarkingReady(false);
-    }
-  }
-
   async function requestSignoff() {
     if (!session?.access_token || !detail) return;
     if (!canRequestSignoff) {
       toast({
-        title: 'Not ready',
-        description: 'Mark the task ready for assessment before requesting sign-off.',
+        title: 'Cannot request yet',
+        description: 'This task is not available for sign-off right now.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!signerUserId) {
+      toast({
+        title: 'Select an officer',
+        description: 'Choose who should review and sign this task.',
         variant: 'destructive',
       });
       return;
@@ -336,7 +342,7 @@ export default function TaskProgressPage() {
     if (!authorised) {
       toast({
         title: 'Confirmation required',
-        description: 'Confirm the captain is authorised to review this task.',
+        description: 'Confirm this person is authorised to assess this task.',
         variant: 'destructive',
       });
       return;
@@ -344,6 +350,26 @@ export default function TaskProgressPage() {
     setRequesting(true);
     setDevReviewUrl(null);
     try {
+      // Optional notes are saved first if the panel is open and content changed.
+      if (showNotes && notes !== (detail.progress.candidateNotes || '')) {
+        const notesRes = await fetch('/api/trb/notes', {
+          method: 'PATCH',
+          headers: {
+            ...bearerHeaders(session.access_token),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            taskProgressId: detail.progress.id,
+            candidateNotes: notes,
+            markInProgress: true,
+          }),
+        });
+        if (!notesRes.ok) {
+          const nj = await notesRes.json().catch(() => ({}));
+          throw new Error(nj.error || 'Could not save notes before request');
+        }
+      }
+
       const res = await fetch('/api/trb/signoff/request', {
         method: 'POST',
         headers: {
@@ -352,22 +378,20 @@ export default function TaskProgressPage() {
         },
         body: JSON.stringify({
           taskProgressId: detail.progress.id,
-          signerName,
-          signerEmail,
+          signerUserId,
+          signerName: signerName || undefined,
+          signerEmail: signerEmail || undefined,
           authorisedConfirmation: true,
           optionalMessage: optionalMessage || undefined,
-          allowExternalInvite: allowExternal || undefined,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Request failed');
       if (json.reviewUrl) setDevReviewUrl(json.reviewUrl);
       toast({
-        title: json.emailSent
-          ? 'Sign-off requested'
-          : 'Request created (email skipped)',
+        title: json.emailSent ? 'Sent for sign-off' : 'Request created (email skipped)',
         description: json.emailSent
-          ? 'The captain has been emailed a secure review link.'
+          ? 'The officer has been emailed a secure review link.'
           : 'Email was not sent (Resend not configured). Use the review link below in development.',
       });
       await load();
@@ -457,45 +481,6 @@ export default function TaskProgressPage() {
     }
   }
 
-  async function submitFeedback() {
-    if (!session?.access_token || !detail) return;
-    setSubmittingFeedback(true);
-    try {
-      const res = await fetch('/api/trb/feedback', {
-        method: 'POST',
-        headers: {
-          ...bearerHeaders(session.access_token),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          enrollmentId: params.enrollmentId,
-          taskProgressId: detail.progress.id,
-          easeOfUseRating: Number(feedbackEase),
-          clarityRating: Number(feedbackClarity),
-          confidenceRating: Number(feedbackConfidence),
-          whatWorked: feedbackWorked || null,
-          whatWasUnclear: feedbackUnclear || null,
-          whatWouldYouChange: feedbackChange || null,
-          wouldUseAgain: true,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Feedback failed');
-      toast({ title: 'Feedback submitted' });
-      setFeedbackWorked('');
-      setFeedbackUnclear('');
-      setFeedbackChange('');
-    } catch (e) {
-      toast({
-        title: 'Could not submit feedback',
-        description: e instanceof Error ? e.message : 'Unknown error',
-        variant: 'destructive',
-      });
-    } finally {
-      setSubmittingFeedback(false);
-    }
-  }
-
   if (loading || !detail) {
     return (
       <div className="flex flex-col gap-6">
@@ -514,7 +499,7 @@ export default function TaskProgressPage() {
       <TrainingRecordsPageHeader
         title={`${detail.task.taskCode} · ${detail.task.officialTitle || detail.task.title}`}
         breadcrumb={detail.task.taskCode}
-        description={`${detail.section?.title || 'Section'} · Digital TRB Companion`}
+        description={`${detail.section?.title || 'Section'} · Training Record`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <TrainingStatusPill status={detail.progress.status} />
@@ -529,7 +514,7 @@ export default function TaskProgressPage() {
       />
 
       <TrainingRecordsDisclaimer
-        title={detail.isMcaPilot ? 'Mandatory pilot disclaimer' : 'Pilot disclaimer'}
+        title={detail.isMcaPilot ? 'About this digital record' : 'Training Record notice'}
       >
         {detail.disclaimer}
       </TrainingRecordsDisclaimer>
@@ -543,56 +528,25 @@ export default function TaskProgressPage() {
       ) : null}
 
       <TrainingRecordsSection
-        title="Official task wording"
+        title="Task"
         description={
           detail.task.sourceTaskReference || detail.task.sourcePageReference
             ? `${detail.task.sourceTaskReference || ''} · ${detail.task.sourcePageReference || `pp. ${detail.task.sourcePageStart ?? '—'}–${detail.task.sourcePageEnd ?? '—'}`}`
-            : 'Source text is not editable by candidates'
+            : undefined
         }
       >
         <div className="space-y-3 text-sm">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Official source (read-only)
-          </p>
           <p className="font-medium text-foreground">
             {detail.task.officialTitle || detail.task.title}
           </p>
-          <p className="whitespace-pre-wrap text-muted-foreground">
-            {detail.task.officialDescription || detail.task.description}
-          </p>
-          {detail.task.officialSignerInstruction ? (
-            <p className="text-xs text-muted-foreground">
-              {detail.task.officialSignerInstruction}
+          {(detail.task.officialDescription || detail.task.description) ? (
+            <p className="whitespace-pre-wrap text-muted-foreground">
+              {detail.task.officialDescription || detail.task.description}
             </p>
           ) : null}
-        </div>
-      </TrainingRecordsSection>
-
-      <TrainingRecordsSection
-        title="SeaJourney guidance"
-        description="Plain-language help — not official MCA/PYA wording"
-      >
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <p className="whitespace-pre-wrap">
-            {detail.task.seajourneySummary ||
-              detail.task.seajourneyGuidance ||
-              'No SeaJourney summary for this task.'}
-          </p>
-          {detail.task.seajourneyCompletionGuidance ||
-          detail.task.evidenceGuidance ? (
-            <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-              <p className="text-[11px] font-medium text-foreground">
-                Completion / evidence guidance
-              </p>
-              <p className="mt-0.5 whitespace-pre-wrap text-xs">
-                {detail.task.seajourneyCompletionGuidance ||
-                  detail.task.evidenceGuidance}
-              </p>
-            </div>
-          ) : null}
           {detail.task.requiredSignerRole ? (
-            <p className="text-[11px]">
-              Required signer role:{' '}
+            <p className="text-[11px] text-muted-foreground">
+              Required assessor:{' '}
               <span className="font-medium text-foreground">
                 {detail.task.requiredSignerRole.replace(/_/g, ' ')}
               </span>
@@ -602,129 +556,8 @@ export default function TaskProgressPage() {
       </TrainingRecordsSection>
 
       <TrainingRecordsSection
-        title="Candidate notes"
-        description="Describe how you completed this training task"
-        action={
-          editable ? (
-            <Button
-              size="sm"
-              className="h-7 rounded-md text-xs"
-              onClick={() => void saveNotes()}
-              disabled={saving}
-            >
-              {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Save notes
-            </Button>
-          ) : null
-        }
-      >
-        <Textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          disabled={!editable}
-          rows={6}
-          maxLength={8000}
-          className="rounded-md text-sm"
-        />
-      </TrainingRecordsSection>
-
-      <TrainingRecordsSection
-        title="Supporting evidence"
-        description="PDF, JPEG or PNG · max 8MB · private storage"
-        flush
-        action={
-          editable ? (
-            <Label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-muted/40">
-              <Upload className="h-3.5 w-3.5" />
-              Upload
-              <Input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void uploadFile(f);
-                  e.target.value = '';
-                }}
-              />
-            </Label>
-          ) : null
-        }
-      >
-        {detail.evidence.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[11px] text-muted-foreground sm:px-5">
-            No evidence uploaded yet.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {detail.evidence.map((ev) => (
-              <li
-                key={ev.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 sm:px-5"
-              >
-                <button
-                  type="button"
-                  className="text-left text-sm font-medium text-foreground underline-offset-2 hover:underline"
-                  onClick={() => void openEvidence(ev.id)}
-                >
-                  {ev.originalFilename}
-                </button>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                    {(ev.fileSize / 1024).toFixed(0)} KB
-                  </span>
-                  {editable ? (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7"
-                      onClick={() => void removeEvidence(ev.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </TrainingRecordsSection>
-
-      <TrainingRecordsSection
-        title="Assessment readiness"
-        description="Marking ready does not approve the task. Sign-off can only be requested afterwards."
-      >
-        {canMarkReady ? (
-          <Button
-            size="sm"
-            className="h-8 rounded-md text-xs"
-            disabled={markingReady || !notes.trim()}
-            onClick={() => void markReady()}
-          >
-            {markingReady ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            Mark ready for assessment
-          </Button>
-        ) : detail.progress.status === 'ready_for_assessment' ? (
-          <p className="text-xs text-muted-foreground">
-            This task is ready for assessment. Select an eligible signer below.
-          </p>
-        ) : detail.progress.status === 'awaiting_signoff' ? (
-          <p className="text-xs text-muted-foreground">
-            Awaiting captain/officer decision.
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Save notes (and optional evidence) while the task is in progress, then mark
-            ready.
-          </p>
-        )}
-      </TrainingRecordsSection>
-
-      <TrainingRecordsSection
-        title="Request captain sign-off"
-        description="Eligible signers are taken from your active vessel roster. External invites are self-declared until verified."
+        title="Send for sign-off"
+        description="Choose an officer or captain with Training Record authority on your vessel. Notes and evidence are optional for verbal tasks."
       >
         {detail.pendingRequest ? (
           <div className="space-y-3">
@@ -748,91 +581,65 @@ export default function TaskProgressPage() {
           <p className="text-xs text-muted-foreground">This task is already approved.</p>
         ) : !canRequestSignoff ? (
           <p className="text-xs text-muted-foreground">
-            Sign-off is available only after the task is marked ready for assessment.
+            This task cannot be sent for sign-off in its current status.
           </p>
         ) : (
           <div className="space-y-3">
             {eligibleSigners.length > 0 ? (
               <div className="space-y-1.5">
-                <Label className="text-xs">Eligible vessel signers</Label>
+                <Label className="text-xs">Who should sign this off?</Label>
                 <ul className="divide-y divide-border rounded-md border border-border">
-                  {eligibleSigners.map((s) => (
-                    <li key={s.email}>
-                      <button
-                        type="button"
-                        className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-muted/40"
-                        onClick={() => {
-                          setSignerEmail(s.email);
-                          setSignerName(s.fullName);
-                          setAllowExternal(false);
-                        }}
-                      >
-                        <span className="text-sm font-medium text-foreground">
-                          {s.fullName}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {s.email}
-                          {s.rank ? ` · ${s.rank}` : ''} · {s.source.replace(/_/g, ' ')}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                  {eligibleSigners.map((s) => {
+                    const selected = Boolean(s.userId && s.userId === signerUserId);
+                    return (
+                      <li key={s.userId || s.email}>
+                        <button
+                          type="button"
+                          className={`flex w-full flex-col items-start gap-0.5 px-3 py-2.5 text-left hover:bg-muted/40 ${
+                            selected ? 'bg-muted/50' : ''
+                          }`}
+                          onClick={() => {
+                            setSignerUserId(s.userId);
+                            setSignerEmail(s.email);
+                            setSignerName(s.fullName);
+                          }}
+                        >
+                          <span className="text-sm font-medium text-foreground">
+                            {s.fullName}
+                            {s.isVesselManager ? ' · Vessel manager' : ''}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {s.eligibilityLabel || s.source.replace(/_/g, ' ')}
+                            {s.vesselRole ? ` · ${s.vesselRole}` : s.rank ? ` · ${s.rank}` : ''}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : (
               <p className="text-xs text-amber-800">
-                No eligible roster signers found. You may invite an external captain; their
-                credentials will be self-declared.
+                No eligible signers yet. A vessel manager must turn on{' '}
+                <span className="font-medium">Training Record sign-off</span> for officers under{' '}
+                <span className="font-medium">Dashboard → Vessel roles</span>.
               </p>
             )}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="signerName" className="text-xs">
-                  Signer name
-                </Label>
-                <Input
-                  id="signerName"
-                  className="h-8 rounded-md text-sm"
-                  value={signerName}
-                  onChange={(e) => setSignerName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="signerEmail" className="text-xs">
-                  Signer email
-                </Label>
-                <Input
-                  id="signerEmail"
-                  type="email"
-                  className="h-8 rounded-md text-sm"
-                  value={signerEmail}
-                  onChange={(e) => setSignerEmail(e.target.value)}
-                />
-              </div>
-            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="msg" className="text-xs">
-                Optional message
+                Message to signer (optional)
               </Label>
               <Textarea
                 id="msg"
                 className="rounded-md text-sm"
                 value={optionalMessage}
                 onChange={(e) => setOptionalMessage(e.target.value)}
-                rows={3}
+                rows={2}
+                placeholder="e.g. Completed verbally during watch handover"
               />
             </div>
-            <label className="flex items-start gap-2 text-xs text-muted-foreground">
-              <Checkbox
-                checked={allowExternal}
-                onCheckedChange={(v) => setAllowExternal(v === true)}
-                className="mt-0.5"
-              />
-              <span>
-                Invite an external captain not on the vessel roster (credentials remain
-                self-declared until SeaJourney verifies them).
-              </span>
-            </label>
+
             <label className="flex items-start gap-2 text-xs text-muted-foreground">
               <Checkbox
                 checked={authorised}
@@ -840,26 +647,24 @@ export default function TaskProgressPage() {
                 className="mt-0.5"
               />
               <span>
-                I believe this person is authorised to review this training task for my
-                vessel.
+                I believe this person is suitably qualified and authorised to assess this training
+                task for my vessel.
               </span>
             </label>
+
             <Button
               size="sm"
               className="h-8 rounded-md text-xs"
               onClick={() => void requestSignoff()}
-              disabled={requesting || !signerName || !signerEmail}
+              disabled={requesting || !signerUserId || !authorised}
             >
-              {requesting ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              Request sign-off
+              {requesting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              Send for sign-off
             </Button>
+
             {devReviewUrl ? (
               <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
-                <p className="text-[11px] font-medium text-foreground">
-                  Development review link
-                </p>
+                <p className="text-[11px] font-medium text-foreground">Development review link</p>
                 <a
                   className="mt-1 block break-all text-[11px] text-sky-600 underline"
                   href={devReviewUrl}
@@ -872,172 +677,256 @@ export default function TaskProgressPage() {
         )}
       </TrainingRecordsSection>
 
-      <TrainingRecordsSection title="Sign-off history" flush>
-        {detail.signoffs.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[11px] text-muted-foreground sm:px-5">
-            No captain decisions yet.
-          </p>
-        ) : (
+      <div className="space-y-2">
+        {!showNotes && canEditExtras ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md text-xs"
+            onClick={() => setShowNotes(true)}
+          >
+            Add notes (optional)
+          </Button>
+        ) : null}
+
+        {showNotes || (!canEditExtras && notes.trim()) ? (
+          <TrainingRecordsSection
+            title="Notes"
+            description="Optional — useful if you want to leave context for the assessor"
+            action={
+              canEditExtras ? (
+                <div className="flex items-center gap-1.5">
+                  {!notes.trim() ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-md text-xs"
+                      onClick={() => setShowNotes(false)}
+                    >
+                      Hide
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    className="h-7 rounded-md text-xs"
+                    onClick={() => void saveNotes()}
+                    disabled={saving}
+                  >
+                    {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                    Save notes
+                  </Button>
+                </div>
+              ) : null
+            }
+          >
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={!canEditExtras}
+              rows={4}
+              maxLength={8000}
+              className="rounded-md text-sm"
+              placeholder="Optional notes about how this task was completed"
+            />
+          </TrainingRecordsSection>
+        ) : null}
+
+        {!showEvidence && canEditExtras ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md text-xs"
+            onClick={() => setShowEvidence(true)}
+          >
+            Add evidence (optional)
+          </Button>
+        ) : null}
+
+        {showEvidence || detail.evidence.length > 0 ? (
+          <TrainingRecordsSection
+            title="Evidence"
+            description="Optional — PDF, JPEG or PNG · max 8MB"
+            flush
+            action={
+              canEditExtras ? (
+                <div className="flex items-center gap-1.5">
+                  {detail.evidence.length === 0 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-md text-xs"
+                      onClick={() => setShowEvidence(false)}
+                    >
+                      Hide
+                    </Button>
+                  ) : null}
+                  <Label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs hover:bg-muted/40">
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload
+                    <Input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void uploadFile(f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </Label>
+                </div>
+              ) : null
+            }
+          >
+            {detail.evidence.length === 0 ? (
+              <p className="px-4 py-6 text-center text-[11px] text-muted-foreground sm:px-5">
+                No evidence uploaded.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {detail.evidence.map((ev) => (
+                  <li
+                    key={ev.id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 sm:px-5"
+                  >
+                    <button
+                      type="button"
+                      className="text-left text-sm font-medium text-foreground underline-offset-2 hover:underline"
+                      onClick={() => void openEvidence(ev.id)}
+                    >
+                      {ev.originalFilename}
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                        {(ev.fileSize / 1024).toFixed(0)} KB
+                      </span>
+                      {canEditExtras ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => void removeEvidence(ev.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TrainingRecordsSection>
+        ) : null}
+      </div>
+
+      {detail.signoffs.length > 0 ? (
+        <TrainingRecordsSection title="Sign-off history" flush>
           <ul className="divide-y divide-border">
             {detail.signoffs.map((s) => (
               <li key={s.id} className="space-y-1.5 px-4 py-3 sm:px-5">
                 <div className="flex flex-wrap items-center gap-2">
                   <TrainingStatusPill status={s.decision} />
                   <span className="text-sm font-medium">{s.signerName}</span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {s.signerVerificationStatus.replace(/_/g, ' ')}
-                  </span>
                 </div>
                 {s.decisionNotes ? (
                   <p className="text-xs text-muted-foreground">{s.decisionNotes}</p>
                 ) : null}
                 <p className="font-mono text-[10px] text-muted-foreground">
-                  {new Date(s.signedAt).toLocaleString('en-GB')} ·{' '}
-                  {s.recordHash.slice(0, 12)}…
+                  {new Date(s.signedAt).toLocaleString('en-GB')}
                 </p>
               </li>
             ))}
           </ul>
-        )}
-      </TrainingRecordsSection>
-
-      {detail.isMcaPilot ? (
-        <TrainingRecordsSection
-          title="Official TRB confirmation"
-          description="Candidate-reported trial comparison — not independent verification. Digital approval does not set this to signed."
-        >
-          {detail.officialBookDiscrepancy ? (
-            <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-900">
-              Discrepancy: your status differs from the captain&apos;s reported official-book
-              status ({detail.officialBookCaptain?.officialBookStatus}).
-            </div>
-          ) : null}
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Official book status</Label>
-              <Select value={bookStatus} onValueChange={setBookStatus}>
-                <SelectTrigger className="h-8 rounded-md text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="not_recorded">Not recorded</SelectItem>
-                  <SelectItem value="awaiting_signature">Awaiting signature</SelectItem>
-                  <SelectItem value="signed">Signed in official TRB</SelectItem>
-                  <SelectItem value="discrepancy_reported">Discrepancy reported</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Official signer name (optional)</Label>
-                <Input
-                  className="h-8 text-sm"
-                  value={bookSigner}
-                  onChange={(e) => setBookSigner(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Official signer rank (optional)</Label>
-                <Input
-                  className="h-8 text-sm"
-                  value={bookRank}
-                  onChange={(e) => setBookRank(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Your declaration</Label>
-              <Textarea
-                className="text-sm"
-                rows={3}
-                value={bookDeclaration}
-                onChange={(e) => setBookDeclaration(e.target.value)}
-                placeholder="I confirm this is my candidate-reported status for the matching official TRB task…"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Notes (optional)</Label>
-              <Textarea
-                className="text-sm"
-                rows={2}
-                value={bookNotes}
-                onChange={(e) => setBookNotes(e.target.value)}
-              />
-            </div>
-            <Button
-              size="sm"
-              className="h-8 text-xs"
-              disabled={savingBook}
-              onClick={() => void saveOfficialBook()}
-            >
-              {savingBook ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Save official-book status
-            </Button>
-          </div>
         </TrainingRecordsSection>
       ) : null}
 
-      <TrainingRecordsSection title="Pilot feedback">
-        <div className="grid gap-3 sm:grid-cols-3">
-          {(
-            [
-              ['Ease of use', feedbackEase, setFeedbackEase],
-              ['Clarity', feedbackClarity, setFeedbackClarity],
-              ['Confidence', feedbackConfidence, setFeedbackConfidence],
-            ] as const
-          ).map(([label, value, setter]) => (
-            <div key={label} className="space-y-1.5">
-              <Label className="text-xs">{label} (1–5)</Label>
-              <Select value={value} onValueChange={setter}>
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 space-y-3">
-          <Textarea
-            className="text-sm"
-            rows={2}
-            placeholder="What worked?"
-            value={feedbackWorked}
-            onChange={(e) => setFeedbackWorked(e.target.value)}
-          />
-          <Textarea
-            className="text-sm"
-            rows={2}
-            placeholder="What was unclear?"
-            value={feedbackUnclear}
-            onChange={(e) => setFeedbackUnclear(e.target.value)}
-          />
-          <Textarea
-            className="text-sm"
-            rows={2}
-            placeholder="What would you change?"
-            value={feedbackChange}
-            onChange={(e) => setFeedbackChange(e.target.value)}
-          />
-          <Button
-            size="sm"
-            className="h-8 text-xs"
-            disabled={submittingFeedback}
-            onClick={() => void submitFeedback()}
-          >
-            {submittingFeedback ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            Submit feedback
-          </Button>
-        </div>
-      </TrainingRecordsSection>
+      {detail.isMcaPilot ? (
+        <Collapsible open={showOfficialBook} onOpenChange={setShowOfficialBook}>
+          <div className="rounded-md border border-border">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left hover:bg-muted/30"
+              >
+                <div>
+                  <p className="text-xs font-medium text-foreground">
+                    Official paper TRB status (optional)
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Candidate-reported only — does not replace the paper book
+                  </p>
+                </div>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform [[data-state=open]_&]:rotate-180" />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-3 border-t border-border px-4 py-3">
+                {detail.officialBookDiscrepancy ? (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-900">
+                    Discrepancy: your status differs from the captain&apos;s reported official-book
+                    status ({detail.officialBookCaptain?.officialBookStatus}).
+                  </div>
+                ) : null}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Official book status</Label>
+                  <Select value={bookStatus} onValueChange={setBookStatus}>
+                    <SelectTrigger className="h-8 rounded-md text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="not_recorded">Not recorded</SelectItem>
+                      <SelectItem value="awaiting_signature">Awaiting signature</SelectItem>
+                      <SelectItem value="signed">Signed in official TRB</SelectItem>
+                      <SelectItem value="discrepancy_reported">Discrepancy reported</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Official signer name (optional)</Label>
+                    <Input
+                      className="h-8 text-sm"
+                      value={bookSigner}
+                      onChange={(e) => setBookSigner(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Official signer rank (optional)</Label>
+                    <Input
+                      className="h-8 text-sm"
+                      value={bookRank}
+                      onChange={(e) => setBookRank(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Your declaration</Label>
+                  <Textarea
+                    className="text-sm"
+                    rows={2}
+                    value={bookDeclaration}
+                    onChange={(e) => setBookDeclaration(e.target.value)}
+                    placeholder="I confirm this is my candidate-reported status…"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={savingBook}
+                  onClick={() => void saveOfficialBook()}
+                >
+                  {savingBook ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  Save official-book status
+                </Button>
+              </div>
+            </CollapsibleContent>
+          </div>
+        </Collapsible>
+      ) : null}
     </div>
   );
 }

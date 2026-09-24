@@ -100,7 +100,7 @@ export async function listActivePrograms(
   const { data: programs, error } = await admin
     .from('trb_programs')
     .select(
-      'id, code, name, description, programme_type, issuing_body, is_official, is_active, recognition_status, source_authority, source_title, source_url, source_published_at, source_license, source_license_url',
+      'id, code, name, description, programme_type, issuing_body, is_official, is_active, recognition_status, source_authority, source_title, source_url, source_published_at, source_license, source_license_url, source_pdf_filename, source_document_sha256, source_revision_label, companion_notice',
     )
     .eq('is_active', true)
     .order('name');
@@ -109,7 +109,7 @@ export async function listActivePrograms(
   const { data: versions, error: vErr } = await admin
     .from('trb_program_versions')
     .select(
-      'id, program_id, version, status, disclaimer, pilot_disclaimer, attribution_html, effective_from, published_at, source_version_reference',
+      'id, program_id, version, status, disclaimer, pilot_disclaimer, attribution_html, effective_from, published_at, source_version_reference, source_checked_at, content_provenance, superseded_by_version_id',
     )
     .in('status', ['pilot', 'active']);
   if (vErr) throw vErr;
@@ -120,14 +120,75 @@ export async function listActivePrograms(
 
   return (programs || [])
     .filter((p) => {
+      if (p.code === 'SJ-DEMO-TRB-OOW') return false;
       if (!isMcaPilotProgramCode(p.code)) return true;
       return mcaAccess.allowed;
     })
-    .map((p) => ({
-      ...p,
-      isMcaPilot: isMcaPilotProgramCode(p.code),
-      versions: (versions || []).filter((v) => v.program_id === p.id),
-    }));
+    .map((p) => {
+      const progVersions = (versions || []).filter((v) => v.program_id === p.id);
+      return {
+        id: p.id,
+        code: p.code,
+        name: p.name,
+        description: p.description,
+        programmeType: p.programme_type,
+        issuingBody: p.issuing_body,
+        isOfficial: p.is_official,
+        isActive: p.is_active,
+        recognitionStatus: p.recognition_status ?? 'not_approved',
+        sourceAuthority: p.source_authority ?? null,
+        sourceTitle: p.source_title ?? null,
+        sourceUrl: p.source_url ?? null,
+        sourcePublishedAt: p.source_published_at ?? null,
+        sourceLicense: p.source_license ?? null,
+        sourceLicenseUrl: p.source_license_url ?? null,
+        sourcePdfFilename: (p as { source_pdf_filename?: string | null }).source_pdf_filename ?? null,
+        sourceDocumentSha256:
+          (p as { source_document_sha256?: string | null }).source_document_sha256 ?? null,
+        sourceRevisionLabel:
+          (p as { source_revision_label?: string | null }).source_revision_label ?? null,
+        companionNotice: (p as { companion_notice?: string | null }).companion_notice ?? null,
+        // Transitional snake_case for older clients
+        programme_type: p.programme_type,
+        issuing_body: p.issuing_body,
+        is_official: p.is_official,
+        is_active: p.is_active,
+        recognition_status: p.recognition_status,
+        source_authority: p.source_authority,
+        source_title: p.source_title,
+        source_url: p.source_url,
+        source_published_at: p.source_published_at,
+        source_license: p.source_license,
+        source_license_url: p.source_license_url,
+        isMcaPilot: isMcaPilotProgramCode(p.code),
+        isOowYachts3000: isMcaPilotProgramCode(p.code),
+        versions: progVersions.map((v) => ({
+          id: v.id,
+          version: v.version,
+          status: v.status,
+          disclaimer: v.disclaimer,
+          companionNotice:
+            (v as { pilot_disclaimer?: string | null }).pilot_disclaimer ||
+            v.disclaimer,
+          pilotDisclaimer: (v as { pilot_disclaimer?: string | null }).pilot_disclaimer ?? null,
+          attributionHtml: v.attribution_html ?? null,
+          effectiveFrom: v.effective_from ?? null,
+          publishedAt: v.published_at ?? null,
+          sourceVersionReference: v.source_version_reference ?? null,
+          sourceCheckedAt:
+            (v as { source_checked_at?: string | null }).source_checked_at ?? null,
+          contentProvenance:
+            (v as { content_provenance?: string | null }).content_provenance ?? null,
+          supersededByVersionId:
+            (v as { superseded_by_version_id?: string | null }).superseded_by_version_id ??
+            null,
+          // Transitional
+          pilot_disclaimer: (v as { pilot_disclaimer?: string | null }).pilot_disclaimer,
+          attribution_html: v.attribution_html,
+          source_version_reference: v.source_version_reference,
+        })),
+      };
+    });
 }
 
 export async function listUserEnrollments(admin: SupabaseClient, userId: string) {
@@ -211,8 +272,8 @@ export async function enrolUser(
     if (!access.allowed) {
       throw new Error(
         access.reason === 'pilot_disabled'
-          ? 'MCA OOW pilot is not enabled'
-          : 'You are not authorised to enrol in this private pilot',
+          ? 'OOW Training Record companion is not enabled'
+          : 'You are not authorised to enrol in this Training Record programme',
       );
     }
     if (!opts.consent) {
@@ -226,7 +287,7 @@ export async function enrolUser(
       !c.feedbackMayBeAnalysed ||
       !c.noMcaPyaApprovalImplied
     ) {
-      throw new Error('All pilot consent confirmations are required');
+      throw new Error('All companion consent confirmations are required');
     }
   }
 
@@ -317,11 +378,14 @@ export async function getEnrollmentDetail(
       consent_version, consent_disclaimer_version, consent_accepted_at,
       trb_program_versions (
         id, version, status, disclaimer, pilot_disclaimer, attribution_html,
-        source_version_reference, source_checked_at,
+        source_version_reference, source_checked_at, content_provenance,
+        superseded_by_version_id,
         trb_programs (
           id, code, name, description, programme_type, issuing_body, is_official,
           recognition_status, source_authority, source_title, source_url,
-          source_published_at, source_license, source_license_url
+          source_published_at, source_license, source_license_url,
+          source_pdf_filename, source_document_sha256, source_revision_label,
+          companion_notice
         )
       )
     `)
@@ -391,6 +455,27 @@ export async function getEnrollmentDetail(
         .in('task_progress_id', progressIds)
     : { data: [] as never[] };
 
+  const { data: signoffRows } = progressIds.length
+    ? await admin
+        .from('trb_signoffs')
+        .select(
+          'id, decision, signer_name, signer_email, signer_rank, signer_coc_number, signer_issuing_authority, signer_verification_status, signer_declaration, decision_notes, signed_at, record_hash, created_at, signoff_request_id, task_progress_id',
+        )
+        .in('task_progress_id', progressIds)
+        .order('signed_at', { ascending: false })
+    : { data: [] as never[] };
+
+  const latestSignoffByProgress = new Map<
+    string,
+    ReturnType<typeof mapSignoffRow>
+  >();
+  for (const row of signoffRows || []) {
+    const key = row.task_progress_id as string;
+    if (!latestSignoffByProgress.has(key)) {
+      latestSignoffByProgress.set(key, mapSignoffRow(row as Parameters<typeof mapSignoffRow>[0]));
+    }
+  }
+
   const { data: audit } = await admin
     .from('trb_audit_events')
     .select('id, event_type, event_data, actor_email, created_at, task_progress_id')
@@ -433,6 +518,9 @@ export async function getEnrollmentDetail(
     const batchRequestId = p
       ? pendingBatchByProgress.get(p.id as string) ?? null
       : null;
+    const latestSignoff = p
+      ? latestSignoffByProgress.get(p.id as string) ?? null
+      : null;
     return {
       ...mapTaskCatalogRow(t),
       progressId: p?.id ?? null,
@@ -442,6 +530,7 @@ export async function getEnrollmentDetail(
       updatedAt: p?.updated_at ?? null,
       batchRequestId,
       isBatchShadow: Boolean(batchRequestId),
+      latestSignoff,
       officialBookCandidate: candidateBook || null,
       officialBookCaptain: captainBook || null,
       officialBookDiscrepancy: discrepancy,
@@ -459,22 +548,74 @@ export async function getEnrollmentDetail(
   const officialDiscrepancies = taskRows.filter((t) => t.officialBookDiscrepancy).length;
 
   const version = enrollment.trb_program_versions as {
+    version?: string;
+    status?: string;
     disclaimer?: string;
     pilot_disclaimer?: string;
     attribution_html?: string;
+    source_version_reference?: string | null;
+    source_checked_at?: string | null;
+    content_provenance?: string | null;
+    superseded_by_version_id?: string | null;
+    trb_programs?: {
+      code?: string;
+      name?: string;
+      recognition_status?: string;
+      source_authority?: string | null;
+      source_title?: string | null;
+      source_url?: string | null;
+      source_published_at?: string | null;
+      source_license?: string | null;
+      source_license_url?: string | null;
+      source_pdf_filename?: string | null;
+      source_document_sha256?: string | null;
+      source_revision_label?: string | null;
+      companion_notice?: string | null;
+    } | null;
   } | null;
+
+  const prog = version?.trb_programs;
+  const companionNotice =
+    prog?.companion_notice ||
+    version?.pilot_disclaimer ||
+    version?.disclaimer ||
+    (isMcaPilot ? MCA_PILOT_DISCLAIMER : TRB_DISCLAIMER);
 
   return {
     enrollment,
     isMcaPilot,
-    disclaimer: isMcaPilot
-      ? version?.pilot_disclaimer || version?.disclaimer || MCA_PILOT_DISCLAIMER
-      : version?.disclaimer || TRB_DISCLAIMER,
+    isOowYachts3000: isMcaPilot,
+    disclaimer: companionNotice,
+    companionNotice,
     attribution: isMcaPilot
       ? version?.attribution_html || MCA_PILOT_ATTRIBUTION
       : null,
-    sourceUrl: isMcaPilot ? MCA_PILOT_SOURCE_URL : null,
+    sourceUrl: isMcaPilot ? prog?.source_url || MCA_PILOT_SOURCE_URL : null,
     oglUrl: isMcaPilot ? MCA_PILOT_OGL_URL : null,
+    programmeSource: prog
+      ? {
+          programCode: prog.code ?? null,
+          programName: prog.name ?? null,
+          programVersion: version?.version ?? null,
+          versionStatus: version?.status ?? null,
+          recognitionStatus: prog.recognition_status ?? 'not_approved',
+          sourceAuthority: prog.source_authority ?? null,
+          sourceTitle: prog.source_title ?? null,
+          sourceUrl: prog.source_url ?? null,
+          sourcePublishedAt: prog.source_published_at ?? null,
+          sourceLicense: prog.source_license ?? null,
+          sourceLicenseUrl: prog.source_license_url ?? null,
+          sourcePdfFilename: prog.source_pdf_filename ?? null,
+          sourceDocumentSha256: prog.source_document_sha256 ?? null,
+          sourceRevisionLabel: prog.source_revision_label ?? null,
+          sourceVersionReference: version?.source_version_reference ?? null,
+          sourceCheckedAt: version?.source_checked_at ?? null,
+          contentProvenance: version?.content_provenance ?? null,
+          companionNotice: prog.companion_notice ?? companionNotice,
+          supersededByVersionId: version?.superseded_by_version_id ?? null,
+          isOfficial: false,
+        }
+      : null,
     sections: (sections || []).map((s) => mapSectionRow(s)),
     tasks: taskRows,
     overall,
@@ -703,12 +844,8 @@ export async function uploadEvidence(
   if (!enrollment || enrollment.user_id !== userId) throw new Error('Forbidden');
 
   const status = progress.status as TrbTaskStatus;
-  if (
-    ['approved', 'awaiting_signoff', 'ready_for_assessment', 'superseded'].includes(
-      status,
-    )
-  ) {
-    throw new Error('Cannot add evidence in current status');
+  if (['approved', 'awaiting_signoff', 'superseded'].includes(status)) {
+    throw new Error('Cannot upload evidence in current status');
   }
 
   const safeName = file.filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
@@ -799,7 +936,7 @@ export async function removeEvidence(
   if (!enrollment || enrollment.user_id !== userId) throw new Error('Forbidden');
 
   if (
-    ['approved', 'awaiting_signoff', 'ready_for_assessment', 'superseded'].includes(
+    ['approved', 'awaiting_signoff', 'superseded'].includes(
       progress.status as string,
     )
   ) {
@@ -846,10 +983,7 @@ export async function markReadyForAssessment(
     return { status: 'ready_for_assessment' as const, idempotent: true };
   }
   if (!canCandidateTransition(status, 'ready_for_assessment')) {
-    throw new Error('Task must be in progress before marking ready for assessment');
-  }
-  if (!(progress.candidate_notes || '').trim()) {
-    throw new Error('Add candidate notes before marking ready for assessment');
+    throw new Error('Task cannot be marked ready for assessment from its current status');
   }
 
   const key = idempotencyKey?.trim() || null;
@@ -946,7 +1080,7 @@ export async function listEligibleSignersForTask(
     requiredSignerRole: required,
     signers,
     allowExternalInviteHint:
-      'External captains may be invited by email; their credentials remain self-declared until SeaJourney verifies them.',
+      'Training Record sign-off requires an authenticated SeaJourney user with explicit Training Record authority on this vessel. External email-only invites are not eligible.',
   };
 }
 
@@ -955,8 +1089,9 @@ export async function createSignoffRequest(
   userId: string,
   args: {
     taskProgressId: string;
-    signerName: string;
-    signerEmail: string;
+    signerUserId?: string | null;
+    signerName?: string | null;
+    signerEmail?: string | null;
     optionalMessage?: string;
     allowExternalInvite?: boolean;
     idempotencyKey?: string;
@@ -981,13 +1116,37 @@ export async function createSignoffRequest(
   if (status === 'awaiting_signoff') {
     throw new Error('A pending sign-off request already exists');
   }
-  if (status !== 'ready_for_assessment') {
-    throw new Error(
-      'Task must be marked ready for assessment before requesting sign-off',
-    );
+  if (status === 'approved' || status === 'superseded') {
+    throw new Error('This task is already closed and cannot be sent for sign-off');
   }
-  if (!(progress.candidate_notes || '').trim()) {
-    throw new Error('Candidate notes are required before requesting sign-off');
+
+  // Verbal / light-touch flow: prepare the task for assessment automatically.
+  // Notes and evidence remain optional.
+  if (status !== 'ready_for_assessment') {
+    if (!canCandidateTransition(status, 'ready_for_assessment')) {
+      throw new Error(
+        'Task cannot be sent for sign-off from its current status',
+      );
+    }
+    const { error: readyErr } = await admin
+      .from('trb_task_progress')
+      .update({
+        status: 'ready_for_assessment',
+        ready_for_assessment_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', args.taskProgressId)
+      .eq('status', status);
+    if (readyErr) throw readyErr;
+
+    await writeAudit(admin, {
+      enrollmentId: progress.enrollment_id,
+      taskProgressId: args.taskProgressId,
+      eventType: 'task_ready_for_assessment',
+      eventData: { autoPreparedForSignoff: true },
+      ...ctx,
+      actorUserId: userId,
+    });
   }
 
   const idemKey = args.idempotencyKey?.trim() || null;
@@ -1029,7 +1188,12 @@ export async function createSignoffRequest(
     .maybeSingle();
 
   const requiredRole = task?.required_signer_role || 'captain';
-  const email = args.signerEmail.trim().toLowerCase();
+
+  if (args.signerUserId && args.signerUserId === userId) {
+    throw Object.assign(new Error('Candidates cannot request sign-off from themselves'), {
+      code: 'CANNOT_SIGN_OWN_TASK',
+    });
+  }
 
   const { data: candidateUser } = await admin
     .from('users')
@@ -1037,24 +1201,44 @@ export async function createSignoffRequest(
     .eq('id', userId)
     .maybeSingle();
 
-  if (
-    candidateUser?.email &&
-    candidateUser.email.trim().toLowerCase() === email
-  ) {
-    throw new Error('Candidates cannot request sign-off from themselves');
-  }
-
   const eligibility = await evaluateSignerEligibility(admin, {
     candidateUserId: userId,
-    signerEmail: email,
+    signerUserId: args.signerUserId,
+    signerEmail: args.signerEmail,
     requiredSignerRole: requiredRole,
     allowExternalInvite: Boolean(args.allowExternalInvite),
   });
-  if (!eligibility.eligible || !eligibility.signer) {
-    throw new Error(
-      eligibility.reason || 'Proposed signer is not eligible for this task',
+  if (!eligibility.eligible || !eligibility.signer || !eligibility.signer.userId) {
+    throw Object.assign(
+      new Error(
+        eligibility.reason || 'Proposed signer is not eligible for this task',
+      ),
+      { code: eligibility.code || 'SIGNER_ELIGIBILITY_CHANGED' },
     );
   }
+
+  const signer = eligibility.signer;
+  // Server-authoritative identity; ignore/verify client name/email
+  if (
+    args.signerEmail &&
+    args.signerEmail.trim().toLowerCase() !== signer.email
+  ) {
+    throw Object.assign(
+      new Error('signerEmail does not match selected signerUserId'),
+      { code: 'SIGNER_ELIGIBILITY_CHANGED' },
+    );
+  }
+  if (
+    candidateUser?.email &&
+    candidateUser.email.trim().toLowerCase() === signer.email
+  ) {
+    throw Object.assign(new Error('Candidates cannot request sign-off from themselves'), {
+      code: 'CANNOT_SIGN_OWN_TASK',
+    });
+  }
+
+  const email = signer.email;
+  const signerName = signer.fullName || args.signerName?.trim() || email;
 
   // Cancel any stray pending (race safety)
   await admin
@@ -1071,7 +1255,7 @@ export async function createSignoffRequest(
       task_progress_id: args.taskProgressId,
       requested_by: userId,
       signer_email: email,
-      signer_name: args.signerName.trim() || eligibility.signer.fullName,
+      signer_name: signerName,
       required_signer_role: requiredRole,
       token_hash: tokenHash,
       status: 'pending',
@@ -1079,14 +1263,20 @@ export async function createSignoffRequest(
       vessel_id: eligibility.vesselId,
       vessel_name_snapshot: eligibility.vesselName,
       candidate_assignment_id: eligibility.candidateAssignmentId,
-      signer_user_id: eligibility.signer.userId,
-      signer_assignment_id: eligibility.signer.assignmentId,
+      signer_user_id: signer.userId,
+      signer_assignment_id: signer.assignmentId,
       eligibility_snapshot: {
-        source: eligibility.signer.source,
-        selfDeclared: eligibility.signer.selfDeclared,
-        credentialVerificationStatus:
-          eligibility.signer.credentialVerificationStatus,
+        source: signer.source,
+        selfDeclared: signer.selfDeclared,
+        credentialVerificationStatus: signer.credentialVerificationStatus,
         reason: eligibility.reason ?? null,
+        authorityId: signer.authorityId,
+        authorityType: signer.authorityType,
+        vesselRole: signer.vesselRole,
+        isVesselManager: signer.isVesselManager,
+        qualificationSummary: signer.qualificationSummary,
+        authorityExpiresAt: signer.authorityExpiresAt,
+        eligibilityLabel: signer.eligibilityLabel,
       },
       idempotency_key: idemKey,
     })
@@ -1109,10 +1299,12 @@ export async function createSignoffRequest(
     eventType: 'signoff_requested',
     eventData: {
       request_id: request.id,
+      signer_user_id: signer.userId,
       signer_email: email,
       expires_at: request.expires_at,
-      eligibility_source: eligibility.signer.source,
-      self_declared: eligibility.signer.selfDeclared,
+      eligibility_source: signer.source,
+      authority_id: signer.authorityId,
+      self_declared: signer.selfDeclared,
     },
     ...ctx,
     actorUserId: userId,
@@ -1147,7 +1339,7 @@ export async function createSignoffRequest(
 
   const emailResult = await sendTrbSignoffRequestEmail({
     to: email,
-    signerName: args.signerName.trim() || eligibility.signer.fullName,
+    signerName,
     crewName,
     vesselName,
     programmeName,
@@ -1174,23 +1366,28 @@ export async function createSignoffRequest(
   await notifyTrbEvent({
     userId,
     event: 'signoff_requested',
-    body: `Sign-off requested from ${args.signerName.trim() || email} for ${taskTitle}.`,
+    body: `Sign-off requested from ${signerName} (${signer.eligibilityLabel}) for ${taskTitle}.`,
     metadata: {
+      domain: 'trb',
       taskProgressId: args.taskProgressId,
       requestId: request.id,
       enrollmentId: progress.enrollment_id,
+      signerUserId: signer.userId,
     },
   });
 
-  if (eligibility.signer.userId && eligibility.signer.userId !== userId) {
+  if (signer.userId && signer.userId !== userId) {
     await notifyTrbEvent({
-      userId: eligibility.signer.userId,
+      userId: signer.userId,
       event: 'signoff_requested',
-      body: `${crewName} requested training sign-off for ${taskTitle}. Check your email for the secure review link.`,
+      body: `${crewName} requested training sign-off for ${taskTitle}. Review it in your Inbox or the email link.`,
       metadata: {
+        domain: 'trb',
         taskProgressId: args.taskProgressId,
         requestId: request.id,
         enrollmentId: progress.enrollment_id,
+        deepLink: `/dashboard/inbox`,
+        route: `/dashboard/inbox`,
       },
     });
   }
@@ -1206,10 +1403,13 @@ export async function createSignoffRequest(
     idempotent: false,
     reviewUrl: allowDevReviewUrl ? reviewUrl : undefined,
     eligibility: {
-      source: eligibility.signer.source,
-      selfDeclared: eligibility.signer.selfDeclared,
+      source: signer.source,
+      selfDeclared: signer.selfDeclared,
       vesselId: eligibility.vesselId,
       vesselName: eligibility.vesselName,
+      signerUserId: signer.userId,
+      authorityId: signer.authorityId,
+      eligibilityLabel: signer.eligibilityLabel,
     },
   };
 }
@@ -1266,21 +1466,26 @@ export async function cancelPendingSignoffRequest(
   });
 }
 
-export async function resolveSignoffToken(
+type SignoffRequestRow = {
+  id: string;
+  task_progress_id: string;
+  signer_email: string;
+  signer_name: string | null;
+  signer_user_id?: string | null;
+  status: string;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+  required_signer_role: string | null;
+  token_hash?: string;
+};
+
+async function resolveSignoffRequestRow(
   admin: SupabaseClient,
-  rawToken: string,
-  ctx: AuditCtx & { recordView?: boolean },
+  request: SignoffRequestRow,
+  ctx: AuditCtx & { recordView?: boolean; requirePending?: boolean },
 ) {
-  const tokenHash = hashTrbSignoffToken(rawToken);
-  const { data: request, error } = await admin
-    .from('trb_signoff_requests')
-    .select(
-      'id, task_progress_id, signer_email, signer_name, status, expires_at, used_at, created_at, required_signer_role',
-    )
-    .eq('token_hash', tokenHash)
-    .maybeSingle();
-  if (error) throw error;
-  if (!request) return { ok: false as const, reason: 'invalid_token' as const };
+  const requirePending = ctx.requirePending !== false;
 
   if (request.status === 'pending' && new Date(request.expires_at) <= new Date()) {
     await admin
@@ -1303,16 +1508,174 @@ export async function resolveSignoffToken(
         ...ctx,
       });
     }
-    return { ok: false as const, reason: 'expired' as const };
+    if (requirePending) {
+      return { ok: false as const, reason: 'expired' as const };
+    }
+    request = { ...request, status: 'expired' };
   }
 
-  if (request.status !== 'pending' || request.used_at) {
+  if (requirePending && (request.status !== 'pending' || request.used_at)) {
     return {
       ok: false as const,
       reason: 'used' as const,
       status: request.status as string,
     };
   }
+
+  return buildSignoffResolvePayload(admin, request, ctx);
+}
+
+export async function resolveSignoffToken(
+  admin: SupabaseClient,
+  rawToken: string,
+  ctx: AuditCtx & { recordView?: boolean },
+) {
+  const tokenHash = hashTrbSignoffToken(rawToken);
+  const { data: request, error } = await admin
+    .from('trb_signoff_requests')
+    .select(
+      'id, task_progress_id, signer_email, signer_name, signer_user_id, status, expires_at, used_at, created_at, required_signer_role',
+    )
+    .eq('token_hash', tokenHash)
+    .maybeSingle();
+  if (error) throw error;
+  if (!request) return { ok: false as const, reason: 'invalid_token' as const };
+
+  return resolveSignoffRequestRow(admin, request as SignoffRequestRow, ctx);
+}
+
+/** Authenticated signer/admin (or crew owner) detail for dashboard review — pending or settled. */
+export async function getSignoffRequestDetailAsSigner(
+  admin: SupabaseClient,
+  opts: { userId: string; requestId: string },
+  ctx: AuditCtx & { recordView?: boolean } = {},
+) {
+  const { data: request, error } = await admin
+    .from('trb_signoff_requests')
+    .select(
+      'id, task_progress_id, signer_email, signer_name, signer_user_id, status, expires_at, used_at, created_at, required_signer_role, token_hash, is_batch_shadow',
+    )
+    .eq('id', opts.requestId)
+    .eq('is_batch_shadow', false)
+    .maybeSingle();
+  if (error) throw error;
+  if (!request) return null;
+
+  const { data: progress } = await admin
+    .from('trb_task_progress')
+    .select('enrollment_id')
+    .eq('id', request.task_progress_id)
+    .maybeSingle();
+  const { data: enrollment } = progress
+    ? await admin
+        .from('trb_enrollments')
+        .select('user_id')
+        .eq('id', progress.enrollment_id)
+        .maybeSingle()
+    : { data: null };
+
+  const { data: viewer } = await admin
+    .from('users')
+    .select('email, role')
+    .eq('id', opts.userId)
+    .maybeSingle();
+
+  const isOwner = enrollment?.user_id === opts.userId;
+  const isSignerByUser =
+    Boolean(request.signer_user_id) && request.signer_user_id === opts.userId;
+  const isSignerByEmail =
+    Boolean(viewer?.email) &&
+    viewer!.email!.trim().toLowerCase() ===
+      String(request.signer_email).trim().toLowerCase();
+  const isSigner = isSignerByUser || isSignerByEmail;
+  if (!isOwner && !isSigner && viewer?.role !== 'admin') return null;
+
+  const result = await resolveSignoffRequestRow(
+    admin,
+    request as SignoffRequestRow,
+    {
+      ...ctx,
+      recordView: Boolean(ctx.recordView && isSigner && request.status === 'pending'),
+      requirePending: false,
+      actorUserId: opts.userId,
+      actorEmail: viewer?.email ?? ctx.actorEmail,
+    },
+  );
+  if (!result.ok) return null;
+  return result;
+}
+
+/** Decide via dashboard/inbox using the same pending request as the email link (RPC consumes token once). */
+export async function submitSignoffDecisionAsSigner(
+  admin: SupabaseClient,
+  userId: string,
+  args: {
+    requestId: string;
+    decision: 'approved' | 'changes_requested' | 'rejected';
+    signerName: string;
+    signerRank: string;
+    signerCocNumber: string;
+    signerIssuingAuthority: string;
+    signerDeclaration: string;
+    decisionNotes?: string | null;
+    officialBookStatus?:
+      | 'not_recorded'
+      | 'awaiting_signature'
+      | 'signed'
+      | 'discrepancy_reported';
+    officialBookNotes?: string | null;
+  },
+  ctx: AuditCtx,
+) {
+  const { data: request } = await admin
+    .from('trb_signoff_requests')
+    .select('id, token_hash, signer_user_id, signer_email, status, is_batch_shadow')
+    .eq('id', args.requestId)
+    .eq('is_batch_shadow', false)
+    .maybeSingle();
+  if (!request) {
+    throw Object.assign(new Error('Not found'), { code: 'not_found' });
+  }
+
+  const { data: viewer } = await admin
+    .from('users')
+    .select('id, email, role')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const isSigner =
+    request.signer_user_id === userId ||
+    (viewer?.email &&
+      viewer.email.trim().toLowerCase() ===
+        String(request.signer_email).trim().toLowerCase());
+
+  if (!isSigner && viewer?.role !== 'admin') {
+    throw Object.assign(new Error('Forbidden'), { code: 'forbidden' });
+  }
+
+  return submitCaptainDecision(
+    admin,
+    {
+      tokenHash: request.token_hash as string,
+      decision: args.decision,
+      signerName: args.signerName,
+      signerRank: args.signerRank,
+      signerCocNumber: args.signerCocNumber,
+      signerIssuingAuthority: args.signerIssuingAuthority,
+      signerDeclaration: args.signerDeclaration,
+      decisionNotes: args.decisionNotes,
+      officialBookStatus: args.officialBookStatus,
+      officialBookNotes: args.officialBookNotes,
+    },
+    { ...ctx, actorUserId: userId },
+  );
+}
+
+async function buildSignoffResolvePayload(
+  admin: SupabaseClient,
+  request: SignoffRequestRow,
+  ctx: AuditCtx & { recordView?: boolean },
+) {
 
   const { data: progress } = await admin
     .from('trb_task_progress')
@@ -1524,7 +1887,8 @@ export async function resolveSignoffToken(
 export async function submitCaptainDecision(
   admin: SupabaseClient,
   args: {
-    rawToken: string;
+    rawToken?: string;
+    tokenHash?: string;
     decision: 'approved' | 'changes_requested' | 'rejected';
     signerName: string;
     signerRank: string;
@@ -1541,7 +1905,12 @@ export async function submitCaptainDecision(
   },
   ctx: AuditCtx,
 ) {
-  const tokenHash = hashTrbSignoffToken(args.rawToken);
+  const tokenHash =
+    args.tokenHash ||
+    (args.rawToken ? hashTrbSignoffToken(args.rawToken) : null);
+  if (!tokenHash) {
+    throw Object.assign(new Error('invalid_token'), { code: 'invalid_token' });
+  }
   const signedAt = new Date().toISOString();
 
   // Look up request id for hash (without exposing token)
@@ -1704,6 +2073,21 @@ export async function submitCaptainDecision(
           candidate_assignment_id: requestRow?.candidate_assignment_id ?? null,
           signer_user_id: requestRow?.signer_user_id ?? null,
           signer_assignment_id: requestRow?.signer_assignment_id ?? null,
+          authority_id:
+            (requestRow?.eligibility_snapshot as { authorityId?: string } | null)
+              ?.authorityId ?? null,
+          authority_source:
+            (requestRow?.eligibility_snapshot as { authorityType?: string; source?: string } | null)
+              ?.authorityType ||
+            (requestRow?.eligibility_snapshot as { source?: string } | null)?.source ||
+            null,
+          signer_vessel_role:
+            (requestRow?.eligibility_snapshot as { vesselRole?: string } | null)?.vesselRole ??
+            null,
+          is_vessel_manager_snapshot: Boolean(
+            (requestRow?.eligibility_snapshot as { isVesselManager?: boolean } | null)
+              ?.isVesselManager,
+          ),
           evidence_refs: evidenceRows || [],
           request_created_at: requestRow?.created_at ?? null,
           request_viewed_at: requestRow?.viewed_at ?? null,
@@ -1750,6 +2134,7 @@ export async function createEvidenceDownloadUrl(
   admin: SupabaseClient,
   opts:
     | { mode: 'candidate'; userId: string; evidenceId: string }
+    | { mode: 'signer'; userId: string; evidenceId: string; batchRequestId?: string }
     | { mode: 'token'; rawToken: string; evidenceId: string },
 ): Promise<{ signedUrl: string; filename: string; mimeType: string }> {
   let evidence: {
@@ -1780,6 +2165,56 @@ export async function createEvidenceDownloadUrl(
           .maybeSingle()
       : { data: null };
     if (!enrollment || enrollment.user_id !== opts.userId) throw new Error('Forbidden');
+    evidence = data;
+  } else if (opts.mode === 'signer') {
+    const { data } = await admin
+      .from('trb_task_evidence')
+      .select('id, storage_path, original_filename, mime_type, task_progress_id')
+      .eq('id', opts.evidenceId)
+      .maybeSingle();
+    if (!data) throw new Error('Evidence not found');
+
+    let allowed = false;
+    if (opts.batchRequestId) {
+      const detail = await (
+        await import('@/lib/trb/batch')
+      ).getBatchRequestDetail(admin, {
+        userId: opts.userId,
+        batchRequestId: opts.batchRequestId,
+      });
+      if (detail?.ok) {
+        const progressIds = new Set(
+          detail.items.map((i: { taskProgressId: string }) => i.taskProgressId),
+        );
+        allowed = progressIds.has(data.task_progress_id);
+      }
+    } else {
+      // Single-task: signer must own a pending/used request for this progress
+      const { data: viewer } = await admin
+        .from('users')
+        .select('email')
+        .eq('id', opts.userId)
+        .maybeSingle();
+      const email = viewer?.email?.trim().toLowerCase();
+      let q = admin
+        .from('trb_signoff_requests')
+        .select('id')
+        .eq('task_progress_id', data.task_progress_id)
+        .eq('is_batch_shadow', false)
+        .limit(1);
+      const { data: byUser } = await admin
+        .from('trb_signoff_requests')
+        .select('id')
+        .eq('task_progress_id', data.task_progress_id)
+        .eq('signer_user_id', opts.userId)
+        .eq('is_batch_shadow', false)
+        .limit(1);
+      const { data: byEmail } = email
+        ? await q.eq('signer_email', email)
+        : { data: [] as never[] };
+      allowed = Boolean(byUser?.length || byEmail?.length);
+    }
+    if (!allowed) throw new Error('Forbidden');
     evidence = data;
   } else {
     // Batch tokens first (parent hashed token), then single-task tokens
@@ -2091,29 +2526,82 @@ export async function submitPilotFeedback(
   return { feedbackId: data.id as string };
 }
 
-export async function listSignoffsForSignerEmail(
+export async function listSignoffsForSigner(
   admin: SupabaseClient,
-  email: string,
-  filters?: {
+  opts: {
+    email?: string | null;
+    userId?: string | null;
     status?: string;
     limit?: number;
   },
 ) {
-  const normalized = email.trim().toLowerCase();
-  let q = admin
-    .from('trb_signoff_requests')
-    .select(
-      'id, status, signer_email, signer_name, expires_at, used_at, created_at, task_progress_id, vessel_id, vessel_name_snapshot, required_signer_role, viewed_at, is_batch_shadow, batch_request_id',
-    )
-    .eq('signer_email', normalized)
-    .eq('is_batch_shadow', false)
-    .order('created_at', { ascending: false })
-    .limit(filters?.limit ?? 50);
-  if (filters?.status) q = q.eq('status', filters.status);
-  const { data, error } = await q;
-  if (error) throw error;
+  const normalized = opts.email?.trim().toLowerCase() || null;
+  const limit = opts.limit ?? 50;
 
-  const rows = data || [];
+  type Row = {
+    id: string;
+    status: string;
+    signer_email: string;
+    signer_name: string | null;
+    expires_at: string;
+    used_at: string | null;
+    created_at: string;
+    task_progress_id: string;
+    vessel_id: string | null;
+    vessel_name_snapshot: string | null;
+    required_signer_role: string | null;
+    viewed_at: string | null;
+    is_batch_shadow: boolean | null;
+    batch_request_id: string | null;
+    signer_user_id?: string | null;
+  };
+
+  // Prefer stable user id; also include email matches for legacy rows
+  let byUser: Row[] = [];
+  let byEmail: Row[] = [];
+
+  const selectCols =
+    'id, status, signer_email, signer_name, expires_at, used_at, created_at, task_progress_id, vessel_id, vessel_name_snapshot, required_signer_role, viewed_at, is_batch_shadow, batch_request_id, signer_user_id';
+
+  if (opts.userId) {
+    let q = admin
+      .from('trb_signoff_requests')
+      .select(selectCols)
+      .eq('signer_user_id', opts.userId)
+      .eq('is_batch_shadow', false)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (opts.status) q = q.eq('status', opts.status);
+    const { data, error } = await q;
+    if (error) throw error;
+    byUser = (data || []) as Row[];
+  }
+
+  if (normalized) {
+    let q = admin
+      .from('trb_signoff_requests')
+      .select(selectCols)
+      .eq('signer_email', normalized)
+      .eq('is_batch_shadow', false)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (opts.status) q = q.eq('status', opts.status);
+    const { data, error } = await q;
+    if (error) throw error;
+    byEmail = (data || []) as Row[];
+  }
+
+  const seen = new Set<string>();
+  const rows: Row[] = [];
+  for (const r of [...byUser, ...byEmail]) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    rows.push(r);
+  }
+  rows.sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+
   const progressIds = [
     ...new Set(rows.map((r) => r.task_progress_id as string).filter(Boolean)),
   ];
@@ -2151,7 +2639,7 @@ export async function listSignoffsForSignerEmail(
   const taskById = new Map((tasks || []).map((t) => [t.id, t]));
   const enrollmentById = new Map((enrollments || []).map((e) => [e.id, e]));
 
-  return rows.map((r) => {
+  return rows.slice(0, limit).map((r) => {
     const progress = progressById.get(r.task_progress_id);
     const task = progress ? taskById.get(progress.task_id) : null;
     const enrollment = progress
@@ -2166,6 +2654,7 @@ export async function listSignoffsForSignerEmail(
       status: r.status as string,
       signerEmail: r.signer_email as string,
       signerName: (r.signer_name as string | null) ?? null,
+      signerUserId: (r.signer_user_id as string | null) ?? null,
       expiresAt: r.expires_at as string,
       usedAt: (r.used_at as string | null) ?? null,
       createdAt: r.created_at as string,
@@ -2187,3 +2676,135 @@ export async function listSignoffsForSignerEmail(
     };
   });
 }
+
+/** @deprecated Prefer listSignoffsForSigner with userId. */
+export async function listSignoffsForSignerEmail(
+  admin: SupabaseClient,
+  email: string,
+  filters?: {
+    status?: string;
+    limit?: number;
+  },
+) {
+  return listSignoffsForSigner(admin, {
+    email,
+    status: filters?.status,
+    limit: filters?.limit,
+  });
+}
+
+/**
+ * Permanently delete an enrolment owned by `userId`.
+ * Removes evidence files, all sign-offs, progress, requests, batches, and audit
+ * for that enrolment. Irreversible.
+ *
+ * Sign-offs must be deleted first — their FKs to progress/requests are RESTRICT.
+ */
+export async function deleteEnrollment(
+  admin: SupabaseClient,
+  userId: string,
+  enrollmentId: string,
+  ctx: AuditCtx,
+): Promise<{
+  enrollmentId: string;
+  progressDeleted: number;
+  signoffsDeleted: number;
+  evidenceFilesRemoved: number;
+}> {
+  const { data: enrollment, error: enErr } = await admin
+    .from('trb_enrollments')
+    .select('id, user_id, status, program_version_id')
+    .eq('id', enrollmentId)
+    .maybeSingle();
+  if (enErr) throw enErr;
+  if (!enrollment) {
+    const err = new Error('Enrolment not found');
+    (err as Error & { code?: string }).code = 'not_found';
+    throw err;
+  }
+  if (enrollment.user_id !== userId) {
+    const err = new Error('Forbidden');
+    (err as Error & { code?: string }).code = 'forbidden';
+    throw err;
+  }
+
+  const { data: progressRows, error: pErr } = await admin
+    .from('trb_task_progress')
+    .select('id')
+    .eq('enrollment_id', enrollmentId);
+  if (pErr) throw pErr;
+  const progressIds = (progressRows || []).map((r) => r.id as string);
+
+  let evidenceFilesRemoved = 0;
+  let signoffsDeleted = 0;
+
+  if (progressIds.length > 0) {
+    const { data: evidenceRows, error: eErr } = await admin
+      .from('trb_task_evidence')
+      .select('id, storage_path')
+      .in('task_progress_id', progressIds);
+    if (eErr) throw eErr;
+
+    const paths = (evidenceRows || [])
+      .map((r) => r.storage_path as string | null)
+      .filter((p): p is string => Boolean(p));
+
+    if (paths.length > 0) {
+      // Storage remove is best-effort; DB rows cascade with progress.
+      const chunkSize = 100;
+      for (let i = 0; i < paths.length; i += chunkSize) {
+        const chunk = paths.slice(i, i + chunkSize);
+        const { error: storageErr } = await admin.storage
+          .from(TRB_EVIDENCE_BUCKET)
+          .remove(chunk);
+        if (storageErr) {
+          console.warn(
+            '[TRB deleteEnrollment] storage remove partial failure',
+            storageErr.message,
+          );
+        } else {
+          evidenceFilesRemoved += chunk.length;
+        }
+      }
+    }
+
+    // RESTRICT FKs: must remove sign-offs before progress / enrollment cascade.
+    const { data: deletedSignoffs, error: sErr } = await admin
+      .from('trb_signoffs')
+      .delete()
+      .in('task_progress_id', progressIds)
+      .select('id');
+    if (sErr) throw sErr;
+    signoffsDeleted = (deletedSignoffs || []).length;
+  }
+
+  await writeAudit(admin, {
+    enrollmentId,
+    eventType: 'enrollment_delete_requested',
+    eventData: {
+      progressCount: progressIds.length,
+      signoffsDeleted,
+      evidenceFilesRemoved,
+      programVersionId: enrollment.program_version_id,
+      enrollmentStatus: enrollment.status,
+      note: 'Audit row will cascade-delete with enrolment',
+    },
+    ...ctx,
+    actorUserId: userId,
+  });
+
+  const { error: delErr } = await admin
+    .from('trb_enrollments')
+    .delete()
+    .eq('id', enrollmentId)
+    .eq('user_id', userId);
+  if (delErr) throw delErr;
+
+  return {
+    enrollmentId,
+    progressDeleted: progressIds.length,
+    signoffsDeleted,
+    evidenceFilesRemoved,
+  };
+}
+

@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       auth.userId,
       {
         taskProgressId: parsed.data.taskProgressId,
+        signerUserId: parsed.data.signerUserId,
         signerName: parsed.data.signerName,
         signerEmail: parsed.data.signerEmail,
         optionalMessage: parsed.data.optionalMessage,
@@ -43,8 +44,12 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Request failed';
+    const code =
+      e && typeof e === 'object' && 'code' in e
+        ? String((e as { code: string }).code)
+        : undefined;
     const status = msg === 'Forbidden' ? 403 : 400;
-    return NextResponse.json({ error: msg }, { status });
+    return NextResponse.json({ error: msg, code }, { status });
   }
 }
 

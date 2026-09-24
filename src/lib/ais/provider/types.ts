@@ -1,4 +1,5 @@
 import type { DatalasticVesselPosition } from '@/lib/datalastic/client';
+import type { AisProviderRequestMeta } from '@/lib/ais/fetch-audit-shared';
 import type { DailyStatus } from '@/lib/types';
 
 /** Normalised AIS position returned by any AIS provider implementation. */
@@ -21,6 +22,11 @@ export type AISProviderResult = {
   position: AISProviderPosition | null;
   responseStatus?: number;
   errorMessage?: string;
+  /**
+   * Timing/outcome of the provider HTTP request. Undefined when no request was
+   * made (e.g. missing identity). The caller is responsible for logging it.
+   */
+  requestMeta?: AisProviderRequestMeta;
 };
 
 export type AISProviderLookup = {

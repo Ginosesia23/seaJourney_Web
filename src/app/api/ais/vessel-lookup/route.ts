@@ -155,7 +155,10 @@ export async function POST(req: NextRequest) {
     const identifier = identifierSource ? parseIdentifierQuery(identifierSource) : null;
 
     if (identifier) {
-      const info = await fetchVesselInfo(identifier);
+      const info = await fetchVesselInfo(identifier, {
+        triggerSource: 'vessel_lookup',
+        triggerDetail: 'vessel-lookup:identifier',
+      });
       const autofill = mapDatalasticToRegistrationAutofill(info);
 
       if (!autofill.name) {
@@ -208,7 +211,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { vessels, totalCount, truncated } = await fetchVesselFind({ name: nameQuery });
+    const { vessels, totalCount, truncated } = await fetchVesselFind(
+      { name: nameQuery },
+      { triggerSource: 'vessel_lookup', triggerDetail: 'vessel-lookup:name' },
+    );
     if (vessels.length === 0) {
       return NextResponse.json(
         { error: 'No vessels found with that name in AIS.', found: false },

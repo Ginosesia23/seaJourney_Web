@@ -159,6 +159,23 @@ export default function VesselRolesPage() {
   const [pendingRemove, setPendingRemove] = useState<LinkedAccountRow | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
   const [savingFeaturesId, setSavingFeaturesId] = useState<string | null>(null);
+  const [trbCandidates, setTrbCandidates] = useState<
+    {
+      userId: string;
+      email: string;
+      fullName: string;
+      assignmentRole: string | null;
+      isVesselManager: boolean;
+      hasTrainingAuthority: boolean;
+      invitationPending: boolean;
+      authorityId?: string | null;
+    }[]
+  >([]);
+  const [trbAuthorities, setTrbAuthorities] = useState<
+    { id: string; userId: string; validUntil: string | null }[]
+  >([]);
+  const [trbLoading, setTrbLoading] = useState(false);
+  const [trbSavingId, setTrbSavingId] = useState<string | null>(null);
 
   // Form state for "Add linked account"
   const [formFirstName, setFormFirstName] = useState('');
@@ -267,6 +284,141 @@ export default function VesselRolesPage() {
   useEffect(() => {
     void fetchLinkedAccounts();
   }, [fetchLinkedAccounts]);
+
+  const fetchTrbAuthorities = useCallback(async () => {
+    if (!supabase || !activeVesselId || !hasPremiumPlusTier) {
+      setTrbCandidates([]);
+      setTrbAuthorities([]);
+      return;
+    }
+    setTrbLoading(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return;
+      const headers = { Authorization: `Bearer ${token}` };
+      const [candRes, authRes] = await Promise.all([
+        fetch(
+          `/api/trb/vessel-authorities?vesselId=${encodeURIComponent(activeVesselId)}&candidates=1`,
+          { headers },
+        ),
+        fetch(
+          `/api/trb/vessel-authorities?vesselId=${encodeURIComponent(activeVesselId)}`,
+          { headers },
+        ),
+      ]);
+      const candJson = await candRes.json();
+      const authJson = await authRes.json();
+      if (!candRes.ok) throw new Error(candJson.error || 'Failed to load candidates');
+      if (!authRes.ok) throw new Error(authJson.error || 'Failed to load authorities');
+      const authorities = (authJson.authorities || []) as {
+        id: string;
+        userId: string;
+        validUntil: string | null;
+      }[];
+      setTrbAuthorities(authorities);
+      const byUser = new Map(authorities.map((a) => [a.userId, a.id]));
+      setTrbCandidates(
+        (candJson.candidates || []).map(
+          (c: {
+            userId: string;
+            email: string;
+            fullName: string;
+            assignmentRole: string | null;
+            isVesselManager: boolean;
+            hasTrainingAuthority: boolean;
+            invitationPending: boolean;
+          }) => ({
+            ...c,
+            authorityId: byUser.get(c.userId) ?? null,
+          }),
+        ),
+      );
+    } catch (err) {
+      console.error('[VESSEL ROLES] TRB authority load failed:', err);
+      toast({
+        title: 'Could not load Training Record authority',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setTrbLoading(false);
+    }
+  }, [supabase, activeVesselId, hasPremiumPlusTier]);
+
+  useEffect(() => {
+    void fetchTrbAuthorities();
+  }, [fetchTrbAuthorities]);
+
+  const handleToggleTrbAuthority = useCallback(
+    async (candidate: {
+      userId: string;
+      fullName: string;
+      hasTrainingAuthority: boolean;
+      authorityId?: string | null;
+      invitationPending: boolean;
+    }) => {
+      if (!supabase || !activeVesselId) return;
+      if (candidate.invitationPending && !candidate.hasTrainingAuthority) {
+        toast({
+          title: 'Invitation still pending',
+          description: 'Wait until the account is accepted before granting Training Record authority.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      setTrbSavingId(candidate.userId);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) throw new Error('Not signed in');
+        if (candidate.hasTrainingAuthority && candidate.authorityId) {
+          const res = await fetch('/api/trb/vessel-authorities', {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ authorityId: candidate.authorityId }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || 'Revoke failed');
+          toast({
+            title: 'Authority revoked',
+            description: `${candidate.fullName} can no longer receive new Training Record sign-off requests. Past approvals are unchanged.`,
+          });
+        } else {
+          const res = await fetch('/api/trb/vessel-authorities', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              vesselId: activeVesselId,
+              userId: candidate.userId,
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || 'Grant failed');
+          toast({
+            title: 'Training Record authority granted',
+            description: `${candidate.fullName} can now appear as an eligible Training Record signer.`,
+          });
+        }
+        await fetchTrbAuthorities();
+      } catch (err) {
+        toast({
+          title: 'Could not update authority',
+          description: err instanceof Error ? err.message : 'Unknown error',
+          variant: 'destructive',
+        });
+      } finally {
+        setTrbSavingId(null);
+      }
+    },
+    [supabase, activeVesselId, fetchTrbAuthorities],
+  );
 
   const resetForm = useCallback(() => {
     setFormFirstName('');
@@ -517,6 +669,80 @@ export default function VesselRolesPage() {
             ))}
           </ul>
         )}
+      </div>
+
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Training Record sign-off
+            </span>
+          </div>
+          <p className="hidden max-w-md text-right text-[11px] text-muted-foreground sm:block">
+            Explicit authority only — managers and officers are not assessors by default.
+          </p>
+        </div>
+        <div className="space-y-3 px-4 py-3">
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Qualification warning</AlertTitle>
+            <AlertDescription>
+              Only grant Training Record sign-off authority to a suitably qualified captain or
+              officer permitted to assess these tasks. Vessel management permission alone does not
+              make someone a Training Record assessor.
+            </AlertDescription>
+          </Alert>
+          {trbLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : trbCandidates.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              Invite linked captain/officer accounts above, then grant Training Record authority
+              here. You can also grant yourself authority explicitly as vessel manager.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
+              {trbCandidates.map((c) => (
+                <li
+                  key={c.userId}
+                  className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {c.fullName}
+                      {c.isVesselManager ? ' · Vessel manager' : ''}
+                    </p>
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {c.email}
+                      {c.assignmentRole ? ` · ${c.assignmentRole}` : ''}
+                      {c.invitationPending ? ' · Invitation pending' : ''}
+                      {c.hasTrainingAuthority ? ' · Eligible for sign-off requests' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {trbSavingId === c.userId ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    ) : null}
+                    <Switch
+                      checked={c.hasTrainingAuthority}
+                      disabled={trbSavingId === c.userId}
+                      onCheckedChange={() => void handleToggleTrbAuthority(c)}
+                      aria-label={`Training Record authority for ${c.fullName}`}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {trbAuthorities.some((a) => a.validUntil) ? (
+            <p className="text-[11px] text-muted-foreground">
+              Some grants include an expiry date. Revoking authority does not change historical
+              sign-offs.
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {/* ---- Add dialog ---- */}

@@ -31,11 +31,13 @@ import {
 } from '../signoff-tokens';
 import {
   MCA_PILOT_DISCLAIMER,
+  MCA_PILOT_PDF_SHA256,
   MCA_PILOT_PROGRAM_CODE,
   canDiscoverMcaPilot,
   isEmailAllowlistedForMcaPilot,
   isMcaOowPilotEnabled,
   isMcaPilotProgramCode,
+  isOowYachts3000ProgramCode,
 } from './pilot';
 import { batchDecisionNotificationEvent } from './notifications';
 function assert(cond: unknown, msg: string): asserts cond {
@@ -132,6 +134,8 @@ function assert(cond: unknown, msg: string): asserts cond {
 {
   assert(!canCandidateTransition('in_progress', 'approved'), 'no self-approve');
   assert(!canCandidateTransition('awaiting_signoff', 'approved'), 'no self-approve awaiting');
+  assert(canCandidateTransition('not_started', 'ready_for_assessment'), 'direct ready from not_started');
+  assert(canCandidateTransition('changes_requested', 'ready_for_assessment'), 're-ready after changes');
   assert(!canCandidateTransition('in_progress', 'awaiting_signoff'), 'must mark ready first');
   assert(canCandidateTransition('in_progress', 'ready_for_assessment'), 'mark ready');
   assert(canCandidateTransition('ready_for_assessment', 'awaiting_signoff'), 'request signoff');
@@ -198,15 +202,26 @@ function assert(cond: unknown, msg: string): asserts cond {
   assert(hashed === createHash('sha256').update(raw, 'utf8').digest('hex'), 'sha256');
 }
 
-// MCA pilot gating helpers
+// MCA / OOW companion discovery helpers
 {
   assert(isMcaPilotProgramCode(MCA_PILOT_PROGRAM_CODE), 'pilot code');
   assert(!isMcaPilotProgramCode('SJ-DEMO-TRB-OOW'), 'demo is not mca pilot');
-  assert(MCA_PILOT_DISCLAIMER.includes('not currently approved'), 'disclaimer');
+  assert(MCA_PILOT_DISCLAIMER.includes('not approved'), 'disclaimer');
+  assert(MCA_PILOT_DISCLAIMER.includes('digital companion'), 'companion wording');
+  assert(MCA_PILOT_PDF_SHA256.length === 64, 'pdf sha256 length');
+  assert(isOowYachts3000ProgramCode(MCA_PILOT_PROGRAM_CODE), 'oow alias');
 
   const prevEnabled = process.env.TRB_MCA_OOW_PILOT_ENABLED;
   const prevAllow = process.env.TRB_MCA_OOW_PILOT_ALLOWED_EMAILS;
   try {
+    delete process.env.TRB_MCA_OOW_PILOT_ENABLED;
+    delete process.env.TRB_MCA_OOW_PILOT_ALLOWED_EMAILS;
+    assert(isMcaOowPilotEnabled(), 'defaults enabled when unset');
+    assert(
+      canDiscoverMcaPilot({ email: 'anyone@example.com' }).allowed === true,
+      'open discovery when allowlist empty',
+    );
+
     process.env.TRB_MCA_OOW_PILOT_ENABLED = 'false';
     process.env.TRB_MCA_OOW_PILOT_ALLOWED_EMAILS = 'allowed@example.com';
     assert(!isMcaOowPilotEnabled(), 'flag off');
@@ -230,6 +245,12 @@ function assert(cond: unknown, msg: string): asserts cond {
       'admin visible when enabled',
     );
     assert(isEmailAllowlistedForMcaPilot('ALLOWED@example.com'), 'allowlist casefold');
+
+    delete process.env.TRB_MCA_OOW_PILOT_ALLOWED_EMAILS;
+    assert(
+      canDiscoverMcaPilot({ email: 'crew@example.com' }).allowed === true,
+      'empty allowlist open when enabled',
+    );
   } finally {
     if (prevEnabled === undefined) delete process.env.TRB_MCA_OOW_PILOT_ENABLED;
     else process.env.TRB_MCA_OOW_PILOT_ENABLED = prevEnabled;
@@ -335,6 +356,28 @@ function assert(cond: unknown, msg: string): asserts cond {
     idempotencyKey: 'idem-batch-001',
   });
   assert(okBatch.success, 'batch request schema');
+
+  const byUserId = batchRequestSignoffSchema.safeParse({
+    enrollmentId: '11111111-1111-1111-1111-111111111111',
+    taskProgressIds: ['22222222-2222-2222-2222-222222222222'],
+    signerUserId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    authorisedConfirmation: true,
+  });
+  assert(byUserId.success, 'batch request with signerUserId only');
+
+  const missingSigner = batchRequestSignoffSchema.safeParse({
+    enrollmentId: '11111111-1111-1111-1111-111111111111',
+    taskProgressIds: ['22222222-2222-2222-2222-222222222222'],
+    authorisedConfirmation: true,
+  });
+  assert(!missingSigner.success, 'signerUserId or signerEmail required');
+
+  const singleByUser = requestSignoffSchema.safeParse({
+    taskProgressId: '11111111-1111-1111-1111-111111111111',
+    signerUserId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    authorisedConfirmation: true,
+  });
+  assert(singleByUser.success, 'single request with signerUserId only');
 
   const emptyTasks = batchRequestSignoffSchema.safeParse({
     enrollmentId: '11111111-1111-1111-1111-111111111111',

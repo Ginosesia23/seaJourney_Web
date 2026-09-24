@@ -39,10 +39,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const isAdmin = String(authResult.auth.profile.role || '').toLowerCase() === 'admin';
     const result = await syncVesselStateFromAis(vessel, {
       force: true,
       managerUserId: authResult.auth.userId,
       logDate,
+      triggerSource: isAdmin ? 'manual_admin' : 'manual_user',
     });
 
     return NextResponse.json({ result });

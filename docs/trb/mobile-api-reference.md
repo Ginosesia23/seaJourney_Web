@@ -6,10 +6,29 @@ Token review routes use the raw email link token in the path (no Bearer).
 
 **Batch multi-task handoff (definitive Flutter package):** [`batch-signoff-mobile-handoff.md`](./batch-signoff-mobile-handoff.md)
 
-**JSON convention:** Mobile-facing TRB Bearer APIs return **camelCase** property names (including nested task/section/evidence/request/signoff objects). Nested Supabase `enrollment.trb_program_versions` relation may still appear in raw form on some payloads — prefer top-level camelCase fields (`tasks`, `sections`, `batch`, `items`, `requests`, `signoffs`).
+**JSON convention:** Mobile-facing TRB Bearer APIs return **camelCase** property names (including nested task/section/evidence/request/signoff objects). Nested Supabase `enrollment.trb_program_versions` relation may still appear in raw form on some payloads — prefer top-level camelCase fields (`tasks`, `sections`, `batch`, `items`, `requests`, `signoffs`, `programmeSource`, `companionNotice`).
 
 All successful JSON bodies may include `serverTime` (ISO-8601).  
 Errors typically: `{ "error": "<message or flatten>", "code": "<stable_code>" }` with HTTP 400/401/403/404/410/429/500.
+
+### Programme contract (OOW companion)
+
+Primary programme for Flutter Training:
+
+| Field | Value / notes |
+|-------|----------------|
+| Display name | `OOW (Yachts <3,000 GT) Training Record` (from API `name`) |
+| `code` | `SJ-PILOT-MCA-OOW-YACHTS` (stable — do not hardcode display title from this) |
+| Version string | `mca-source-2014-pilot-1` (stable id; `status` is `active` after promote) |
+| `isOfficial` | `false` |
+| `recognitionStatus` | `not_approved` |
+| `isOowYachts3000` / `isMcaPilot` | `true` |
+| `companionNotice` | Short digital-companion notice |
+| Provenance | `sourceAuthority`, `sourceTitle`, `sourceUrl`, `sourcePublishedAt`, `sourceRevisionLabel`, `sourcePdfFilename`, `sourceDocumentSha256`, `sourceLicense`, `sourceLicenseUrl` |
+| Version extras | `disclaimer`, `attributionHtml`, `sourceVersionReference`, `contentProvenance` |
+
+Clients **must** render name, version, and source fields returned by the API — do not hardcode an assumed official document revision.  
+Full verification: [`oow-yachts-3000gt-source-verification.md`](./oow-yachts-3000gt-source-verification.md).
 
 ### Stable error codes (batch / sign-off)
 
@@ -18,8 +37,17 @@ Errors typically: `{ "error": "<message or flatten>", "code": "<stable_code>" }`
 | `validation_error` | Zod body validation failed |
 | `empty_selection` | No tasks selected |
 | `task_not_eligible` | Not ready / missing notes / already pending |
-| `signer_ineligible` | Reviewer failed vessel/role eligibility |
-| `self_signoff_forbidden` | Candidate cannot select themselves |
+| `signer_ineligible` | Legacy alias — prefer `SIGNER_*` codes below |
+| `SIGNER_NOT_FOUND` | Selected user id does not exist |
+| `SIGNER_NOT_ATTACHED_TO_VESSEL` | User has no active vessel relationship |
+| `SIGNER_INVITATION_PENDING` | Linked account not yet accepted |
+| `SIGNER_INACTIVE` | Authority revoked / account inactive |
+| `SIGNER_NOT_AUTHORIZED_FOR_TRAINING` | Missing `can_sign_training_records` grant |
+| `SIGNER_AUTHORITY_EXPIRED` | Grant `valid_until` has passed |
+| `SIGNER_NOT_ELIGIBLE_FOR_ALL_TASKS` | Batch: role rules fail for at least one task |
+| `CANNOT_SIGN_OWN_TASK` | Candidate selected themselves |
+| `SIGNER_ELIGIBILITY_CHANGED` | Roster changed since client loaded signers; refresh |
+| `self_signoff_forbidden` | Legacy alias of `CANNOT_SIGN_OWN_TASK` |
 | `not_pending` | Cancel only allowed while pending |
 | `invalid_token` | Token hash not found |
 | `token_expired` | Past `expires_at` |
@@ -29,6 +57,18 @@ Errors typically: `{ "error": "<message or flatten>", "code": "<stable_code>" }`
 | `item_not_found` | Unknown batch item id |
 
 Idempotency is a **JSON body** field `idempotencyKey` (8–120 chars), not an HTTP header.
+
+### Stable signer identity
+
+Prefer **`signerUserId`** (SeaJourney `users.id`) when creating single or batch requests.
+
+Compatibility:
+
+* Clients may still send `signerEmail` + `signerName` without `signerUserId` during rollout.
+* When both are sent, the server resolves the user from `signerUserId` (or email lookup), **verifies** email if provided, and stores **server** name/email/role.
+* Do not trust client-supplied names or roles for eligibility.
+
+See [`vessel-signoff-authority.md`](./vessel-signoff-authority.md).
 
 ---
 
@@ -43,7 +83,7 @@ Source: `src/app/api/trb/enrollments/route.ts`
 
 ```json
 {
-  "programCode": "SJ-DEMO-TRB-OOW",
+  "programCode": "SJ-PILOT-MCA-OOW-YACHTS",
   "consent": {
     "understandsTrial": true,
     "doesNotReplaceOfficialTrb": true,
@@ -54,17 +94,34 @@ Source: `src/app/api/trb/enrollments/route.ts`
 }
 ```
 
+OOW companion enrolment requires all five consent flags. Programme discovery for `SJ-PILOT-MCA-OOW-YACHTS` defaults to **on** for authenticated users (optional `TRB_MCA_OOW_PILOT_ALLOWED_EMAILS` allowlist; set `TRB_MCA_OOW_PILOT_ENABLED=false` to hide). Demonstration programme `SJ-DEMO-TRB-OOW` is not listed for new enrolments.
+
+Programme objects include provenance fields (`companionNotice`, `sourceAuthority`, `sourceUrl`, `sourceRevisionLabel`, `sourceDocumentSha256`, `isOowYachts3000`, `recognitionStatus`, version `contentProvenance`, …). See [`oow-yachts-3000gt-source-verification.md`](./oow-yachts-3000gt-source-verification.md).
+
 ### `GET /api/trb/enrollments/:enrollmentId`
 
-Enrolment detail with sections, tasks (`progressId`, `status`, `batchRequestId`, `isBatchShadow`, …), aggregates, recent audit.  
+Enrolment detail with sections, tasks (`progressId`, `status`, `batchRequestId`, `isBatchShadow`, `latestSignoff`, …), aggregates, recent audit.  
+`latestSignoff` is the most recent decision for that task (signer name/email/rank, `decision`, `decisionNotes`, `signedAt`) when a digital sign-off exists.  
 `batchRequestId` is set when the task has a **pending** batch item; `isBatchShadow` is `true` in that case.  
 Source: `src/app/api/trb/enrollments/[enrollmentId]/route.ts` → `getEnrollmentDetail`
 
 Task `status` values: `not_started` | `in_progress` | `ready_for_assessment` | `awaiting_signoff` | `changes_requested` | `approved` | `rejected` | `superseded`
 
+### `DELETE /api/trb/enrollments/:enrollmentId`
+
+Permanently deletes the caller’s enrolment and **all** related data: task progress, evidence files (storage), sign-off requests, digital sign-offs, batch requests/items, parallel-book rows, and enrolment audit events.
+
+- Auth: Bearer (owner only)
+- Web UI requires password re-auth (`signInWithPassword`) before calling this endpoint
+- Irreversible; does not affect the official paper Training Record Book
+- Response: `{ ok, enrollmentId, progressDeleted, signoffsDeleted, evidenceFilesRemoved, serverTime }`
+- Errors: `not_found` (404), `forbidden` (403), `delete_failed` (500)
+
+Source: `…/enrollments/[enrollmentId]/route.ts` → `deleteEnrollment`
+
 ### `GET /api/trb/enrollments/:enrollmentId/tasks/:taskProgressId`
 
-Task detail: progress (incl. `candidateNotes`), evidence metadata, `requests` (each with `batchRequestId`, `batchItemId`, `isBatchShadow`), `signoffs`, `pendingRequest`, top-level `batchRequestId` / `isBatchShadow`, parallel-book (pilot).  
+Task detail: progress (incl. `candidateNotes`), evidence metadata, `requests` (each with `batchRequestId`, `batchItemId`, `isBatchShadow`), `signoffs`, `pendingRequest`, top-level `batchRequestId` / `isBatchShadow`, parallel-book companion fields.  
 Cancel batch shadows via `DELETE /api/trb/signoff/batch`, not single-task cancel.  
 Source: `…/tasks/[taskProgressId]/route.ts` → `getTaskDetail`
 
@@ -159,9 +216,68 @@ Captain: `&token=<rawSignoffToken>` (single **or** batch parent token).
 
 ### `GET /api/trb/eligible-signers?taskProgressId=…`
 
+Returns server-authoritative roster. Only users with an active
+`vessel_trb_signoff_authorities` grant (`can_sign_training_records`) who are
+attached to the candidate’s vessel and satisfy the task role rule.
+
+```json
+{
+  "vesselId": "…",
+  "vesselName": "Example Yacht",
+  "requiredSignerRole": "captain",
+  "signers": [
+    {
+      "userId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "email": "captain@example.com",
+      "fullName": "Alex Captain",
+      "rank": "Master",
+      "assignmentRole": "captain",
+      "vesselRole": "captain",
+      "assignmentId": null,
+      "vesselId": "…",
+      "vesselName": "Example Yacht",
+      "source": "captain",
+      "authorityType": "captain",
+      "isVesselManager": false,
+      "authorityId": "…",
+      "authorityExpiresAt": null,
+      "eligibilityLabel": "Captain · Training Record authority",
+      "canSignTrainingRecords": true,
+      "qualificationSummary": "Master",
+      "credentialVerificationStatus": null,
+      "selfDeclared": false
+    }
+  ],
+  "allowExternalInviteHint": "…",
+  "serverTime": "…"
+}
+```
+
+External email-only invites are **not** eligible for Training Record sign-off.
+
 ### `POST /api/trb/signoff/request` / `DELETE /api/trb/signoff/request`
 
-Unchanged; do not use to cancel batch shadow rows.
+```json
+{
+  "taskProgressId": "…",
+  "signerUserId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "authorisedConfirmation": true,
+  "optionalMessage": "Optional note",
+  "idempotencyKey": "client-stable-key"
+}
+```
+
+Legacy body still accepted: `signerEmail` + `signerName` (without `signerUserId`).  
+Do not use DELETE to cancel batch shadow rows — use `DELETE /api/trb/signoff/batch`.
+
+### Vessel Training Record authority
+
+### `GET /api/trb/vessel-authorities?vesselId=…`  
+### `GET /api/trb/vessel-authorities?vesselId=…&candidates=1`  
+### `POST /api/trb/vessel-authorities` — grant  
+### `DELETE /api/trb/vessel-authorities` — revoke  
+
+Manager-only (vessel manager / vessel role / admin). See [`vessel-signoff-authority.md`](./vessel-signoff-authority.md).
 
 ---
 
@@ -210,10 +326,18 @@ Eligible signers for selection (most restrictive role wins).
       "fullName": "Alex Captain",
       "rank": "Master",
       "assignmentRole": "captain",
+      "vesselRole": "captain",
       "assignmentId": null,
       "vesselId": "…",
       "vesselName": "Example Yacht",
-      "source": "signing_authority",
+      "source": "captain",
+      "authorityType": "captain",
+      "isVesselManager": false,
+      "authorityId": "…",
+      "authorityExpiresAt": null,
+      "eligibilityLabel": "Captain · Training Record authority",
+      "canSignTrainingRecords": true,
+      "qualificationSummary": "Master",
       "credentialVerificationStatus": null,
       "selfDeclared": false
     }
@@ -231,14 +355,14 @@ Eligible signers for selection (most restrictive role wins).
     "00000000-0000-0000-0000-000000000001",
     "00000000-0000-0000-0000-000000000002"
   ],
-  "signerName": "Alex Captain",
-  "signerEmail": "captain@example.com",
+  "signerUserId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   "authorisedConfirmation": true,
   "optionalMessage": "Please review these watchkeeping tasks.",
-  "allowExternalInvite": false,
   "idempotencyKey": "client-stable-key"
 }
 ```
+
+Legacy: `signerEmail` + `signerName` still accepted without `signerUserId`.
 
 Response:
 

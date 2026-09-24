@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
       {
         enrollmentId: parsed.data.enrollmentId,
         taskProgressIds: parsed.data.taskProgressIds,
+        signerUserId: parsed.data.signerUserId,
         signerName: parsed.data.signerName,
         signerEmail: parsed.data.signerEmail,
         optionalMessage: parsed.data.optionalMessage,

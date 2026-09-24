@@ -162,9 +162,11 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
     key: 'training_records',
     label: 'Training records',
     description:
-      'Digital TRB Companion — crew training programmes, evidence, and captain sign-offs (pilot; not an official MCA/PYA TRB). Default access: Test accounts tier only.',
+      'Digital Training Record companion — programmes, evidence, and officer/vessel sign-offs. Not an official MCA/PYA Training Record Book.',
     audience: 'crew',
-    routes: ['/dashboard/training-records', '/dashboard/training-signoffs'],
+    // Signer review lives under /dashboard/training-signoffs and must stay reachable
+    // from Inbox for officers who do not have the candidate training_records tier.
+    routes: ['/dashboard/training-records'],
     defaultEnabled: true,
     defaultMinCrewTier: 'set:test',
   },

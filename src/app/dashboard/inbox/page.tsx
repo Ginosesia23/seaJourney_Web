@@ -30,7 +30,21 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { DateComparisonView } from './date-comparison-view';
 import { cn } from '@/lib/utils';
+import { bearerHeaders } from '@/lib/applications/client';
 import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest, VesselSeaTimeAccessRequest, VesselSeaTimeOffer } from '@/lib/types';
+
+type TrainingSignoffInboxRow = {
+  id: string;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+  vesselNameSnapshot?: string | null;
+  taskTitle?: string | null;
+  taskCode?: string | null;
+  programmeName?: string | null;
+  resourceType?: string;
+  taskCount?: number;
+};
 
 export default function InboxPage() {
   const router = useRouter();
@@ -78,6 +92,7 @@ export default function InboxPage() {
   const [isVesselAccessDialogOpen, setIsVesselAccessDialogOpen] = useState(false);
   const [vesselSeaTimeOffers, setVesselSeaTimeOffers] = useState<(VesselSeaTimeOffer & { vessel?: { id: string; name: string }; vessel_user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
   const [selectedSeaTimeOffer, setSelectedSeaTimeOffer] = useState<(VesselSeaTimeOffer & { vessel?: { id: string; name: string }; vessel_user?: { email: string; first_name?: string; last_name?: string; username?: string } }) | null>(null);
+  const [trainingSignoffs, setTrainingSignoffs] = useState<TrainingSignoffInboxRow[]>([]);
   const [isSeaTimeOfferDialogOpen, setIsSeaTimeOfferDialogOpen] = useState(false);
   const [action, setAction] = useState<'approve' | 'reject' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -150,6 +165,34 @@ export default function InboxPage() {
   const hasVesselAccessRequests = useMemo(() => {
     return vesselSeaTimeAccessRequests.length > 0;
   }, [vesselSeaTimeAccessRequests]);
+
+  // Pending Training Record sign-offs assigned to this user (single + batch)
+  useEffect(() => {
+    if (!session?.access_token) {
+      setTrainingSignoffs([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/trb/signoff/queue?status=pending', {
+          headers: bearerHeaders(session.access_token),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.ok) {
+          setTrainingSignoffs((json.requests || []) as TrainingSignoffInboxRow[]);
+        } else {
+          setTrainingSignoffs([]);
+        }
+      } catch {
+        if (!cancelled) setTrainingSignoffs([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token]);
 
   // Check if user is admin
   const isAdmin = useMemo(() => {
@@ -2177,7 +2220,8 @@ export default function InboxPage() {
     seaTimeRequests.length +
     planCoverageRequests.length +
     captaincyRequests.length +
-    testimonials.length;
+    testimonials.length +
+    trainingSignoffs.length;
 
   const totalPendingCount = useMemo(() => {
     if (isAdmin) {
@@ -2189,7 +2233,8 @@ export default function InboxPage() {
     return (
       testimonials.length +
       vesselSeaTimeAccessRequests.length +
-      vesselSeaTimeOffers.length
+      vesselSeaTimeOffers.length +
+      trainingSignoffs.length
     );
   }, [
     isAdmin,
@@ -2201,15 +2246,18 @@ export default function InboxPage() {
     testimonials.length,
     vesselSeaTimeAccessRequests.length,
     vesselSeaTimeOffers.length,
+    trainingSignoffs.length,
   ]);
 
   const inboxDescription = isAdmin
     ? 'Review and approve captaincy requests for vessels.'
     : isVesselAccount
-      ? 'Incoming requests to action (including testimonial sign-offs), and sent testimonials or sea-time access waiting on others.'
+      ? 'Incoming requests to action (including testimonial and training sign-offs), and sent testimonials or sea-time access waiting on others.'
       : isCaptain
-        ? 'Review and respond to testimonial sign-off requests from crew members.'
-        : 'Review and respond to vessel sea time access requests and offers.';
+        ? 'Review and respond to testimonial and training sign-off requests from crew members.'
+        : trainingSignoffs.length > 0
+          ? 'Review training sign-off requests and vessel sea time access requests or offers.'
+          : 'Review and respond to vessel sea time access requests and offers.';
 
   const inboxStatItems = useMemo(() => {
     if (isAdmin) {
@@ -2271,10 +2319,10 @@ export default function InboxPage() {
           tone: 'amber' as const,
         },
         {
-          label: 'Approved',
-          value: approvedTestimonials.length,
-          hint: 'Recently signed',
-          tone: 'emerald' as const,
+          label: 'Training',
+          value: trainingSignoffs.length,
+          hint: 'Record sign-offs',
+          tone: 'sky' as const,
         },
         {
           label: 'Total pending',
@@ -2316,14 +2364,20 @@ export default function InboxPage() {
     planCoverageRequests.length,
     testimonials.length,
     approvedTestimonials.length,
+    trainingSignoffs.length,
     totalPendingCount,
     vesselSeaTimeAccessRequests.length,
     vesselSeaTimeOffers.length,
   ]);
 
-  // Allow access if user is captain/admin/vessel OR if they have pending vessel sea time access requests OR vessel sea time offers
+  // Allow access if user is captain/admin/vessel OR has pending vessel sea time / training sign-off work
   // Also allow access while loading so crew members can see the page while data loads
-  const hasAccess = isCaptain || hasVesselAccessRequests || vesselSeaTimeOffers.length > 0 || isLoading;
+  const hasAccess =
+    isCaptain ||
+    hasVesselAccessRequests ||
+    vesselSeaTimeOffers.length > 0 ||
+    trainingSignoffs.length > 0 ||
+    isLoading;
 
   if (!hasAccess && !isLoading) {
     return (
@@ -2385,7 +2439,8 @@ export default function InboxPage() {
           (isAdmin && (captaincyRequests.length > 0 || captainRoleApplications.length > 0)) ||
           (!isAdmin && (
             testimonials.length > 0 || 
-            approvedTestimonials.length > 0 || 
+            approvedTestimonials.length > 0 ||
+            trainingSignoffs.length > 0 ||
             (isVesselRole && (seaTimeRequests.length > 0 || planCoverageRequests.length > 0 || captaincyRequests.length > 0)) ||
             vesselSeaTimeAccessRequests.length > 0 ||
             vesselSeaTimeOffers.length > 0
@@ -2409,6 +2464,89 @@ export default function InboxPage() {
         />
       ) : (
         <div className="flex flex-col gap-4">
+          {/* Training Record sign-offs */}
+          {!isAdmin && trainingSignoffs.length > 0 && (
+            <InboxSection
+              title="Training sign-off requests"
+              description="Review Training Record tasks assigned to you. Deciding here or via email uses the same request — only one decision is recorded."
+              flush
+            >
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border hover:bg-transparent">
+                      <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">
+                        Request
+                      </TableHead>
+                      <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">
+                        Programme
+                      </TableHead>
+                      <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">
+                        Vessel
+                      </TableHead>
+                      <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">
+                        Requested
+                      </TableHead>
+                      <TableHead className="h-9 bg-muted/40 px-3 text-[11px] font-normal text-muted-foreground">
+                        Actions
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {trainingSignoffs.map((row) => {
+                      const isBatch = row.resourceType === 'training_task_batch';
+                      const href = isBatch
+                        ? `/dashboard/training-signoffs/batch/${row.id}`
+                        : `/dashboard/training-signoffs/${row.id}`;
+                      const title = isBatch
+                        ? `${row.taskCount ?? 0} tasks · grouped request`
+                        : `${row.taskCode ? `${row.taskCode} · ` : ''}${row.taskTitle || 'Training task'}`;
+                      return (
+                        <TableRow
+                          key={`${row.resourceType || 'single'}-${row.id}`}
+                          className="border-border bg-background hover:bg-muted/40"
+                        >
+                          <TableCell className="px-3 py-3 text-sm font-medium">
+                            {title}
+                          </TableCell>
+                          <TableCell className="px-3 py-3 text-sm text-muted-foreground">
+                            {row.programmeName || 'Training programme'}
+                          </TableCell>
+                          <TableCell className="px-3 py-3 text-sm text-muted-foreground">
+                            {row.vesselNameSnapshot || '—'}
+                          </TableCell>
+                          <TableCell className="px-3 py-3 text-sm text-muted-foreground">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="flex items-center gap-1.5">
+                                <Clock className="h-3.5 w-3.5" />
+                                {format(new Date(row.createdAt), 'MMM d, yyyy')}
+                              </span>
+                              <span className="text-[11px]">
+                                Expires {format(new Date(row.expiresAt), 'MMM d, yyyy HH:mm')}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-3 py-3">
+                            <Button
+                              asChild
+                              size="sm"
+                              className="h-8 rounded-md text-xs"
+                            >
+                              <a href={href}>
+                                <Eye className="mr-2 h-4 w-4" />
+                                Review
+                              </a>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </InboxSection>
+          )}
+
           {/* Captain Role Applications Section (Admin only) */}
           {isAdmin && captainRoleApplications.length > 0 && (
             <InboxSection

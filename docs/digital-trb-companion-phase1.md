@@ -153,26 +153,27 @@ Add a reviewer entitlement table + SELECT policies; do not broaden captain/manag
 
 ---
 
-## MCA OOW (Yachts) real-content pilot (one section)
+## OOW (Yachts &lt;3,000 GT) Training Record (digital companion)
 
-Private, feature-flagged trial importing **one** section of the official MCA Yacht TRB under OGL v3.0.
+Source-verified digital companion importing **one** section of the official MCA Yacht TRB under OGL v3.0. Not MCA/PYA approved as a replacement.
 
-Full source manifest: [`docs/trb/mca-oow-yachts-pilot-source-manifest.md`](./trb/mca-oow-yachts-pilot-source-manifest.md)
-
-### Purpose
-
-Demonstrate digital companion workflow against genuine MCA task wording while the **official paper/PDF TRB remains authoritative**. Not MCA/PYA approved as a replacement.
+- Source verification: [`docs/trb/oow-yachts-3000gt-source-verification.md`](./trb/oow-yachts-3000gt-source-verification.md)
+- Task page map: [`docs/trb/mca-oow-yachts-pilot-source-manifest.md`](./trb/mca-oow-yachts-pilot-source-manifest.md)
+- Promote SQL: `sql/promote-trb-oow-yachts-3000gt-companion.sql`
 
 ### Selected section
 
-PART 3 — **Maintain a Safe Navigational Watch** (PDF pages **55–57**), 12 signable tasks.
+Originally: PART 3 — **Maintain a Safe Navigational Watch** only (PDF pages **55–57**), 12 signable tasks.
+
+**Full-book expansion:** run `sql/seed-trb-oow-yachts-3000gt-full-book.sql` to import Parts **1–5** signable sections (~254 tasks). See [`docs/trb/oow-yachts-3000gt-full-book-manifest.md`](./trb/oow-yachts-3000gt-full-book-manifest.md).
 
 ### Programme
 
-- Code: `SJ-PILOT-MCA-OOW-YACHTS`
-- Version: `mca-source-2014-pilot-1`
+- Display name: **OOW (Yachts &lt;3,000 GT) Training Record**
+- Code: `SJ-PILOT-MCA-OOW-YACHTS` (stable enrolment id)
+- Version: `mca-source-2014-pilot-1` (stable; status promoted to `active`)
 - `is_official`: false · `recognition_status`: `not_approved`
-- Demo programme `SJ-DEMO-TRB-OOW` is unchanged
+- Demo programme `SJ-DEMO-TRB-OOW` is deactivated / hidden from discovery after promote
 
 ### Feature flag & allowlist (server-side)
 
@@ -183,16 +184,16 @@ TRB_MCA_OOW_PILOT_ALLOWED_EMAILS=crew1@example.com,crew2@example.com
 
 - Enforced in `listActivePrograms` / `enrolUser` (not UI-only).
 - Allowlist is **never** returned to the browser.
-- Captains with a valid sign-off token can still review that request.
+- Signers with a valid sign-off token can still review that request.
 - Disabling the flag does not delete enrolments or history.
 - Admins may discover the programme when the flag is enabled.
 
 ### Consent
 
-Before MCA pilot enrolment, candidates must confirm five statements. Stored on `trb_enrollments`:
+Before OOW companion enrolment, candidates must confirm five statements. Stored on `trb_enrollments`:
 
-- `consent_version` (`mca-oow-pilot-consent-v1`)
-- `consent_disclaimer_version` (`mca-oow-pilot-disclaimer-v1`)
+- `consent_version` (`mca-oow-companion-consent-v2`)
+- `consent_disclaimer_version` (`mca-oow-companion-disclaimer-v2`)
 - `consent_accepted_at`
 - `consent_payload` (jsonb)
 

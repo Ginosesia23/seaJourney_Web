@@ -200,7 +200,7 @@ Errors: `403` Forbidden; `400` with `code: "task_not_eligible"`.
 }
 ```
 
-**Stable submit identifier:** `signerEmail` (normalized lower-case server-side) + `signerName`. Do **not** submit only `userId`.
+**Stable submit identifier:** Prefer **`signerUserId`** (SeaJourney user id). Server resolves name, email, vessel role, and authority. Legacy `signerEmail` + `signerName` still accepted during rollout; if both are sent, email must match the selected user. Do **not** invent eligibility on the client — use `GET …/signoff/batch?…&taskProgressId=…` or `GET /api/trb/eligible-signers`.
 
 Success `200`:
 
@@ -536,7 +536,8 @@ Do **not** independently allow selection because enrolment status is `ready_for_
 ## 8. Signer rules
 
 - Refresh signers after selection changes.
-- Submit **`signerEmail` + `signerName`** (+ `authorisedConfirmation: true`).
+- Submit **`signerUserId`** (preferred) or legacy **`signerEmail` + `signerName`** (+ `authorisedConfirmation: true`).
+- Only users with explicit Training Record authority appear on the roster — see [`vessel-signoff-authority.md`](./vessel-signoff-authority.md).
 - Self-sign-off rejected (`self_signoff_forbidden`).
 - External invite only if `allowExternalInvite: true` (self-declared); roster preferred.
 - Vessel overlap: candidate’s active assignment / `active_vessel_id`; signer must be on that vessel’s signing authorities or eligible assignment roles unless external invite.

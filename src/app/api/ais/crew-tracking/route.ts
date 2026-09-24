@@ -272,7 +272,8 @@ export async function PATCH(req: NextRequest) {
         const { getVesselAIS } = await import('@/lib/ais/ais-service');
         await getVesselAIS(activeVessel.vesselId, {
           force: true,
-          triggerSource: 'crew-enable',
+          triggerSource: 'premium_enabled',
+          triggerDetail: 'crew-enable',
         });
       } catch (e) {
         console.warn('[CREW AIS TRACKING] initial vessel refresh failed', e);

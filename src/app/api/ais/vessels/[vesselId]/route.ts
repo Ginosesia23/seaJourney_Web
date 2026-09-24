@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getVesselAIS } from '@/lib/ais/ais-service';
 import { getAisRefreshIntervalMinutes } from '@/lib/ais/constants';
+import type { AisTriggerSource } from '@/lib/ais/fetch-audit-shared';
 import {
   formatUnderwayDuration,
   getDailyAisSummaryDto,
@@ -42,10 +43,21 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     // Normal reads are cache-only — adaptive cron owns provider fetches.
     // Only force=1 (intentional refresh) bypasses next_ais_check_at.
+    let triggerSource: AisTriggerSource | 'api:get' = 'api:get';
+    if (force) {
+      const { data: actor } = await supabaseAdmin
+        .from('users')
+        .select('role')
+        .eq('id', authResult.userId)
+        .maybeSingle();
+      triggerSource =
+        String(actor?.role ?? '').toLowerCase() === 'admin' ? 'manual_admin' : 'manual_user';
+    }
     const snapshot = await getVesselAIS(vesselId, {
       force,
       refreshIfStale: false,
-      triggerSource: force ? 'api:force' : 'api:get',
+      triggerSource,
+      triggerDetail: force ? 'api:force' : undefined,
     });
 
     const today = await getDailyAisSummaryDto(vesselId, todayKey);

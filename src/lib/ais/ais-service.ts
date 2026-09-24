@@ -10,11 +10,19 @@
 
 import { classifyLiveAisSample } from '@/lib/ais/classify-state';
 import {
+  getAisPollingIntervalMinutes,
   getNextAisCheckAt,
   isVesselDueForProviderFetch,
   nextStabilityTimestamps,
   type AisTrackingMode,
 } from '@/lib/ais/adaptive-scheduler';
+import { recordAisProviderRequest } from '@/lib/ais/fetch-audit';
+import {
+  isAisTriggerSource,
+  normalizeAisTriggerSource,
+  type AisProviderRequestMeta,
+  type AisTriggerSource,
+} from '@/lib/ais/fetch-audit-shared';
 import {
   AIS_PROVIDER_STALE_AFTER_MS,
   AIS_REFRESH_LOCK_TTL_SECONDS,
@@ -43,8 +51,13 @@ export type GetVesselAisOptions = {
   refreshIfStale?: boolean;
   /** Always fetch from provider (manual sync / intentional admin refresh). */
   force?: boolean;
-  /** Who triggered the request — stored in ais_fetch_log. */
-  triggerSource?: string;
+  /**
+   * Who triggered the request — stored in ais_fetch_log. Prefer an
+   * AisTriggerSource; legacy strings are normalised (unknown when ambiguous).
+   */
+  triggerSource?: AisTriggerSource | string;
+  /** Call-site detail stored in ais_fetch_log.trigger_detail. */
+  triggerDetail?: string;
   /** Optional classification context for live stabilisation. */
   classificationContext?: {
     previousSample?: {
@@ -96,13 +109,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function logAisFetch(opts: {
+/**
+ * Cached-read audit row (no provider call). Provider rows use recordAisProviderRequest.
+ * NOTE: the query builder is lazy and is never awaited here, so this insert does
+ * not execute — pre-existing behaviour, kept to avoid per-read row volume.
+ */
+async function logAisCacheRead(opts: {
   vesselId: string;
   provider: string;
-  success: boolean;
-  responseStatus?: number;
-  cachedOrApi: 'cache' | 'api';
-  errorMessage?: string | null;
   triggerSource?: string;
   trackingMode?: string | null;
   scheduledReason?: string | null;
@@ -110,14 +124,62 @@ async function logAisFetch(opts: {
   void supabaseAdmin.from('ais_fetch_log').insert({
     vessel_id: opts.vesselId,
     provider: opts.provider,
-    success: opts.success,
-    response_status: opts.responseStatus ?? null,
-    cached_or_api: opts.cachedOrApi,
-    error_message: opts.errorMessage ?? null,
+    success: true,
+    response_status: null,
+    cached_or_api: 'cache',
+    error_message: null,
     trigger_source: opts.triggerSource ?? null,
     tracking_mode: opts.trackingMode ?? null,
     scheduled_reason: opts.scheduledReason ?? null,
   });
+}
+
+/**
+ * Tracking mode + reason the vessel was due BEFORE this fetch ("why it ran").
+ * vessel_ais_status does not persist the reason, so it is re-derived from the
+ * stored state at the time the schedule was last written.
+ */
+function describePreFetchSchedule(
+  existing: VesselAisStatusRow | null,
+  force: boolean,
+): { trackingMode: string | null; scheduledReason: string } {
+  if (force) {
+    return { trackingMode: existing?.ais_tracking_mode ?? null, scheduledReason: 'forced_refresh' };
+  }
+  if (!existing) return { trackingMode: null, scheduledReason: 'initial_due' };
+  if (!existing.next_ais_check_at) {
+    return { trackingMode: existing.ais_tracking_mode ?? null, scheduledReason: 'never_scheduled' };
+  }
+  const scheduledAtMs = Date.parse(existing.updated_at ?? existing.fetched_at);
+  const derived = getAisPollingIntervalMinutes({
+    currentState: existing.seajourney_state,
+    stateStableSince: existing.state_stable_since,
+    consecutiveFetchFailures: existing.consecutive_fetch_failures ?? 0,
+    nowMs: Number.isFinite(scheduledAtMs) ? scheduledAtMs : undefined,
+  });
+  return {
+    trackingMode: existing.ais_tracking_mode ?? derived.trackingMode,
+    scheduledReason: derived.scheduledReason,
+  };
+}
+
+function fallbackRequestMeta(
+  startedMs: number,
+  result: { ok: boolean; responseStatus?: number; errorMessage?: string },
+  mmsi: string | null,
+): AisProviderRequestMeta {
+  const endMs = Date.now();
+  return {
+    endpoint: 'vessel',
+    requestedAt: new Date(startedMs).toISOString(),
+    completedAt: new Date(endMs).toISOString(),
+    responseTimeMs: endMs - startedMs,
+    httpStatus: result.responseStatus ?? null,
+    success: result.ok,
+    errorMessage: result.errorMessage ?? null,
+    mmsi,
+    providerCreditsUsed: null,
+  };
 }
 
 async function scheduleNextCheck(opts: {
@@ -467,11 +529,9 @@ export async function refreshVesselAIS(
   if (!acquired) {
     const peerResult = await waitForPeerRefresh(vesselId, previousFetchedAt);
     if (peerResult && !rowIsProviderDue(peerResult)) {
-      await logAisFetch({
+      await logAisCacheRead({
         vesselId,
         provider: peerResult.provider,
-        success: true,
-        cachedOrApi: 'cache',
         triggerSource: `${triggerSource}:peer-wait`,
         trackingMode: peerResult.ais_tracking_mode,
         scheduledReason: 'peer_wait_cache',
@@ -479,11 +539,9 @@ export async function refreshVesselAIS(
       return rowToSnapshot(peerResult, 'cache', false);
     }
     if (existing) {
-      await logAisFetch({
+      await logAisCacheRead({
         vesselId,
         provider: existing.provider,
-        success: true,
-        cachedOrApi: 'cache',
         triggerSource: `${triggerSource}:lock-busy`,
         trackingMode: existing.ais_tracking_mode,
         scheduledReason: 'lock_busy_cache',
@@ -508,17 +566,32 @@ export async function refreshVesselAIS(
     };
   }
 
+  const baseTrigger = normalizeAisTriggerSource(triggerSource);
+  const auditTrigger: AisTriggerSource =
+    baseTrigger === 'adaptive_scheduler' && (existing?.consecutive_fetch_failures ?? 0) > 0
+      ? 'retry'
+      : baseTrigger;
+  const preSchedule = describePreFetchSchedule(existing, options.force === true);
+  const auditBase = {
+    provider: provider.name,
+    vesselId,
+    triggerSource: auditTrigger,
+    triggerDetail:
+      options.triggerDetail ?? (isAisTriggerSource(triggerSource) ? null : triggerSource),
+    trackingMode: preSchedule.trackingMode,
+    scheduledReason: preSchedule.scheduledReason,
+  };
+
   try {
     const lookup = await loadVesselLookup(vesselId);
     if (!lookup || (!lookup.mmsi && !lookup.imo)) {
       const msg = 'Missing MMSI/IMO';
-      await logAisFetch({
-        vesselId,
-        provider: provider.name,
+      await recordAisProviderRequest({
+        ...auditBase,
+        providerCalled: false,
+        endpoint: 'vessel',
         success: false,
-        cachedOrApi: 'api',
         errorMessage: msg,
-        triggerSource,
         scheduledReason: 'missing_identity',
       });
       const scheduled = await persistFetchFailureSchedule(vesselId, existing, msg);
@@ -526,20 +599,20 @@ export async function refreshVesselAIS(
       throw new Error('Vessel has no MMSI or IMO on file.');
     }
 
+    const providerStartedMs = Date.now();
     const providerResult = await provider.getVesselPosition(lookup);
+    const requestMeta =
+      providerResult.requestMeta ??
+      fallbackRequestMeta(providerStartedMs, providerResult, lookup.mmsi);
 
     if (!providerResult.ok || !providerResult.position) {
       const msg = providerResult.errorMessage ?? 'Provider error';
-      await logAisFetch({
-        vesselId,
-        provider: provider.name,
+      await recordAisProviderRequest({
+        ...auditBase,
+        providerCalled: true,
+        meta: requestMeta,
         success: false,
-        responseStatus: providerResult.responseStatus,
-        cachedOrApi: 'api',
         errorMessage: msg,
-        triggerSource,
-        trackingMode: 'failure_retry',
-        scheduledReason: 'failure_retry',
       });
       const scheduled = await persistFetchFailureSchedule(vesselId, existing, msg);
       if (scheduled) return rowToSnapshot(scheduled, 'cache', true);
@@ -549,15 +622,12 @@ export async function refreshVesselAIS(
     const raw = providerResult.position.raw;
     if (isAisPositionStale(raw)) {
       const staleMsg = 'AIS position is stale (>6h); stored fix not updated.';
-      await logAisFetch({
-        vesselId,
-        provider: provider.name,
+      await recordAisProviderRequest({
+        ...auditBase,
+        providerCalled: true,
+        meta: requestMeta,
         success: false,
-        responseStatus: providerResult.responseStatus,
-        cachedOrApi: 'api',
         errorMessage: staleMsg,
-        triggerSource,
-        scheduledReason: 'stale_provider_fix',
       });
       // Still advance schedule (treat as soft failure) so we don't hammer.
       const scheduled = await persistFetchFailureSchedule(
@@ -582,17 +652,12 @@ export async function refreshVesselAIS(
       existing,
     });
 
-    await logAisFetch({
-      vesselId,
-      provider: provider.name,
+    await recordAisProviderRequest({
+      ...auditBase,
+      providerCalled: true,
+      meta: requestMeta,
       success: true,
-      responseStatus: providerResult.responseStatus ?? 200,
-      cachedOrApi: 'api',
-      triggerSource,
-      trackingMode: saved.ais_tracking_mode,
-      scheduledReason: saved.ais_tracking_mode
-        ? `${saved.ais_tracking_mode}_fetch`
-        : 'provider_fetch',
+      errorMessage: null,
     });
 
     return rowToSnapshot(saved, 'datalastic', false);
@@ -623,11 +688,9 @@ export async function getVesselAIS(
   const notDue = existing && !rowIsProviderDue(existing);
 
   if (existing && !force && (notDue || !refreshIfStale)) {
-    await logAisFetch({
+    await logAisCacheRead({
       vesselId,
       provider: existing.provider,
-      success: true,
-      cachedOrApi: 'cache',
       triggerSource: options.triggerSource ?? 'get',
       trackingMode: existing.ais_tracking_mode,
       scheduledReason: notDue ? 'before_next_check' : 'cache_only',

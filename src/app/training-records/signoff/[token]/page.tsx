@@ -348,6 +348,7 @@ export default function TrbSignoffClientPage() {
               <CardTitle>Decision recorded</CardTitle>
               <CardDescription>
                 Thank you. This secure link is now used and cannot be submitted again.
+                Dashboard review for the same request is also closed.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -436,6 +437,9 @@ export default function TrbSignoffClientPage() {
             <AlertTitle>Link unavailable</AlertTitle>
             <AlertDescription>
               This review link is invalid, expired, or already used ({errorReason}).
+              {errorReason === 'used' || errorReason === 'token_not_pending'
+                ? ' A decision may already have been recorded from Training Sign-offs in the dashboard.'
+                : ''}
             </AlertDescription>
           </Alert>
         ) : single || batch ? (

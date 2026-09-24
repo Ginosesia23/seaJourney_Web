@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireBearerUser } from '@/lib/trb/auth';
-import { listBatchRequestsForSignerEmail } from '@/lib/trb/batch';
-import { listSignoffsForSignerEmail } from '@/lib/trb/service';
+import { listBatchRequestsForSigner } from '@/lib/trb/batch';
+import { listSignoffsForSigner } from '@/lib/trb/service';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function GET(req: NextRequest) {
@@ -9,14 +9,19 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
-  if (!auth.email) {
-    return NextResponse.json({ requests: [], serverTime: new Date().toISOString() });
-  }
   const status = req.nextUrl.searchParams.get('status') || undefined;
   try {
     const [single, batch] = await Promise.all([
-      listSignoffsForSignerEmail(supabaseAdmin, auth.email, { status }),
-      listBatchRequestsForSignerEmail(supabaseAdmin, auth.email, { status }),
+      listSignoffsForSigner(supabaseAdmin, {
+        email: auth.email,
+        userId: auth.userId,
+        status,
+      }),
+      listBatchRequestsForSigner(supabaseAdmin, {
+        email: auth.email,
+        userId: auth.userId,
+        status,
+      }),
     ]);
     const requests = [
       ...single.map((r) => ({ ...r, resourceType: 'training_task' as const })),

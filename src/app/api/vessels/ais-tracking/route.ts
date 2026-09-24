@@ -111,6 +111,7 @@ export async function PATCH(req: NextRequest) {
         force: true,
         managerUserId: authResult.auth.userId,
         logDate,
+        triggerSource: 'initial_tracking_start',
       });
     }
 

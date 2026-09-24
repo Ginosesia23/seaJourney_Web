@@ -79,12 +79,15 @@ export async function POST(req: NextRequest) {
     let requestCount = 0;
 
     for (const segment of bounds.allowedSegments) {
-      const result = await fetchVesselHistoryRange({
-        mmsi: vessel.mmsi,
-        imo: vessel.imo,
-        from: segment.from,
-        to: segment.to,
-      });
+      const result = await fetchVesselHistoryRange(
+        {
+          mmsi: vessel.mmsi,
+          imo: vessel.imo,
+          from: segment.from,
+          to: segment.to,
+        },
+        { vesselId: vessel.id, triggerSource: 'history_import', triggerDetail: 'ais-history-preview' },
+      );
       rawPositions = rawPositions.concat(result.positions);
       requestCount += result.requestCount;
     }

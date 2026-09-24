@@ -1,10 +1,12 @@
 # Training Record system — shared approval architecture
 
-Central Training Record system for SeaJourney web (and future Flutter).
-Builds on Digital TRB Companion Phase 1 and the MCA OOW (Yachts) one-section pilot.
+Central Training Record system for SeaJourney web and Flutter.
+Builds on Digital TRB Companion Phase 1 and the source-verified OOW (Yachts &lt;3,000 GT) companion programme.
 
 **Not** an MCA- or PYA-approved electronic Training Record Book.
-Pilot labels: `DIGITAL COMPANION PILOT` · `NOT AN OFFICIAL TRB`.
+Companion labels: digital companion · not MCA/PYA approved.
+
+Source verification: [`oow-yachts-3000gt-source-verification.md`](./oow-yachts-3000gt-source-verification.md).
 
 ## Decision: Strategy B (service-layer share)
 
@@ -25,7 +27,7 @@ TRB continues to store **hashed** tokens only. Testimonials continue to work exa
 ## Expanded workflow
 
 1. Admin manages programmes / immutable versions / sections / tasks (official vs SeaJourney fields).
-2. Crew enrols (demo or gated MCA pilot).
+2. Crew enrols in a discoverable programme (OOW companion is env-gated).
 3. Crew adds notes + evidence → status `in_progress`.
 4. Crew marks **ready for assessment** (`POST /api/trb/tasks/ready`).
 5. Server lists eligible signers from active vessel roster (`GET /api/trb/eligible-signers`).
@@ -47,14 +49,20 @@ Clients cannot submit arbitrary status values; transitions are enforced in `src/
 
 ## Signer eligibility
 
-`src/lib/trb/eligibility.ts` evaluates:
+`src/lib/trb/eligibility.ts` requires **all** of:
 
-- Task `required_signer_role` (default `captain` for OOW trial)
-- Candidate active vessel assignment
-- Vessel signing authorities + assignment roles (`captain` / `officer` / `admin`)
-- Optional **external invite** (`allowExternalInvite`) → `self_declared` credentials (never SeaJourney-verified)
+1. Authenticated SeaJourney user (`users.id`)
+2. Active attachment to the candidate’s vessel (manager, assignment, signing authority, or linked vessel account)
+3. Explicit row in `vessel_trb_signoff_authorities` with `can_sign_training_records = true`, not revoked, in date range
+4. Assignment / manager role satisfying task `required_signer_role`
+5. Invitation accepted (pending linked accounts excluded)
 
-Candidates cannot request sign-off from their own email.
+Vessel managers and captains are **not** assessors by default. Testimonials /
+`vessel_signing_authorities` do not grant Training Record authority.
+
+Stable identity: clients submit `signerUserId`; server resolves name/email/role.
+
+See [`vessel-signoff-authority.md`](./vessel-signoff-authority.md).
 
 ## Programme versioning
 
@@ -69,10 +77,13 @@ Run in order (if not already applied):
 
 1. `sql/create-digital-trb-companion.sql`
 2. `sql/add-trb-submit-signoff-rpc.sql`
-3. `sql/seed-digital-trb-demo-program.sql`
-4. `sql/extend-trb-mca-oow-pilot.sql` (optional MCA pilot)
-5. `sql/seed-trb-mca-oow-pilot-section.sql` (optional)
-6. **`sql/expand-trb-training-record-system.sql`** ← ready_for_assessment, official fields, snapshots, rate limits, admin RLS
+3. `sql/seed-digital-trb-demo-program.sql` (historical; deactivated by promote)
+4. `sql/extend-trb-mca-oow-pilot.sql` + `sql/seed-trb-mca-oow-pilot-section.sql` (OOW companion seed)
+5. **`sql/expand-trb-training-record-system.sql`** ← ready_for_assessment, official fields, snapshots, rate limits, admin RLS
+6. `sql/add-trb-batch-signoff.sql` + `sql/add-trb-batch-signoff-rpc.sql` (multi-task)
+7. **`sql/add-vessel-trb-signoff-authorities.sql`** ← explicit Training Record assessor grants
+8. **`sql/promote-trb-oow-yachts-3000gt-companion.sql`** ← professional OOW companion metadata + hide demo
+9. **`sql/seed-trb-oow-yachts-3000gt-full-book.sql`** ← Parts 1–5 signable sections/tasks + progress backfill
 
 ## Environment variables
 
@@ -81,8 +92,8 @@ Run in order (if not already applied):
 | `NEXT_PUBLIC_SUPABASE_URL` / service role keys | Existing |
 | `RESEND_API_KEY` | Sign-off emails |
 | `TRB_AUDIT_IP_SALT` or `CRON_SECRET` | IP hash salt |
-| `TRB_MCA_OOW_PILOT_ENABLED` | Gate real-content pilot |
-| `TRB_MCA_OOW_PILOT_ALLOWED_EMAILS` | Allowlist |
+| `TRB_MCA_OOW_PILOT_ENABLED` | Kill-switch for OOW companion discovery (default **on** when unset; set `false` to hide) |
+| `TRB_MCA_OOW_PILOT_ALLOWED_EMAILS` | Optional allowlist. Empty = any authenticated user with Training Records access |
 | App base URL helpers used by email links | Existing `trbAppBaseUrl()` |
 
 ## Feature flag
@@ -91,7 +102,7 @@ Platform flag key: **`training_records`**
 
 - Catalog: `src/lib/feature-flags/catalog.ts` (`defaultMinCrewTier: 'set:test'`)
 - Seed: `sql/add-training-records-feature-flag.sql` (`min_crew_tier = 'set:test'`)
-- Gates `/dashboard/training-records` and `/dashboard/training-signoffs` (nav + dashboard route guard)
+- Gates `/dashboard/training-records` (candidate programmes). Signer review under `/dashboard/training-signoffs` stays reachable from Inbox without the candidate tier.
 - **Test accounts tier:** crew access chip on Feature flags (same UI as Free / Premium). Maps to `users.is_testing`. Combine with other tiers to widen rollout.
 - Secure email sign-off links (`/training-records/signoff/[token]`) stay reachable when the flag is off
 - Admins always bypass; manage under Dashboard → Feature flags
@@ -124,5 +135,5 @@ Testimonial / vessel RLS is unchanged.
 
 ## Compatibility
 
-- Demo programme, MCA pilot (if seeded + flagged), testimonials, vessel approvals, public verification — preserved.
+- OOW companion (if seeded + env-gated), testimonials, vessel approvals, public verification — preserved. Demo programme is hidden from new discovery after promote.
 - Routes unchanged; new routes added under `/api/trb/**` and `/dashboard/training-programmes`.

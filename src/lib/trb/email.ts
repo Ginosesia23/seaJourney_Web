@@ -73,7 +73,7 @@ export async function sendTrbSignoffRequestEmail(
     <p style="margin:0 0 16px;">${greeting}</p>
     <p style="margin:0 0 16px;">
       <strong>${escapeHtml(args.crewName)}</strong> has requested captain review of a
-      <strong>Digital TRB Companion</strong> training task (pilot programme).
+      <strong>Training Record</strong> digital companion task.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;background:#f4f7fb;border-radius:8px;">
       <tr>
@@ -130,7 +130,7 @@ export async function sendTrbSignoffRequestEmail(
         <tr>
           <td style="padding:20px 24px;background-color:#f9fafb;border-top:1px solid #e5e7eb;">
             <p style="margin:0;color:#6b7280;font-size:12px;line-height:1.5;">
-              SeaJourney Digital TRB Companion is a pilot training-task tracker for captain-reviewed training evidence.
+              SeaJourney Training Records is a digital companion for officer-reviewed training evidence — not an official MCA/PYA Training Record Book.
             </p>
           </td>
         </tr>

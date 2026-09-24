@@ -1,11 +1,24 @@
 /**
  * Datalastic Maritime API client.
  * Docs: https://datalastic.com/api-reference/
+ *
+ * Every HTTP request goes through datalasticGet(), which records one
+ * ais_fetch_log row (cached_or_api = 'api') per request — either directly, or
+ * via audit.onRequestComplete when the caller writes an enriched row itself.
+ * Request URLs are never logged: they contain the api-key query parameter.
  */
 
 import { splitHistoryDateRange } from '@/lib/ais/historical-import';
+import { recordAisProviderRequest } from '@/lib/ais/fetch-audit';
+import type {
+  AisProviderEndpoint,
+  AisProviderRequestMeta,
+  AisRequestAuditContext,
+} from '@/lib/ais/fetch-audit-shared';
 
 const DATALASTIC_BASE = 'https://api.datalastic.com/api/v0';
+
+export type DatalasticAuditContext = AisRequestAuditContext;
 
 export type DatalasticVesselPosition = {
   uuid?: string | null;
@@ -109,12 +122,94 @@ function extractDatalasticErrorMessage(
   return fallback || `Datalastic request failed (${status})`;
 }
 
-export async function fetchVesselHistory(params: {
-  mmsi?: string | null;
-  imo?: string | null;
-  from: string;
-  to: string;
-}): Promise<DatalasticVesselPosition[]> {
+type DatalasticFailure = { message: string; status: number };
+
+async function finishAudit(
+  meta: AisProviderRequestMeta,
+  audit: DatalasticAuditContext | undefined,
+): Promise<void> {
+  if (audit?.onRequestComplete) {
+    try {
+      audit.onRequestComplete(meta);
+    } catch (e) {
+      console.warn('[datalastic] onRequestComplete threw', e instanceof Error ? e.message : e);
+    }
+    return;
+  }
+  await recordAisProviderRequest({
+    providerCalled: true,
+    meta,
+    vesselId: audit?.vesselId ?? null,
+    triggerSource: audit?.triggerSource ?? 'unknown',
+    triggerDetail: audit?.triggerDetail ?? null,
+    trackingMode: audit?.trackingMode ?? null,
+    scheduledReason: audit?.scheduledReason ?? null,
+  });
+}
+
+/**
+ * Single choke point for Datalastic HTTP. Times the request, validates the
+ * body, records the audit row, then returns the body or throws DatalasticApiError.
+ */
+async function datalasticGet<TBody>(opts: {
+  endpoint: AisProviderEndpoint;
+  search: URLSearchParams;
+  mmsi: string | null;
+  audit?: DatalasticAuditContext;
+  validate: (res: Response, body: TBody) => DatalasticFailure | null;
+}): Promise<TBody> {
+  const url = `${DATALASTIC_BASE}/${opts.endpoint}?${opts.search.toString()}`;
+  const startedMs = Date.now();
+  const requestedAt = new Date(startedMs).toISOString();
+
+  const buildMeta = (
+    httpStatus: number | null,
+    success: boolean,
+    errorMessage: string | null,
+  ): AisProviderRequestMeta => {
+    const endMs = Date.now();
+    return {
+      endpoint: opts.endpoint,
+      requestedAt,
+      completedAt: new Date(endMs).toISOString(),
+      responseTimeMs: endMs - startedMs,
+      httpStatus,
+      success,
+      errorMessage,
+      mmsi: opts.mmsi,
+      providerCreditsUsed: null,
+    };
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Network error';
+    await finishAudit(buildMeta(null, false, message), opts.audit);
+    throw err;
+  }
+
+  const body = (await res.json().catch(() => ({}))) as TBody;
+  const failure = opts.validate(res, body);
+  await finishAudit(buildMeta(res.status, !failure, failure?.message ?? null), opts.audit);
+  if (failure) throw new DatalasticApiError(failure.message, failure.status);
+  return body;
+}
+
+export async function fetchVesselHistory(
+  params: {
+    mmsi?: string | null;
+    imo?: string | null;
+    from: string;
+    to: string;
+  },
+  audit?: DatalasticAuditContext,
+): Promise<DatalasticVesselPosition[]> {
   const apiKey = getApiKey();
   const search = new URLSearchParams({
     'api-key': apiKey,
@@ -128,24 +223,23 @@ export async function fetchVesselHistory(params: {
     throw new DatalasticApiError('MMSI or IMO is required', 400);
   }
 
-  const url = `${DATALASTIC_BASE}/vessel_history?${search.toString()}`;
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    cache: 'no-store',
+  const body = await datalasticGet<DatalasticVesselHistoryResponse & Record<string, unknown>>({
+    endpoint: 'vessel_history',
+    search,
+    mmsi: params.mmsi ?? null,
+    audit,
+    validate: (res, b) =>
+      !res.ok || b.meta?.success === false
+        ? {
+            message: extractDatalasticErrorMessage(
+              b,
+              res.status,
+              `Datalastic history request failed (${res.status})`,
+            ),
+            status: res.status,
+          }
+        : null,
   });
-
-  const body = (await res.json().catch(() => ({}))) as DatalasticVesselHistoryResponse &
-    Record<string, unknown>;
-
-  if (!res.ok || body.meta?.success === false) {
-    const msg = extractDatalasticErrorMessage(
-      body,
-      res.status,
-      `Datalastic history request failed (${res.status})`,
-    );
-    throw new DatalasticApiError(msg, res.status);
-  }
 
   const rawPositions = body.data?.positions ?? [];
   return rawPositions.map((p) =>
@@ -154,23 +248,29 @@ export async function fetchVesselHistory(params: {
 }
 
 /** Fetch history for long ranges by splitting into Datalastic-sized chunks. */
-export async function fetchVesselHistoryRange(params: {
-  mmsi?: string | null;
-  imo?: string | null;
-  from: string;
-  to: string;
-}): Promise<{ positions: DatalasticVesselPosition[]; requestCount: number }> {
+export async function fetchVesselHistoryRange(
+  params: {
+    mmsi?: string | null;
+    imo?: string | null;
+    from: string;
+    to: string;
+  },
+  audit?: DatalasticAuditContext,
+): Promise<{ positions: DatalasticVesselPosition[]; requestCount: number }> {
   const chunks = splitHistoryDateRange(params.from, params.to);
   const allPositions: DatalasticVesselPosition[] = [];
   const seen = new Set<string>();
 
   for (const chunk of chunks) {
-    const positions = await fetchVesselHistory({
-      mmsi: params.mmsi,
-      imo: params.imo,
-      from: chunk.from,
-      to: chunk.to,
-    });
+    const positions = await fetchVesselHistory(
+      {
+        mmsi: params.mmsi,
+        imo: params.imo,
+        from: chunk.from,
+        to: chunk.to,
+      },
+      audit,
+    );
     for (const p of positions) {
       // Chunks overlap by 1 day — drop exact duplicates from the seam.
       const key = [
@@ -187,11 +287,14 @@ export async function fetchVesselHistoryRange(params: {
   return { positions: allPositions, requestCount: chunks.length };
 }
 
-export async function fetchVesselPosition(params: {
-  mmsi?: string | null;
-  imo?: string | null;
-  uuid?: string | null;
-}): Promise<DatalasticVesselPosition> {
+export async function fetchVesselPosition(
+  params: {
+    mmsi?: string | null;
+    imo?: string | null;
+    uuid?: string | null;
+  },
+  audit?: DatalasticAuditContext,
+): Promise<DatalasticVesselPosition> {
   const apiKey = getApiKey();
   const search = new URLSearchParams({ 'api-key': apiKey });
 
@@ -202,39 +305,37 @@ export async function fetchVesselPosition(params: {
     throw new DatalasticApiError('MMSI, IMO, or Datalastic UUID is required', 400);
   }
 
-  const url = `${DATALASTIC_BASE}/vessel?${search.toString()}`;
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    cache: 'no-store',
+  const body = await datalasticGet<
+    DatalasticVesselResponse & { error?: string; message?: string }
+  >({
+    endpoint: 'vessel',
+    search,
+    mmsi: params.mmsi ?? null,
+    audit,
+    validate: (res, b) => {
+      if (!res.ok || b.meta?.success === false) {
+        return {
+          message: b.error || b.message || `Datalastic request failed (${res.status})`,
+          status: res.status,
+        };
+      }
+      if (!b.data) return { message: 'No AIS data returned for this vessel', status: 404 };
+      return null;
+    },
   });
-
-  const body = (await res.json().catch(() => ({}))) as DatalasticVesselResponse & {
-    error?: string;
-    message?: string;
-  };
-
-  if (!res.ok || body.meta?.success === false) {
-    const msg =
-      body.error ||
-      body.message ||
-      `Datalastic request failed (${res.status})`;
-    throw new DatalasticApiError(msg, res.status);
-  }
-
-  if (!body.data) {
-    throw new DatalasticApiError('No AIS data returned for this vessel', 404);
-  }
 
   const raw = body.data as DatalasticVesselPosition & { navigation_status?: string | null };
   return normalizePositionFields(raw);
 }
 
-export async function fetchVesselInfo(params: {
-  mmsi?: string | null;
-  imo?: string | null;
-  uuid?: string | null;
-}): Promise<DatalasticVesselInfo> {
+export async function fetchVesselInfo(
+  params: {
+    mmsi?: string | null;
+    imo?: string | null;
+    uuid?: string | null;
+  },
+  audit?: DatalasticAuditContext,
+): Promise<DatalasticVesselInfo> {
   const apiKey = getApiKey();
   const search = new URLSearchParams({ 'api-key': apiKey });
 
@@ -245,28 +346,28 @@ export async function fetchVesselInfo(params: {
     throw new DatalasticApiError('MMSI, IMO, or Datalastic UUID is required', 400);
   }
 
-  const url = `${DATALASTIC_BASE}/vessel_info?${search.toString()}`;
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    cache: 'no-store',
+  const body = await datalasticGet<DatalasticVesselInfoResponse & Record<string, unknown>>({
+    endpoint: 'vessel_info',
+    search,
+    mmsi: params.mmsi ?? null,
+    audit,
+    validate: (res, b) => {
+      if (!res.ok || b.meta?.success === false) {
+        return {
+          message: extractDatalasticErrorMessage(
+            b,
+            res.status,
+            `Datalastic vessel info request failed (${res.status})`,
+          ),
+          status: res.status,
+        };
+      }
+      if (!b.data?.name && !b.data?.mmsi && !b.data?.imo) {
+        return { message: 'No vessel found for this MMSI or IMO', status: 404 };
+      }
+      return null;
+    },
   });
-
-  const body = (await res.json().catch(() => ({}))) as DatalasticVesselInfoResponse &
-    Record<string, unknown>;
-
-  if (!res.ok || body.meta?.success === false) {
-    const msg = extractDatalasticErrorMessage(
-      body,
-      res.status,
-      `Datalastic vessel info request failed (${res.status})`,
-    );
-    throw new DatalasticApiError(msg, res.status);
-  }
-
-  if (!body.data?.name && !body.data?.mmsi && !body.data?.imo) {
-    throw new DatalasticApiError('No vessel found for this MMSI or IMO', 404);
-  }
 
   return body.data;
 }
@@ -278,11 +379,14 @@ export type DatalasticVesselFindResponse = {
 
 const VESSEL_FIND_DEFAULT_LIMIT = 25;
 
-export async function fetchVesselFind(params: {
-  name: string;
-  fuzzy?: boolean;
-  limit?: number;
-}): Promise<{ vessels: DatalasticVesselInfo[]; totalCount: number; truncated: boolean }> {
+export async function fetchVesselFind(
+  params: {
+    name: string;
+    fuzzy?: boolean;
+    limit?: number;
+  },
+  audit?: DatalasticAuditContext,
+): Promise<{ vessels: DatalasticVesselInfo[]; totalCount: number; truncated: boolean }> {
   const trimmedName = params.name.trim();
   if (trimmedName.length < 3) {
     throw new DatalasticApiError('Vessel name must be at least 3 characters', 400);
@@ -295,24 +399,23 @@ export async function fetchVesselFind(params: {
     fuzzy: params.fuzzy === false ? '0' : '1',
   });
 
-  const url = `${DATALASTIC_BASE}/vessel_find?${search.toString()}`;
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    cache: 'no-store',
+  const body = await datalasticGet<DatalasticVesselFindResponse & Record<string, unknown>>({
+    endpoint: 'vessel_find',
+    search,
+    mmsi: null,
+    audit,
+    validate: (res, b) =>
+      !res.ok || b.meta?.success === false
+        ? {
+            message: extractDatalasticErrorMessage(
+              b,
+              res.status,
+              `Datalastic vessel search failed (${res.status})`,
+            ),
+            status: res.status,
+          }
+        : null,
   });
-
-  const body = (await res.json().catch(() => ({}))) as DatalasticVesselFindResponse &
-    Record<string, unknown>;
-
-  if (!res.ok || body.meta?.success === false) {
-    const msg = extractDatalasticErrorMessage(
-      body,
-      res.status,
-      `Datalastic vessel search failed (${res.status})`,
-    );
-    throw new DatalasticApiError(msg, res.status);
-  }
 
   const allVessels = body.data ?? [];
   const limit = params.limit ?? VESSEL_FIND_DEFAULT_LIMIT;
