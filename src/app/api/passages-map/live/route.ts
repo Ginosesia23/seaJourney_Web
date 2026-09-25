@@ -56,6 +56,8 @@ type LivePosition = {
   state: string;
   navStatus: string | null;
   destination: string | null;
+  /** Crew-entered AIS ETA (eta_UTC), when transmitted. */
+  eta: string | null;
   aisPositionAt: string | null;
   sampledAt: string;
   isStale: boolean;
@@ -103,6 +105,8 @@ function liveFromSample(latest: SampleRow, now: number): LivePosition | null {
   const fixMs = Date.parse(latest.ais_position_at ?? latest.sampled_at);
   const raw = latest.raw_position ?? {};
   const destRaw = raw.destination;
+  const etaRaw = typeof raw.eta_UTC === 'string' ? raw.eta_UTC : null;
+  const eta = etaRaw && Number.isFinite(Date.parse(etaRaw)) ? etaRaw : null;
   return {
     lat,
     lon,
@@ -113,6 +117,7 @@ function liveFromSample(latest: SampleRow, now: number): LivePosition | null {
     navStatus: latest.nav_status,
     destination:
       typeof destRaw === 'string' && destRaw.trim() ? destRaw.trim() : null,
+    eta,
     aisPositionAt: latest.ais_position_at,
     sampledAt: latest.sampled_at,
     isStale: !Number.isFinite(fixMs) || now - fixMs > STALE_AFTER_MS,

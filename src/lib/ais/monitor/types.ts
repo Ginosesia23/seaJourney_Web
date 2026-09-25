@@ -219,10 +219,46 @@ export type AisMonitorObservation = {
   rawNavigationStatus: string | null;
 };
 
+/** How an account relates to the vessel whose AIS data was fetched. */
+export type AisMonitorConsumerRelationship = 'vessel_manager' | 'assigned_crew' | 'former_crew';
+
+/** How the account consumes the vessel's central AIS data. */
+export type AisMonitorConsumerUsage = 'vessel_plan' | 'vessel_daily_logs' | 'crew_live_tracking';
+
+export type AisMonitorConsumer = {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  subscriptionTier: string | null;
+  relationship: AisMonitorConsumerRelationship;
+  usage: AisMonitorConsumerUsage;
+  /** Current account settings allow this account to receive AIS-derived records. */
+  receiving: boolean;
+  /** Why the account is not receiving (null when receiving). */
+  reason: string | null;
+  /** Fetch detail only: this account recorded a sample from this fetch's data. */
+  usedThisFetch: boolean | null;
+  /** Latest sample this account recorded from the vessel's AIS data. */
+  lastSampleAt: string | null;
+};
+
+export type AisMonitorConsumers = {
+  vesselId: string;
+  /** Date (UTC) used for assignment / leave checks. */
+  asOfDate: string;
+  /** Fetch detail only: samples in this window are attributed to the fetch. */
+  fetchWindow: { from: string; to: string } | null;
+  accounts: AisMonitorConsumer[];
+  receivingCount: number;
+  usedThisFetchCount: number | null;
+};
+
 export type AisMonitorFetchDetail = {
   fetch: AisMonitorFetchRow;
   vessel: AisMonitorVesselIdentity | null;
   observation: AisMonitorObservation | null;
+  consumers: AisMonitorConsumers | null;
 };
 
 export type AisMonitorVesselStatus = {
@@ -246,4 +282,5 @@ export type AisMonitorVesselDetail = {
   today: AisMonitorRequestStats;
   last7d: AisMonitorRequestStats;
   timeseries: AisMonitorTimeseriesPoint[];
+  consumers: AisMonitorConsumers;
 };

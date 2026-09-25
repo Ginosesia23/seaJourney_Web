@@ -28,8 +28,9 @@ import {
   type AisAnalyzeOptions,
 } from '@/lib/ais/analyze-daily-state';
 
-/** Minimum total underway time for a day to count as a sea day. */
-export const MIN_UNDERWAY_MS_FOR_SEA_DAY = 4 * 60 * 60 * 1000;
+import { MIN_UNDERWAY_MS_FOR_SEA_DAY } from '@/lib/ais/sea-day-threshold';
+
+export { MIN_UNDERWAY_MS_FOR_SEA_DAY };
 
 /** All valid crew daily states. */
 const ALL_STATES: DailyStatus[] = [
@@ -164,6 +165,7 @@ function buildAnalyzerInput(samples: CrewAisSample[]) {
           base.navigational_status ?? base.navigation_status ?? s.navStatus ?? null,
         last_position_UTC: base.last_position_UTC ?? s.sampledAt,
         timestampMs,
+        seajourneyState: s.state,
       };
     });
 }

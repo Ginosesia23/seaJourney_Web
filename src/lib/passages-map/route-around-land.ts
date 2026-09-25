@@ -19,7 +19,6 @@ import {
   interpolateLonLat,
   isPointOnLand,
   segmentCrossesLand,
-  splitFeaturesOnLandCrossings,
 } from '@/lib/passages-map/segment-crosses-land';
 import type {
   PassageFeature,
@@ -565,15 +564,23 @@ export function densifyLineAwayFromLand(coords: readonly LngLat[]): LngLat[] {
 }
 
 /**
- * Display pipeline: route around land, then split any hop that still
- * cannot stay wet (continent-scale / unroutable).
+ * Display pipeline: route each passage's chords around land.
+ *
+ * Hops that cannot be routed stay as straight chords inside the same
+ * passage. Never split a passage into several features: every piece
+ * would inherit the whole passage's stats, and short coastal stubs end
+ * up labelled as "(round trip)" phantom passages. The Natural Earth
+ * 110m coastline is coarse enough that many real coastal hops (Nice,
+ * Cap Ferrat, Monaco) register as land crossings.
+ *
+ * `pointCount` stays the number of AIS fixes, not drawn vertices.
  */
 export function rerouteFeaturesAroundLand(
   fc: PassageFeatureCollection,
 ): PassageFeatureCollection {
   if (!fc?.features?.length) return fc;
 
-  const routed: PassageFeature[] = fc.features.map((feat, i) => {
+  const features: PassageFeature[] = fc.features.map((feat) => {
     const coords = feat.geometry?.coordinates as LngLat[] | undefined;
     if (!coords || coords.length < 2) return feat;
     const next = densifyLineAwayFromLand(coords);
@@ -590,16 +597,8 @@ export function rerouteFeaturesAroundLand(
     return {
       ...feat,
       geometry: { type: 'LineString', coordinates: next },
-      properties: {
-        ...feat.properties,
-        passageIndex: i,
-        pointCount: next.length,
-      },
     };
   });
 
-  return splitFeaturesOnLandCrossings({
-    type: 'FeatureCollection',
-    features: routed,
-  });
+  return { type: 'FeatureCollection', features };
 }

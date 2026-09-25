@@ -29,6 +29,9 @@ export const CLOSE_MATCH_NM = 50;
 /** Beyond close, still useful as "Near X" before falling back to coords. */
 export const NEAR_MATCH_NM = 140;
 
+/** Start/end closer than this (same resolved label) reads as a round trip. */
+export const ROUND_TRIP_MAX_NM = 2;
+
 export type NearestPortMatch = {
   name: string;
   distanceNm: number;
@@ -126,7 +129,15 @@ export function passagePortLabel(
   }
   const startLabel = resolveEndpointLabel(startLat, startLon);
   const endLabel = resolveEndpointLabel(endLat, endLon);
-  if (startLabel === endLabel) return `${startLabel} (round trip)`;
+  if (startLabel === endLabel) {
+    // Both ends can snap to the same curated port from up to
+    // CLOSE_MATCH_NM away, so only call it a round trip when the vessel
+    // actually finished near where it started.
+    const displacementNm = haversineNm(startLat, startLon, endLat, endLon);
+    return displacementNm <= ROUND_TRIP_MAX_NM
+      ? `${startLabel} (round trip)`
+      : `${startLabel} (local)`;
+  }
   return `${startLabel} → ${endLabel}`;
 }
 

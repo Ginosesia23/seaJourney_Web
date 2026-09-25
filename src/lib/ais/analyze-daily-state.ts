@@ -164,6 +164,8 @@ export function haversineNm(
 
 type PositionWithCoords = DatalasticVesselPosition & {
   timestampMs?: number | null;
+  /** Per-sample resolved state (live crew samples); used when AIS nav status is missing. */
+  seajourneyState?: DailyStatus | null;
 };
 
 function hasCoords(p: PositionWithCoords): p is PositionWithCoords & { lat: number; lon: number } {
@@ -563,6 +565,35 @@ export function analyzeAisDailyState(
     };
   }
 
+  const lastFix = sorted[sorted.length - 1]!;
+  const lastFixSpeed =
+    typeof lastFix.speed === 'number' && Number.isFinite(lastFix.speed)
+      ? Math.abs(lastFix.speed)
+      : 0;
+  const lastFixStatus = getNormalizedAisNavStatus(lastFix);
+  const lastFixClearlyUnderway =
+    lastFixSpeed >= 2 ||
+    (isAisUnderwayNavStatus(lastFixStatus) && lastFixSpeed >= 1.5);
+  const lastClusterIsSettledHold =
+    !!lastCluster &&
+    lastCluster.durationMs >= MIN_LAST_CLUSTER_DURATION_MS &&
+    !isAisUnderwayNavStatus(lastCluster.dominantStatus);
+
+  // 1b. Passage in progress but under the 4-hour minimum. The vessel hasn't
+  // arrived anywhere yet, so keep the state it held before departing until
+  // the day either qualifies as underway or the vessel settles somewhere new.
+  if (!underwaySatisfied && lastFixClearlyUnderway && !lastClusterIsSettledHold) {
+    const held = preDepartureState(sorted, clusters, lastCluster, previousDay);
+    if (held) {
+      return {
+        state: held.state,
+        confidence: 'medium',
+        reason: `Passage in progress (${fixedHrs(underwayDurationMs)} h underway so far — under the ${minUnderwayHours.toFixed(0)} h minimum for a sea day); keeping "${humanState(held.state)}" ${held.why} until it qualifies or the vessel settles.`,
+        metrics,
+      };
+    }
+  }
+
   // 2. Vessel relocated but didn't satisfy the 4-hour underway gate. Don't
   // count as a sea day — instead use the end-of-day nav status / location to
   // call the destination state.
@@ -637,16 +668,6 @@ export function analyzeAisDailyState(
   // Guard: the last cluster must be a real HOLD (≥ 45 min). A single transit
   // ping (duration 0.0 h) while still making way used to fire this rule and
   // wrongly mark the day "at-anchor" mid-passage.
-  const lastFix = sorted[sorted.length - 1]!;
-  const lastFixSpeed =
-    typeof lastFix.speed === 'number' && Number.isFinite(lastFix.speed)
-      ? Math.abs(lastFix.speed)
-      : 0;
-  const lastFixStatus = getNormalizedAisNavStatus(lastFix);
-  const lastFixClearlyUnderway =
-    lastFixSpeed >= 2 ||
-    (isAisUnderwayNavStatus(lastFixStatus) && lastFixSpeed >= 1.5);
-
   if (
     lastFixClearlyUnderway &&
     (!lastCluster || lastCluster.durationMs < MIN_LAST_CLUSTER_DURATION_MS) &&
@@ -798,6 +819,63 @@ export function analyzeAisDailyState(
     reason: 'Inconclusive AIS data — defaulting to at anchor.',
     metrics,
   };
+}
+
+function stateFromNavStatus(status: string | null): DailyStatus | null {
+  if (status === AIS_NAV_STATUS_LABELS[5]) return 'in-port';
+  if (status === AIS_NAV_STATUS_LABELS[1]) return 'at-anchor';
+  if (status === AIS_NAV_STATUS_LABELS[6]) return 'in-yard';
+  return null;
+}
+
+/**
+ * State the vessel held before the current (in-progress) passage: the latest
+ * settled hold today (AIS nav status, else per-sample state), else yesterday's
+ * stationary state. Null when nothing trustworthy is known.
+ */
+function preDepartureState(
+  sorted: PositionWithCoords[],
+  clusters: StationaryCluster[],
+  transitCluster: StationaryCluster | null,
+  previousDay: AisAnalyzeOptions['previousDay'],
+): { state: DailyStatus; why: string } | null {
+  const pickMax = (counts: Map<DailyStatus, number>): DailyStatus | null => {
+    let best: DailyStatus | null = null;
+    let bestCount = 0;
+    for (const [s, n] of counts) {
+      if (n > bestCount) {
+        best = s;
+        bestCount = n;
+      }
+    }
+    return best;
+  };
+
+  // A hold's cluster can absorb the first departure fix (same spot), so tally
+  // only stationary evidence inside each hold rather than its dominant status.
+  for (let i = clusters.length - 1; i >= 0; i--) {
+    const c = clusters[i]!;
+    if (c === transitCluster && c.durationMs < MIN_LAST_CLUSTER_DURATION_MS) continue;
+    if (c.durationMs < MIN_LAST_CLUSTER_DURATION_MS) continue;
+
+    const fromAis = new Map<DailyStatus, number>();
+    const fromSamples = new Map<DailyStatus, number>();
+    for (const p of sorted) {
+      const t = p.timestampMs ?? null;
+      if (t == null || t < c.startMs || t > c.endMs) continue;
+      const navState = stateFromNavStatus(getNormalizedAisNavStatus(p));
+      if (navState) fromAis.set(navState, (fromAis.get(navState) ?? 0) + 1);
+      const s = p.seajourneyState;
+      if (s && STATIONARY_STATES.includes(s)) fromSamples.set(s, (fromSamples.get(s) ?? 0) + 1);
+    }
+    const held = pickMax(fromAis) ?? pickMax(fromSamples);
+    if (held) return { state: held, why: 'from before departure' };
+  }
+
+  if (previousDay && STATIONARY_STATES.includes(previousDay.state)) {
+    return { state: previousDay.state, why: "carried from yesterday's final state" };
+  }
+  return null;
 }
 
 function humanState(state: DailyStatus): string {

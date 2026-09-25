@@ -8,6 +8,7 @@ import { ArrowLeft, Gauge, Ship } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { ModeBadge } from '@/components/admin/ais-monitor/badges';
+import { ConsumersPanel } from '@/components/admin/ais-monitor/consumers-panel';
 import { FetchLogTable } from '@/components/admin/ais-monitor/fetch-log-table';
 import { fmtDateTime, fmtMs, fmtNumber, fmtPercent, fmtRelative, humanizeToken } from '@/components/admin/ais-monitor/format';
 import { AIS_MONITOR_POLL_MS, useAdminGate, useAdminMonitorQuery } from '@/components/admin/ais-monitor/hooks';
@@ -194,6 +195,8 @@ export default function AdminAisMonitorVesselPage() {
               <StudioEmpty>No AIS status recorded for this vessel yet.</StudioEmpty>
             )}
           </StudioPanel>
+
+          <ConsumersPanel consumers={d.consumers} />
         </>
       ) : detail.isLoading ? (
         <StatTileSkeletonGrid count={4} />

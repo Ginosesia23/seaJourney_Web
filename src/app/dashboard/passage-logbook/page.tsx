@@ -31,6 +31,8 @@ import {
   PassageLogbookSection,
   PassageLogbookStatTiles,
 } from '@/components/dashboard/passage-logbook-page-ui';
+import { PassageLogbookActivePassage } from '@/components/dashboard/passage-logbook-active-passage';
+import { MIN_UNDERWAY_MS_FOR_SEA_DAY } from '@/lib/ais/sea-day-threshold';
 import {
   PassageLogTrackMap,
   resolvePassageTrackCoordinates,
@@ -115,6 +117,24 @@ function trackEndpointCoord(
   const lat = typeof pick[1] === 'number' ? pick[1] : Number(pick[1]);
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
   return [lon, lat];
+}
+
+/**
+ * Calendar days (yyyy-MM-dd) where the passage spends at least the
+ * minimum sea-day time underway. Shorter days (e.g. a 2pm departure's
+ * final hours, or an early-morning arrival) don't count as Underway.
+ */
+function passageSeaDayKeys(startIso: string | Date, endIso: string | Date): string[] {
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+  return eachDayOfInterval({ start: startOfDay(startMs), end: endOfDay(endMs) })
+    .filter((day) => {
+      const overlapMs =
+        Math.min(endMs, endOfDay(day).getTime()) - Math.max(startMs, startOfDay(day).getTime());
+      return overlapMs >= MIN_UNDERWAY_MS_FOR_SEA_DAY;
+    })
+    .map((day) => format(day, 'yyyy-MM-dd'));
 }
 
 const passageSchema = z.object({
@@ -937,17 +957,16 @@ export default function PassageLogbookPage() {
 
       await loadPassagesData();
 
-      // Sync passage date range to Underway in the calendar
-      const start = startOfDay(data.startTime);
-      const end = endOfDay(data.endTime);
-      const days = eachDayOfInterval({ start, end });
-      const logs = days.map((d) => ({
-        date: format(d, 'yyyy-MM-dd'),
+      // Sync passage sea days to Underway in the calendar
+      const logs = passageSeaDayKeys(data.startTime, data.endTime).map((date) => ({
+        date,
         state: 'underway' as const,
       }));
-      await updateStateLogsBatch(supabase, user.id, vesselId, logs);
-      const updatedLogs = await getVesselStateLogs(supabase, vesselId, user.id);
-      setStateLogsByVessel((prev) => ({ ...prev, [vesselId]: updatedLogs }));
+      if (logs.length > 0) {
+        await updateStateLogsBatch(supabase, user.id, vesselId, logs);
+        const updatedLogs = await getVesselStateLogs(supabase, vesselId, user.id);
+        setStateLogsByVessel((prev) => ({ ...prev, [vesselId]: updatedLogs }));
+      }
 
       setIsFormOpen(false);
       setEditingPassage(null);
@@ -1007,13 +1026,11 @@ export default function PassageLogbookPage() {
     if (!user?.id) return;
     setSyncingPassageId(passage.id);
     try {
-      const start = startOfDay(new Date(passage.start_time));
-      const end = endOfDay(new Date(passage.end_time));
-      const days = eachDayOfInterval({ start, end });
-      const logs = days.map((d) => ({
-        date: format(d, 'yyyy-MM-dd'),
+      const logs = passageSeaDayKeys(passage.start_time, passage.end_time).map((date) => ({
+        date,
         state: 'underway' as const,
       }));
+      if (logs.length === 0) return;
       await updateStateLogsBatch(supabase, user.id, passage.vessel_id, logs);
       const updatedLogs = await getVesselStateLogs(supabase, passage.vessel_id, user.id);
       setStateLogsByVessel((prev) => ({ ...prev, [passage.vessel_id]: updatedLogs }));
@@ -1290,10 +1307,7 @@ export default function PassageLogbookPage() {
   const passageConflicts = useMemo(() => {
     const conflicts: { passage: PassageLog; datesNotUnderway: string[] }[] = [];
     for (const passage of passages) {
-      const start = startOfDay(new Date(passage.start_time));
-      const end = endOfDay(new Date(passage.end_time));
-      const days = eachDayOfInterval({ start, end });
-      const dateStrings = days.map((d) => format(d, 'yyyy-MM-dd'));
+      const dateStrings = passageSeaDayKeys(passage.start_time, passage.end_time);
       const logs = stateLogsByVessel[passage.vessel_id] || [];
       const logByDate = new Map(logs.map((l) => [l.date, l]));
       const datesNotUnderway = dateStrings.filter(
@@ -1414,7 +1428,7 @@ export default function PassageLogbookPage() {
             </AlertTitle>
             <AlertDescription>
               <p>
-                {passageConflicts.length} passage{passageConflicts.length !== 1 ? 's' : ''} have dates that are not set to Underway in the calendar. Passages and vessel state should match: passage dates should be Underway. Use &quot;Set to Underway&quot; below to fix.
+                {passageConflicts.length} passage{passageConflicts.length !== 1 ? 's' : ''} have dates that are not set to Underway in the calendar. Passages and vessel state should match: passage dates should be Underway. Days with less than 4 hours at sea are not counted. Use &quot;Set to Underway&quot; below to fix.
               </p>
               <CollapsibleContent>
                 <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto border-t border-amber-500/20 pt-3 text-sm">
@@ -1507,6 +1521,8 @@ export default function PassageLogbookPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      {canMatchAis && <PassageLogbookActivePassage accessToken={session?.access_token} />}
 
       {passages.length > 0 && (
         <PassageLogbookStatTiles

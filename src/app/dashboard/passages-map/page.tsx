@@ -156,6 +156,10 @@ import {
   PassageTimelineBar,
   type PassageTimelineMeta,
 } from '@/components/passages-map/passage-timeline-bar';
+import {
+  ActivePassageCard,
+  type ActivePassageCardData,
+} from '@/components/passages-map/active-passage-card';
 
 // Point MapLibre at a stable, self-hosted worker URL BEFORE any Map
 // instance can be created. Without this, MapLibre's auto-detected
@@ -246,6 +250,18 @@ const MAP_CHROME_LIGHT_STYLE = `
   }
   [data-map-chrome="light"] [class*="bg-emerald-"] {
     background-color: rgba(16, 185, 129, 0.12) !important;
+  }
+  [data-map-chrome="light"] [class*="stroke-white/"] {
+    stroke: rgba(15, 23, 42, 0.28) !important;
+  }
+  [data-map-chrome="light"] [class*="fill-white/"] {
+    fill: rgba(15, 23, 42, 0.6) !important;
+  }
+  [data-map-chrome="light"] [class*="fill-white/2"] {
+    fill: rgba(15, 23, 42, 0.18) !important;
+  }
+  [data-map-chrome="light"] [class*="fill-sky-"] {
+    fill: rgb(3 105 161) !important;
   }
   [data-map-chrome="light"] [class*="ring-offset-slate-950"] {
     --tw-ring-offset-color: #fff !important;
@@ -509,6 +525,7 @@ type LivePosition = {
   state: string;
   navStatus: string | null;
   destination?: string | null;
+  eta?: string | null;
   aisPositionAt: string | null;
   sampledAt: string;
   isStale: boolean;
@@ -1282,6 +1299,33 @@ export default function PassagesMapPage() {
     if (!stillThere) setFocusedVesselId(null);
   }, [tracks?.vessels, focusedVesselId]);
 
+  const activePassage = React.useMemo<ActivePassageCardData | null>(() => {
+    const underway = (live?.vessels ?? []).filter(
+      (v) => v.live?.state === 'underway' && !hiddenVessels.has(v.vesselId),
+    );
+    const v = underway.find((u) => u.vesselId === focusedVesselId) ?? underway[0];
+    if (!v?.live) return null;
+    const props = v.activeTrack?.features?.[0]?.properties as
+      | { startTime?: string; endTime?: string; distanceNm?: number }
+      | undefined;
+    return {
+      vesselName: v.vesselName,
+      colorHex: v.colorHex,
+      live: v.live,
+      track:
+        props?.startTime && props.endTime
+          ? { startTime: props.startTime, endTime: props.endTime, distanceNm: Number(props.distanceNm ?? 0) }
+          : null,
+    };
+  }, [live?.vessels, hiddenVessels, focusedVesselId]);
+
+  const showLogbookBanner =
+    !isLoading &&
+    !logbookMissingDismissed &&
+    !selectedPassage &&
+    logbookMissingCount > 0 &&
+    (tracks?.totals.passageCount ?? 0) > 0;
+
   if (isUserLoading || isProfileLoading || isFlagsLoading || !canAccess) {
     return (
       <div className="flex h-full w-full items-center justify-center">
@@ -1368,11 +1412,20 @@ export default function PassagesMapPage() {
         </div>
       )}
 
-      {!isLoading &&
-        !logbookMissingDismissed &&
-        !selectedPassage &&
-        logbookMissingCount > 0 &&
-        (tracks?.totals.passageCount ?? 0) > 0 && (
+      {activePassage && !selectedPassageMeta && (
+        <div
+          className={cn(
+            'pointer-events-none absolute z-20 animate-in fade-in slide-in-from-bottom-2 duration-300',
+            'right-3 sm:right-4',
+            showLogbookBanner ? 'bottom-44 xl:bottom-12' : 'bottom-12',
+          )}
+          data-map-chrome={mapChromeTone(styleId)}
+        >
+          <ActivePassageCard data={activePassage} />
+        </div>
+      )}
+
+      {showLogbookBanner && (
           <div
             className="absolute bottom-6 left-1/2 z-20 w-[min(92vw,440px)] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-2 duration-300"
             data-map-chrome={mapChromeTone(styleId)}
@@ -5295,161 +5348,57 @@ function PassagesLegendOverlay({
           )}
 
           {vessels.length > 0 && (
-            <ul className="divide-y divide-white/5">
+            <div className="flex items-center justify-between px-4 pb-1.5 pt-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                Vessels
+              </span>
+              <span className="text-[10px] tabular-nums text-white/30">{vessels.length}</span>
+            </div>
+          )}
+
+          {vessels.length > 0 && (
+            <ul className="space-y-2 px-3 pb-3">
               {vessels.map((v) => {
                 const isHidden = hiddenVessels.has(v.vesselId);
                 const isFocused = focusedVesselId === v.vesselId;
                 const isDimmedByFocus =
                   Boolean(focusedVesselId) && !isFocused && !isHidden;
-                const skipReasons = v.skipReason ? [v.skipReason] : [];
-                const monthsCached = v.availableMonths.length;
                 const liveVessel = liveByVessel.get(v.vesselId);
                 const livePos = liveVessel?.live ?? null;
-                const isUnderway = livePos?.state === 'underway';
                 return (
-                  <li
+                  <VesselCard
                     key={v.vesselId}
-                    className={cn(
-                      'group px-4 py-3 transition-colors hover:bg-white/[0.03]',
-                      isHidden && 'opacity-55',
-                      isDimmedByFocus && 'opacity-45',
-                      isFocused && 'bg-white/[0.04]',
-                    )}
+                    vessel={v}
+                    livePos={livePos}
+                    isHidden={isHidden}
+                    isFocused={isFocused}
+                    isDimmedByFocus={isDimmedByFocus}
+                    isLoading={isLoading}
+                    onToggleVessel={() => onToggleVessel(v.vesselId)}
+                    onFocusVessel={() => onFocusVessel(v.vesselId)}
+                    onRefreshVessel={() => onRefreshVessel(v.vesselId)}
                   >
-                    <div className="flex items-start gap-3">
-                      <button
-                        type="button"
-                        onClick={() => onToggleVessel(v.vesselId)}
-                        className="mt-1 shrink-0"
-                        title={isHidden ? 'Show on map' : 'Hide on map'}
-                      >
-                        <span
-                          className="flex h-3 w-3 items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-slate-950 transition-all"
-                          style={{
-                            backgroundColor: isHidden ? 'transparent' : v.colorHex,
-                            boxShadow: isHidden ? 'none' : `0 0 12px ${v.colorHex}66`,
-                            ['--tw-ring-color' as any]: v.colorHex,
-                          }}
-                        />
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <Ship className="h-3.5 w-3.5 shrink-0 text-white/40" />
-                            <button
-                              type="button"
-                              onClick={() => onFocusVessel(v.vesselId)}
-                              className="truncate text-left text-sm font-medium text-white hover:text-sky-200"
-                              title={
-                                isFocused
-                                  ? 'Clear focus — show all vessels equally'
-                                  : 'Focus this vessel — dim the others'
-                              }
-                            >
-                              {v.vesselName}
-                            </button>
-                            {isFocused && (
-                              <span className="shrink-0 rounded-md bg-sky-400/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-sky-200 ring-1 ring-sky-400/30">
-                                Focus
-                              </span>
-                            )}
-                            {livePos && (
-                              <span
-                                className={cn(
-                                  'shrink-0 rounded-md px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider',
-                                  isUnderway
-                                    ? 'bg-sky-400/20 text-sky-100 ring-1 ring-sky-400/35'
-                                    : livePos.isStale
-                                      ? 'bg-white/5 text-white/40'
-                                      : 'bg-slate-400/15 text-slate-200',
-                                )}
-                                title={
-                                  isUnderway
-                                    ? `Live passage${typeof livePos.speedKn === 'number' ? ` · ${livePos.speedKn.toFixed(1)} kn` : ''}`
-                                    : `${livePos.state}${livePos.isStale ? ' · stale' : ''}`
-                                }
-                              >
-                                {isUnderway ? 'Live' : livePos.isStale ? 'Stale' : livePos.state}
-                              </span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => onToggleVessel(v.vesselId)}
-                            className="text-white/40 opacity-0 transition-opacity hover:text-white group-hover:opacity-100"
-                            title={isHidden ? 'Show on map' : 'Hide on map'}
-                          >
-                            {isHidden ? (
-                              <EyeOff className="h-3.5 w-3.5" />
-                            ) : (
-                              <Eye className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-white/50">
-                          <span className="tabular-nums text-white/70">
-                            {v.totals.passageCount}
-                          </span>
-                          <span>passage{v.totals.passageCount === 1 ? '' : 's'}</span>
-                          <span aria-hidden className="text-white/25">·</span>
-                          <span className="tabular-nums text-white/70">
-                            {Math.round(v.totals.totalDistanceNm).toLocaleString()}
-                          </span>
-                          <span>NM</span>
-                          {monthsCached > 0 && (
-                            <>
-                              <span aria-hidden className="text-white/25">·</span>
-                              <span className="tabular-nums text-white/70">
-                                {monthsCached}
-                              </span>
-                              <span>mo cached</span>
-                            </>
-                          )}
-                        </div>
-                        {skipReasons.length > 0 && (
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            {skipReasons.slice(0, 2).map((r, i) => (
-                              <Badge
-                                key={i}
-                                variant="outline"
-                                className="border-white/15 bg-white/5 text-[10px] font-normal text-white/70"
-                              >
-                                {r}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => onRefreshVessel(v.vesselId)}
-                          className="mt-1.5 text-[11px] text-sky-400 opacity-0 transition-opacity hover:text-sky-300 group-hover:opacity-100"
-                          disabled={isLoading}
-                        >
-                          Refresh this vessel →
-                        </button>
-                        <VesselPassageList
-                          vessel={v}
-                          isHidden={isHidden}
-                          selectedPassageIndex={
-                            selectedPassage?.vesselId === v.vesselId
-                              ? selectedPassage.passageIndex
-                              : null
-                          }
-                          forceOpen={
-                            selectedPassage?.vesselId === v.vesselId ||
-                            focusedVesselId === v.vesselId
-                          }
-                          logbookFingerprints={logbookFingerprints}
-                          logbookLinks={logbookLinks}
-                          promotingKey={promotingKey}
-                          onFlyToPassage={(passageIndex) =>
-                            onFlyToPassage(v.vesselId, passageIndex)
-                          }
-                          onPromotePassage={onPromotePassage}
-                        />
-                      </div>
-                    </div>
-                  </li>
+                    <VesselPassageList
+                      vessel={v}
+                      isHidden={isHidden}
+                      selectedPassageIndex={
+                        selectedPassage?.vesselId === v.vesselId
+                          ? selectedPassage.passageIndex
+                          : null
+                      }
+                      forceOpen={
+                        selectedPassage?.vesselId === v.vesselId ||
+                        focusedVesselId === v.vesselId
+                      }
+                      logbookFingerprints={logbookFingerprints}
+                      logbookLinks={logbookLinks}
+                      promotingKey={promotingKey}
+                      onFlyToPassage={(passageIndex) =>
+                        onFlyToPassage(v.vesselId, passageIndex)
+                      }
+                      onPromotePassage={onPromotePassage}
+                    />
+                  </VesselCard>
                 );
               })}
             </ul>
@@ -5466,20 +5415,173 @@ function PassagesLegendOverlay({
   );
 }
 
+const LIVE_STATE_LABELS: Record<string, string> = {
+  underway: 'Underway',
+  'at-anchor': 'At anchor',
+  'in-port': 'Moored',
+  'in-yard': 'In yard',
+};
+
+/** Sidebar card for one vessel: identity, live status, totals, actions. */
+function VesselCard({
+  vessel,
+  livePos,
+  isHidden,
+  isFocused,
+  isDimmedByFocus,
+  isLoading,
+  onToggleVessel,
+  onFocusVessel,
+  onRefreshVessel,
+  children,
+}: {
+  vessel: VesselResponse;
+  livePos: LivePosition | null;
+  isHidden: boolean;
+  isFocused: boolean;
+  isDimmedByFocus: boolean;
+  isLoading: boolean;
+  onToggleVessel: () => void;
+  onFocusVessel: () => void;
+  onRefreshVessel: () => void;
+  children?: React.ReactNode;
+}) {
+  const isUnderway = livePos?.state === 'underway';
+  const monthsCached = vessel.availableMonths.length;
+  const excluded = vessel.excludedByLeave;
+
+  return (
+    <li
+      className={cn(
+        'group relative overflow-hidden rounded-xl bg-white/[0.035] transition-all',
+        'hover:bg-white/[0.055]',
+        isFocused && 'bg-white/[0.06] ring-1 ring-white/10',
+        isHidden && 'opacity-50',
+        isDimmedByFocus && 'opacity-40',
+      )}
+    >
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-[3px]"
+        style={{ backgroundColor: isHidden ? 'transparent' : vessel.colorHex }}
+      />
+
+      <div className="px-3.5 pb-3 pt-3">
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            onClick={onFocusVessel}
+            className="min-w-0 flex-1 text-left"
+            title={isFocused ? 'Clear focus — show all vessels equally' : 'Focus this vessel — dim the others'}
+          >
+            <p className="truncate text-[13px] font-semibold tracking-tight text-white">{vessel.vesselName}</p>
+            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/45">
+              {livePos ? (
+                <>
+                  <span className="relative flex h-1.5 w-1.5 shrink-0">
+                    {isUnderway && !livePos.isStale ? (
+                      <span
+                        className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
+                        style={{ backgroundColor: '#38bdf8' }}
+                      />
+                    ) : null}
+                    <span
+                      className="relative inline-flex h-1.5 w-1.5 rounded-full"
+                      style={{
+                        backgroundColor: livePos.isStale ? '#fbbf24' : isUnderway ? '#38bdf8' : '#94a3b8',
+                      }}
+                    />
+                  </span>
+                  <span className={cn(isUnderway && 'font-medium text-sky-300')}>
+                    {LIVE_STATE_LABELS[livePos.state] ?? livePos.state}
+                    {isUnderway && typeof livePos.speedKn === 'number' ? ` · ${livePos.speedKn.toFixed(1)} kn` : ''}
+                    {livePos.isStale ? ' · stale' : ''}
+                  </span>
+                </>
+              ) : (
+                <span>No live position</span>
+              )}
+              {isFocused ? (
+                <span className="ml-1 rounded bg-sky-400/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wider text-sky-300">
+                  Focused
+                </span>
+              ) : null}
+            </div>
+          </button>
+
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={onRefreshVessel}
+              disabled={isLoading}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-white/35 opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100 disabled:opacity-30"
+              title="Refresh this vessel"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onToggleVessel}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-white/45 transition hover:bg-white/10 hover:text-white"
+              title={isHidden ? 'Show on map' : 'Hide on map'}
+            >
+              {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-2.5 grid grid-cols-3 gap-1.5">
+          {(
+            [
+              ['Passages', vessel.totals.passageCount.toLocaleString()],
+              ['Distance', `${Math.round(vessel.totals.totalDistanceNm).toLocaleString()} NM`],
+              ['Months', monthsCached.toLocaleString()],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-white/[0.04] px-2 py-1.5">
+              <p className="text-[9px] uppercase tracking-[0.12em] text-white/35">{label}</p>
+              <p className="truncate text-xs font-semibold tabular-nums text-white">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {vessel.skipReason || (excluded && excluded.passageCount > 0) ? (
+          <div className="mt-2 space-y-1 text-[10px] text-white/45">
+            {vessel.skipReason ? <p className="text-amber-300/80">{vessel.skipReason}</p> : null}
+            {excluded && excluded.passageCount > 0 ? (
+              <p>
+                {excluded.passageCount} passage{excluded.passageCount === 1 ? '' : 's'} hidden while on leave
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {children}
+      </div>
+    </li>
+  );
+}
+
+function formatPassageDuration(start: string, end: string): string | null {
+  const ms = Date.parse(end) - Date.parse(start);
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const totalMin = Math.round(ms / 60_000);
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
+  const m = totalMin % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
+  return `${m}m`;
+}
+
+/** Passages shown before "Show all" — the most recent trips. */
+const PASSAGE_PREVIEW_COUNT = 3;
+
 /**
- * Collapsible per-vessel list of passages, rendered inside the sidebar
- * vessel row. Uses <details>/<summary> for the disclosure so we get
- * keyboard support and correct semantics for free; no extra state to
- * track "which sections are open" across renders.
- *
- * Each row is a mini-summary of the passage (date, distance, and
- * "Palma → Antibes" style route label when both endpoints match a
- * curated port). Clicking a row asks the map to fly to that passage
- * and open its popup — implemented via the imperative canvas handle
- * so we don't have to lift MapLibre state into React.
- *
- * List sort: most-recent-first, which matches the mental model of "I
- * want to see my last trip".
+ * Per-vessel passage timeline (most recent first). Shows the latest few
+ * passages with a "show all" toggle; opens fully when the vessel is focused
+ * or one of its passages is selected. Rows fly the map to the passage;
+ * the side action saves it to the Passage Log.
  */
 function VesselPassageList({
   vessel,
@@ -5511,87 +5613,97 @@ function VesselPassageList({
     coordinates?: [number, number][];
   }) => void;
 }) {
+  const [showAll, setShowAll] = React.useState(false);
   const features = vessel.featureCollection?.features ?? [];
-  if (features.length === 0) return null;
 
   // Pair each feature with its ORIGINAL array index so `flyToPassage`
   // can look it up by that same index inside the map component (feature
-  // IDs are assigned as `[0..N)` during `applyVesselLayers`). Sort a
-  // COPY by start time descending so the recent trip is first.
+  // IDs are assigned as `[0..N)` during `applyVesselLayers`).
   const rows = features
     .map((f, index) => ({ index, feature: f }))
     .filter(({ feature }) => feature.geometry?.type === 'LineString')
-    .sort((a, b) => {
-      const aTime = new Date(
-        String(a.feature.properties?.startTime ?? 0),
-      ).getTime();
-      const bTime = new Date(
-        String(b.feature.properties?.startTime ?? 0),
-      ).getTime();
-      return bTime - aTime;
-    });
+    .sort(
+      (a, b) =>
+        new Date(String(b.feature.properties?.startTime ?? 0)).getTime() -
+        new Date(String(a.feature.properties?.startTime ?? 0)).getTime(),
+    );
 
   if (rows.length === 0) return null;
 
+  const expanded = showAll || forceOpen;
+  const selectedPos = rows.findIndex((r) => r.index === selectedPassageIndex);
+  const visibleCount = expanded
+    ? rows.length
+    : Math.max(PASSAGE_PREVIEW_COUNT, selectedPos + 1);
+  const visible = rows.slice(0, visibleCount);
+  const hiddenCount = rows.length - visible.length;
+
   return (
-    <details
-      className="passages-list mt-2 overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02] open:bg-white/[0.03]"
-      open={forceOpen || undefined}
-    >
-      <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] font-medium text-white/55 marker:content-none [&::-webkit-details-marker]:hidden hover:text-white/85">
-        <span>
-          {rows.length} passage{rows.length === 1 ? '' : 's'}
-          {typeof selectedPassageIndex === 'number' ? ' · scrubbing' : ''}
+    <div className="mt-3">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/35">
+          Recent passages
         </span>
-        <span className="text-white/25">▾</span>
-      </summary>
-      <ul className="max-h-56 overflow-y-auto border-t border-white/5">
-        {rows.map(({ index, feature }) => {
+        {rows.length > PASSAGE_PREVIEW_COUNT && !forceOpen ? (
+          <button
+            type="button"
+            onClick={() => setShowAll((s) => !s)}
+            className="text-[10px] font-medium text-sky-400 hover:text-sky-300"
+          >
+            {showAll ? 'Show less' : `Show all ${rows.length}`}
+          </button>
+        ) : null}
+      </div>
+
+      <ul className={cn('relative', expanded && rows.length > 6 && 'max-h-72 overflow-y-auto pr-1')}>
+        {visible.map(({ index, feature }, i) => {
           const start = String(feature.properties?.startTime ?? '');
           const end = String(feature.properties?.endTime ?? '');
           const distance = numOrUndef(feature.properties?.distanceNm);
           const routeLabel = deriveRouteLabelFromLineFeature(feature);
           const dateLabel = formatShortDate(start);
-          const fingerprint =
-            start && end
-              ? buildAisPassageFingerprint(vessel.vesselId, start, end)
-              : '';
+          const durationLabel = start && end ? formatPassageDuration(start, end) : null;
+          const fingerprint = start && end ? buildAisPassageFingerprint(vessel.vesselId, start, end) : '';
           const inLogbook =
             !!start &&
             !!end &&
             isAisVoyageLinkedToLogbook(
-              {
-                vesselId: vessel.vesselId,
-                startTime: start,
-                endTime: end,
-                fingerprint,
-              },
+              { vesselId: vessel.vesselId, startTime: start, endTime: end, fingerprint },
               logbookFingerprints,
               logbookLinks,
             );
           const isPromoting = promotingKey === fingerprint;
           const isSelected = selectedPassageIndex === index;
+          const isLast = i === visible.length - 1;
           const coords =
             feature.geometry?.type === 'LineString'
               ? (feature.geometry.coordinates as [number, number][])
               : undefined;
+
           return (
-            <li key={index} className="border-b border-white/[0.04] last:border-0">
+            <li key={index} className="relative pl-4">
+              {!isLast ? (
+                <span aria-hidden className="absolute bottom-0 left-[4px] top-4 w-px bg-white/10" />
+              ) : null}
+              <span
+                aria-hidden
+                className="absolute left-0 top-[13px] h-[9px] w-[9px] rounded-full"
+                style={{
+                  backgroundColor: isSelected ? vessel.colorHex : 'transparent',
+                  boxShadow: `inset 0 0 0 1.5px ${vessel.colorHex}`,
+                }}
+              />
               <div
                 className={cn(
-                  'flex items-stretch gap-1 pr-1',
-                  isSelected && 'bg-sky-400/10',
+                  'group/row flex items-center gap-1 rounded-lg transition-colors',
+                  isSelected ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]',
                 )}
               >
                 <button
                   type="button"
                   disabled={isHidden}
                   onClick={() => onFlyToPassage(index)}
-                  className={cn(
-                    'flex min-w-0 flex-1 items-center justify-between gap-2 px-2.5 py-2 text-left text-[11px] transition-colors',
-                    'hover:bg-sky-400/[0.08] disabled:cursor-not-allowed disabled:opacity-40',
-                    isSelected && 'text-sky-100',
-                  )}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-40"
                   title={
                     isHidden
                       ? 'Un-hide this vessel to fly to its passages'
@@ -5601,29 +5713,28 @@ function VesselPassageList({
                   }
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 truncate font-medium text-white/88">
-                      <span className="truncate">{routeLabel ?? 'Passage'}</span>
-                      {inLogbook && (
-                        <span
-                          className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-500/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-emerald-300/90"
-                          title="Already in Passage Log"
-                        >
-                          <BookMarked className="h-2.5 w-2.5" />
-                          Log
-                        </span>
-                      )}
-                    </div>
-                    {dateLabel && (
-                      <div className="mt-0.5 text-[10px] text-white/40">{dateLabel}</div>
-                    )}
+                    <p className={cn('truncate text-xs font-medium', isSelected ? 'text-white' : 'text-white/85')}>
+                      {routeLabel ?? 'Passage'}
+                    </p>
+                    <p className="truncate text-[10px] tabular-nums text-white/40">
+                      {[dateLabel, durationLabel].filter(Boolean).join(' · ')}
+                    </p>
                   </div>
-                  {typeof distance === 'number' && (
-                    <span className="shrink-0 rounded-md bg-white/[0.04] px-1.5 py-0.5 tabular-nums text-white/60">
-                      {Math.round(distance).toLocaleString()} NM
+                  {typeof distance === 'number' ? (
+                    <span className="shrink-0 text-[11px] font-semibold tabular-nums text-white/70">
+                      {Math.round(distance).toLocaleString()}
+                      <span className="ml-0.5 text-[9px] font-normal text-white/40">NM</span>
                     </span>
-                  )}
+                  ) : null}
                 </button>
-                {!inLogbook && start && end && (
+                {inLogbook ? (
+                  <span
+                    className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center text-emerald-400/80"
+                    title="In Passage Log"
+                  >
+                    <BookMarked className="h-3.5 w-3.5" />
+                  </span>
+                ) : start && end ? (
                   <button
                     type="button"
                     disabled={isHidden || isPromoting || !fingerprint}
@@ -5639,22 +5750,28 @@ function VesselPassageList({
                         coordinates: coords,
                       })
                     }
-                    className="my-1 mr-1 inline-flex shrink-0 items-center justify-center rounded-md px-1.5 text-sky-300/80 hover:bg-sky-400/10 hover:text-sky-200 disabled:opacity-40"
-                    title="Save to Passage Log (avoid duplicate manual entry)"
+                    className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white/35 transition hover:bg-sky-400/10 hover:text-sky-300 disabled:opacity-40 group-hover/row:text-sky-300/80"
+                    title="Save to Passage Log"
                   >
-                    {isPromoting ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <BookPlus className="h-3.5 w-3.5" />
-                    )}
+                    {isPromoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookPlus className="h-3.5 w-3.5" />}
                   </button>
-                )}
+                ) : null}
               </div>
             </li>
           );
         })}
       </ul>
-    </details>
+
+      {hiddenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="mt-1 w-full rounded-lg py-1 text-center text-[10px] text-white/40 hover:bg-white/[0.04] hover:text-white/70"
+        >
+          + {hiddenCount} earlier passage{hiddenCount === 1 ? '' : 's'}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -5835,7 +5952,7 @@ function computeTripStats(
       const route = deriveRouteLabelFromLineFeature(f);
       if (route) {
         for (const part of route.split('→')) {
-          const name = part.replace('(round trip)', '').trim();
+          const name = part.replace(/\((round trip|local)\)/, '').trim();
           if (name && name !== 'Open sea' && name !== 'Unknown') ports.add(name);
         }
       }

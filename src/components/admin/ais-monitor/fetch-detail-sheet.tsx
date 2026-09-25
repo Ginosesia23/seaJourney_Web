@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { AisMonitorFetchDetail } from '@/lib/ais/monitor/types';
 
 import { HttpStatusBadge, ModeBadge, OutcomeBadge, TriggerBadge } from './badges';
+import { ConsumersPanel } from './consumers-panel';
 import { fmtDateTime, fmtMs, humanizeToken } from './format';
 import { useAdminMonitorQuery } from './hooks';
 import { StudioPanel } from './studio';
@@ -138,6 +139,8 @@ export function FetchDetailSheet({ fetchId, onClose }: { fetchId: string | null;
                   </p>
                 )}
               </StudioPanel>
+
+              <ConsumersPanel consumers={data?.consumers} />
             </>
           )}
         </div>

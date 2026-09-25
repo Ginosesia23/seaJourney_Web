@@ -8,6 +8,8 @@
  */
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { hasVesselAisTrackingTier } from '@/lib/vessel-ais-tier';
+import { hasActiveSubscription, hasCrewAisLiveTrackingTier } from '@/supabase/database/subscription-helpers';
 import {
   normalizeAisTriggerSource,
   normalizeMmsiForLog,
@@ -31,6 +33,8 @@ import {
 import type {
   AisMonitorAttentionReason,
   AisMonitorAttentionVessel,
+  AisMonitorConsumer,
+  AisMonitorConsumers,
   AisMonitorDuplicate,
   AisMonitorFetchDetail,
   AisMonitorFetchPage,
@@ -561,7 +565,234 @@ export async function getAisMonitorFetchDetail(fetchId: string): Promise<AisMoni
     }
   }
 
-  return { fetch, vessel: vesselId ? (identities.get(vesselId) ?? null) : null, observation };
+  const consumers = vesselId
+    ? await getAisMonitorConsumers(vesselId, { id: fetch.id, requestedAt: fetch.requestedAt, success: fetch.success })
+    : null;
+
+  return { fetch, vessel: vesselId ? (identities.get(vesselId) ?? null) : null, observation, consumers };
+}
+
+// ─── Data consumers ─────────────────────────────────────────────────────────
+
+/** Crew/vessel syncs read the cache from the latest fetch; cap attribution so a stalled vessel doesn't sweep in days of samples. */
+const CONSUMER_ATTRIBUTION_MAX_MS = 3 * 60 * 60_000;
+const CONSUMER_MAX_ACCOUNTS = 200;
+
+function displayName(u: Record<string, unknown>): string | null {
+  const full = `${str(u.first_name) ?? ''} ${str(u.last_name) ?? ''}`.trim();
+  return full || str(u.username);
+}
+
+/**
+ * Accounts that consume a vessel's central AIS data: the vessel manager
+ * (vessel plan → daily logs from vessel samples) and assigned crew (Premium
+ * live tracking → crew samples). When `fetch` is given, samples recorded
+ * between that fetch and the next successful one are attributed to it.
+ */
+export async function getAisMonitorConsumers(
+  vesselId: string,
+  fetch?: { id: string; requestedAt: string; success: boolean } | null,
+): Promise<AisMonitorConsumers> {
+  const nowMs = Date.now();
+  const asOfDate = (fetch ? new Date(fetch.requestedAt) : new Date(nowMs)).toISOString().slice(0, 10);
+
+  let fetchWindow: { from: string; to: string } | null = null;
+  if (fetch?.success) {
+    const { data: next, error: nextError } = await supabaseAdmin
+      .from('ais_fetch_log')
+      .select('requested_at')
+      .eq('vessel_id', vesselId)
+      .eq('cached_or_api', 'api')
+      .eq('success', true)
+      .neq('id', fetch.id)
+      .gt('requested_at', fetch.requestedAt)
+      .order('requested_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (nextError) fail('next fetch lookup', nextError);
+    const fromMs = Date.parse(fetch.requestedAt);
+    const capMs = Math.min(fromMs + CONSUMER_ATTRIBUTION_MAX_MS, nowMs);
+    const nextMs = next?.requested_at ? Date.parse(String(next.requested_at)) : NaN;
+    fetchWindow = {
+      from: fetch.requestedAt,
+      to: new Date(Number.isFinite(nextMs) ? Math.min(nextMs, capMs) : capMs).toISOString(),
+    };
+  }
+
+  const [vesselRes, assignRes] = await Promise.all([
+    supabaseAdmin
+      .from('vessels')
+      .select('vessel_manager_id, ais_tracking_enabled, ais_provider_poll_enabled')
+      .eq('id', vesselId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('vessel_assignments')
+      .select('user_id, start_date, end_date')
+      .eq('vessel_id', vesselId)
+      .or(`end_date.is.null,end_date.gte.${asOfDate}`)
+      .limit(CONSUMER_MAX_ACCOUNTS),
+  ]);
+  if (vesselRes.error) fail('vessel lookup', vesselRes.error);
+  if (assignRes.error) fail('assignments lookup', assignRes.error);
+
+  const managerId = str(vesselRes.data?.vessel_manager_id);
+  const vesselOptIn = vesselRes.data?.ais_tracking_enabled === true;
+  const vesselPolled = vesselRes.data?.ais_provider_poll_enabled === true;
+  const crewIds = new Set(
+    ((assignRes.data ?? []) as Record<string, unknown>[])
+      .filter((a) => !a.start_date || String(a.start_date) <= asOfDate)
+      .map((a) => String(a.user_id))
+      .filter((id) => id !== managerId),
+  );
+  const assignedIds = new Set(crewIds);
+
+  // Evidence: who actually recorded samples from this fetch (or ever, for last-sample).
+  const windowSamples = new Set<string>();
+  let vesselSampleInWindow = false;
+  if (fetchWindow) {
+    const [crewSamples, vesselSamples] = await Promise.all([
+      supabaseAdmin
+        .from('crew_ais_state_samples')
+        .select('user_id')
+        .eq('vessel_id', vesselId)
+        .gte('sampled_at', fetchWindow.from)
+        .lt('sampled_at', fetchWindow.to)
+        .limit(1000),
+      supabaseAdmin
+        .from('vessel_ais_state_samples')
+        .select('id', { count: 'exact', head: true })
+        .eq('vessel_id', vesselId)
+        .gte('sampled_at', fetchWindow.from)
+        .lt('sampled_at', fetchWindow.to),
+    ]);
+    if (crewSamples.error) fail('crew samples lookup', crewSamples.error);
+    if (vesselSamples.error) fail('vessel samples lookup', vesselSamples.error);
+    for (const s of crewSamples.data ?? []) windowSamples.add(String((s as Record<string, unknown>).user_id));
+    vesselSampleInWindow = (vesselSamples.count ?? 0) > 0;
+    for (const id of windowSamples) if (id !== managerId) crewIds.add(id);
+  }
+
+  const userIds = [...(managerId ? [managerId] : []), ...crewIds].slice(0, CONSUMER_MAX_ACCOUNTS);
+  if (userIds.length === 0) {
+    return { vesselId, asOfDate, fetchWindow, accounts: [], receivingCount: 0, usedThisFetchCount: fetchWindow ? 0 : null };
+  }
+
+  const crewList = userIds.filter((id) => id !== managerId);
+  const [usersRes, leaveRes, lastSamplesRes, lastVesselSampleRes] = await Promise.all([
+    supabaseAdmin
+      .from('users')
+      .select(
+        'id, first_name, last_name, username, email, role, subscription_tier, subscription_status, cancel_at_period_end, current_period_end, ais_live_tracking_enabled',
+      )
+      .in('id', userIds),
+    crewList.length
+      ? supabaseAdmin
+          .from('daily_state_logs')
+          .select('user_id')
+          .eq('vessel_id', vesselId)
+          .eq('date', asOfDate)
+          .eq('state', 'on-leave')
+          .in('user_id', crewList)
+      : Promise.resolve({ data: [], error: null }),
+    crewList.length
+      ? supabaseAdmin
+          .from('crew_ais_state_samples')
+          .select('user_id, sampled_at')
+          .eq('vessel_id', vesselId)
+          .in('user_id', crewList)
+          .order('sampled_at', { ascending: false })
+          .limit(Math.max(50, crewList.length * 5))
+      : Promise.resolve({ data: [], error: null }),
+    supabaseAdmin
+      .from('vessel_ais_state_samples')
+      .select('sampled_at')
+      .eq('vessel_id', vesselId)
+      .order('sampled_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (usersRes.error) fail('users lookup', usersRes.error);
+  if (leaveRes.error) fail('leave lookup', leaveRes.error);
+  if (lastSamplesRes.error) fail('last samples lookup', lastSamplesRes.error);
+  if (lastVesselSampleRes.error) fail('last vessel sample lookup', lastVesselSampleRes.error);
+
+  const onLeave = new Set(((leaveRes.data ?? []) as Record<string, unknown>[]).map((r) => String(r.user_id)));
+  const lastSample = new Map<string, string>();
+  for (const r of (lastSamplesRes.data ?? []) as Record<string, unknown>[]) {
+    const id = String(r.user_id);
+    if (!lastSample.has(id)) lastSample.set(id, String(r.sampled_at));
+  }
+  const users = new Map(((usersRes.data ?? []) as Record<string, unknown>[]).map((u) => [String(u.id), u]));
+
+  const accounts: AisMonitorConsumer[] = [];
+  for (const id of userIds) {
+    const u = users.get(id);
+    if (!u) continue;
+    const base = {
+      userId: id,
+      name: displayName(u),
+      email: str(u.email),
+      role: str(u.role),
+      subscriptionTier: str(u.subscription_tier),
+    };
+
+    if (id === managerId) {
+      // The vessel sync writes the manager's daily logs whenever the vessel is polled,
+      // whether polling is funded by the vessel plan or by Premium crew.
+      const receiving = vesselPolled || vesselOptIn;
+      accounts.push({
+        ...base,
+        relationship: 'vessel_manager',
+        usage: vesselOptIn && hasVesselAisTrackingTier(u) ? 'vessel_plan' : 'vessel_daily_logs',
+        receiving,
+        reason: receiving ? null : 'Vessel is not being polled',
+        usedThisFetch: fetchWindow ? receiving && vesselSampleInWindow : null,
+        lastSampleAt: receiving ? str(lastVesselSampleRes.data?.sampled_at) : null,
+      });
+      continue;
+    }
+
+    const assigned = assignedIds.has(id);
+    const trackingOn = u.ais_live_tracking_enabled === true;
+    const tierOk = hasCrewAisLiveTrackingTier(u) && hasActiveSubscription(u);
+    const leave = onLeave.has(id);
+    const receiving = assigned && trackingOn && tierOk && !leave;
+    const reason = receiving
+      ? null
+      : !assigned
+        ? 'No longer assigned to this vessel'
+        : !tierOk
+          ? 'Plan does not include live AIS'
+          : !trackingOn
+            ? 'Live AIS tracking turned off'
+            : 'On leave';
+    accounts.push({
+      ...base,
+      relationship: assigned ? 'assigned_crew' : 'former_crew',
+      usage: 'crew_live_tracking',
+      receiving,
+      reason,
+      usedThisFetch: fetchWindow ? windowSamples.has(id) : null,
+      lastSampleAt: lastSample.get(id) ?? null,
+    });
+  }
+
+  accounts.sort(
+    (a, b) =>
+      Number(b.usedThisFetch ?? false) - Number(a.usedThisFetch ?? false) ||
+      Number(b.receiving) - Number(a.receiving) ||
+      Number(b.relationship === 'vessel_manager') - Number(a.relationship === 'vessel_manager') ||
+      (a.name ?? '').localeCompare(b.name ?? ''),
+  );
+
+  return {
+    vesselId,
+    asOfDate,
+    fetchWindow,
+    accounts,
+    receivingCount: accounts.filter((a) => a.receiving).length,
+    usedThisFetchCount: fetchWindow ? accounts.filter((a) => a.usedThisFetch).length : null,
+  };
 }
 
 // ─── Vessel detail ──────────────────────────────────────────────────────────
@@ -578,7 +809,7 @@ export async function getAisMonitorVesselDetail(
   const now = new Date(nowMs).toISOString();
   const w = rangeWindow(range, nowMs);
 
-  const [flagsRes, statusRes, today, last7d, timeseries] = await Promise.all([
+  const [flagsRes, statusRes, today, last7d, timeseries, consumers] = await Promise.all([
     supabaseAdmin
       .from('vessels')
       .select('ais_provider_poll_enabled, ais_tracking_enabled')
@@ -594,6 +825,7 @@ export async function getAisMonitorVesselDetail(
     getRequestStats(utcDayStart(nowMs), now, vesselId),
     getRequestStats(new Date(nowMs - 7 * 86_400_000).toISOString(), now, vesselId),
     getTimeseriesPoints(w.from, w.to, w.bucket, vesselId),
+    getAisMonitorConsumers(vesselId),
   ]);
   if (flagsRes.error) fail('vessel flags', flagsRes.error);
   if (statusRes.error) fail('vessel AIS status', statusRes.error);
@@ -622,5 +854,6 @@ export async function getAisMonitorVesselDetail(
     today,
     last7d,
     timeseries,
+    consumers,
   };
 }
