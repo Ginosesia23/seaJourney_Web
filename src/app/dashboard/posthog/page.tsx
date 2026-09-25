@@ -283,6 +283,8 @@ export default function PostHogAnalyticsPage() {
   }, [isAdmin, isLoadingProfile, load]);
 
   const matchedPeople = data?.people.filter((p) => p.matchedUser).length ?? 0;
+  const identifiedPeople = data?.people.filter((p) => !p.anonymous).length ?? 0;
+  const anonymousPeople = (data?.people.length ?? 0) - identifiedPeople;
 
   if (isLoadingProfile || (!isAdmin && userProfileRaw)) {
     return (
@@ -342,8 +344,8 @@ export default function PostHogAnalyticsPage() {
         },
         {
           label: 'Matched people',
-          value: `${matchedPeople}/${data?.people.length ?? 0}`,
-          hint: `${totals.avgPageviewsPerUser} views / user`,
+          value: `${matchedPeople}/${identifiedPeople}`,
+          hint: `signed-in · ${anonymousPeople} anonymous visitor${anonymousPeople === 1 ? '' : 's'}`,
           tone: 'amber' as const,
         },
       ]
@@ -957,7 +959,7 @@ export default function PostHogAnalyticsPage() {
             <TabsContent value="people" className="mt-0">
               <StudioPanel
                 title="People"
-                description="Matched by distinct_id = users.id or person email"
+                description="One row per PostHog person · matched by seaJourney_user_id, distinct_id or email"
               >
                 {data.people.length === 0 ? (
                   <EmptyCell>No people in this range.</EmptyCell>
@@ -1004,9 +1006,17 @@ export default function PostHogAnalyticsPage() {
                                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                                 SeaJourney
                               </span>
+                            ) : row.anonymous ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                                title="Never signed in on this browser — PostHog keeps no person profile"
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
+                                Anonymous
+                              </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+                              <span className="inline-flex items-center gap-1.5 text-xs text-amber-600">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                                 Unmatched
                               </span>
                             )}

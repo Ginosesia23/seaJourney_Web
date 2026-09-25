@@ -12,6 +12,17 @@ const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posth
 
 let didInit = false;
 
+/** Local dev traffic would otherwise pollute the production project. */
+function isLocalHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host.endsWith('.local');
+}
+
+const POSTHOG_ENABLED =
+  Boolean(POSTHOG_KEY) &&
+  (process.env.NEXT_PUBLIC_POSTHOG_CAPTURE_LOCALHOST === 'true' || !isLocalHost());
+
 function initPostHog() {
   if (didInit || typeof window === 'undefined' || !POSTHOG_KEY) return;
   posthog.init(POSTHOG_KEY, {
@@ -20,6 +31,8 @@ function initPostHog() {
     capture_pageleave: true,
     capture_exceptions: true,
     persistence: 'localStorage+cookie',
+    // Nothing is sent until we know who the visitor is (admins stay out).
+    opt_out_capturing_by_default: true,
   });
   didInit = true;
 }
@@ -34,21 +47,25 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   const { data: profile, isLoading: isProfileLoading } = useDoc<UserProfile>('users', user?.id);
 
   const isAdmin = profileRole(profile) === 'admin';
-  const identityReady = !isUserLoading && (!user?.id || !isProfileLoading);
-  const shouldCapture = Boolean(POSTHOG_KEY) && identityReady && !isAdmin;
+  // useDoc reports "not loading" for a render before the profile fetch
+  // starts — wait for the signed-in user's own row before deciding.
+  const identityReady =
+    !isUserLoading &&
+    (!user?.id || (!isProfileLoading && (profile as { id?: string } | null)?.id === user.id));
+  const shouldCapture = POSTHOG_ENABLED && identityReady && !isAdmin;
 
   useEffect(() => {
-    if (!POSTHOG_KEY) return;
+    if (!POSTHOG_ENABLED) return;
     initPostHog();
     if (!identityReady) return;
 
     if (isAdmin) {
-      posthog.opt_out_capturing();
-      posthog.reset();
+      // No reset(): it mints a fresh anonymous distinct_id on every load.
+      if (!posthog.has_opted_out_capturing()) posthog.opt_out_capturing();
       return;
     }
 
-    posthog.opt_in_capturing();
+    if (posthog.has_opted_out_capturing()) posthog.opt_in_capturing();
 
     if (!user?.id) return;
 

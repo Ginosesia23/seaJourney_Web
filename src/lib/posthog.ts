@@ -51,9 +51,14 @@ export type PostHogExceptionGroup = {
 };
 
 export type PostHogPerson = {
+  /** Most recent distinct_id for this person (one person can have several). */
   distinctId: string;
+  /** `seaJourney_user_id` person property set on identify. */
+  seaJourneyUserId: string;
   email: string;
   personRole: string;
+  /** Never identified — only personless anonymous events. */
+  anonymous: boolean;
   events: number;
   pageviews: number;
   exceptions: number;
@@ -224,6 +229,13 @@ async function runHogQLSafe(sql: string, name: string): Promise<Record<string, u
   }
 }
 
+/** Excludes local dev traffic (captured before the provider skipped localhost). */
+const PROD_TRAFFIC = `AND NOT (
+  startsWith(coalesce(toString(properties.$host), ''), 'localhost')
+  OR startsWith(coalesce(toString(properties.$host), ''), '127.0.0.1')
+  OR startsWith(coalesce(toString(properties.$host), ''), '0.0.0.0')
+)`;
+
 function totalsSql(days: number, offsetDays: number): string {
   const start = days + offsetDays;
   const end = offsetDays;
@@ -239,7 +251,7 @@ function totalsSql(days: number, offsetDays: number): string {
       uniq(properties.$session_id) AS sessions,
       countIf(event = '$exception') AS exceptions
     FROM events
-    WHERE timestamp >= now() - interval ${start} day
+    WHERE timestamp >= now() - interval ${start} day ${PROD_TRAFFIC}
       ${endClause}
   `;
 }
@@ -285,7 +297,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(properties.$session_id) AS sessions,
           countIf(event = '$exception') AS exceptions
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY day
         ORDER BY day ASC
       `,
@@ -298,7 +310,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           count() AS events,
           uniq(person_id) AS users
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY hour
         ORDER BY hour ASC
       `,
@@ -312,7 +324,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users
         FROM events
         WHERE event = '$pageview'
-          AND timestamp >= now() - interval ${days} day
+          AND timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY path
         ORDER BY views DESC
         LIMIT 20
@@ -327,7 +339,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users
         FROM events
         WHERE event = '$pageview'
-          AND timestamp >= now() - interval ${days} day
+          AND timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
           AND startsWith(coalesce(properties.$pathname, ''), '/dashboard')
         GROUP BY path
         ORDER BY views DESC
@@ -342,7 +354,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           count() AS count,
           uniq(person_id) AS users
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY event
         ORDER BY count DESC
         LIMIT 25
@@ -356,7 +368,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           count() AS count,
           uniq(person_id) AS users
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
           AND event NOT LIKE '$%'
         GROUP BY event
         ORDER BY count DESC
@@ -371,7 +383,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users,
           count() AS events
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY device
         ORDER BY users DESC
       `,
@@ -384,7 +396,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users,
           count() AS events
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY browser
         ORDER BY users DESC
         LIMIT 12
@@ -398,7 +410,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users,
           count() AS events
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY os
         ORDER BY users DESC
         LIMIT 12
@@ -416,7 +428,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users,
           count() AS events
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
           AND event = '$pageview'
         GROUP BY referrer
         ORDER BY users DESC
@@ -431,7 +443,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users,
           count() AS events
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY role
         ORDER BY users DESC
         LIMIT 12
@@ -450,7 +462,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           toString(properties.$device_type) AS device,
           toString(properties.$os) AS os
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
           AND event != '$pageleave'
         ORDER BY timestamp DESC
         LIMIT 100
@@ -460,18 +472,20 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
     runHogQLSafe(
       `
         SELECT
-          distinct_id,
+          argMax(distinct_id, timestamp) AS distinct_id,
+          any(toString(person.properties.seaJourney_user_id)) AS seajourney_user_id,
           any(toString(person.properties.email)) AS email,
           any(toString(person.properties.role)) AS person_role,
+          countIf(toString(properties.$process_person_profile) = 'false') = count() AS anonymous,
           count() AS events,
           countIf(event = '$pageview') AS pageviews,
           countIf(event = '$exception') AS exceptions,
           min(timestamp) AS first_seen,
           max(timestamp) AS last_seen
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
-        GROUP BY distinct_id
-        ORDER BY last_seen DESC
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
+        GROUP BY person_id
+        ORDER BY anonymous ASC, last_seen DESC
         LIMIT 80
       `,
       `seajourney-admin-people-${days}`,
@@ -497,7 +511,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           toString(properties.$exception_fingerprint) AS issue_id
         FROM events
         WHERE event = '$exception'
-          AND timestamp >= now() - interval ${days} day
+          AND timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         ORDER BY timestamp DESC
         LIMIT 60
       `,
@@ -516,7 +530,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           max(timestamp) AS last_seen
         FROM events
         WHERE event = '$exception'
-          AND timestamp >= now() - interval ${days} day
+          AND timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
         GROUP BY exception_type, exception_message
         ORDER BY occurrences DESC
         LIMIT 25
@@ -531,7 +545,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users,
           count() AS events
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
           AND isNotNull(properties.$geoip_country_code)
         GROUP BY country_code, country
         ORDER BY users DESC
@@ -550,7 +564,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           uniq(person_id) AS users,
           count() AS events
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
           AND isNotNull(properties.$geoip_latitude)
           AND isNotNull(properties.$geoip_longitude)
         GROUP BY lat, lng
@@ -572,7 +586,7 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
           count() AS events,
           max(timestamp) AS last_seen
         FROM events
-        WHERE timestamp >= now() - interval ${days} day
+        WHERE timestamp >= now() - interval ${days} day ${PROD_TRAFFIC}
           AND isNotNull(properties.$geoip_latitude)
           AND isNotNull(properties.$geoip_longitude)
         GROUP BY distinct_id
@@ -689,8 +703,10 @@ export async function fetchPostHogAnalytics(range: PostHogRange): Promise<PostHo
     })),
     people: people.map((row) => ({
       distinctId: toStringValue(row.distinct_id),
+      seaJourneyUserId: toStringValue(row.seajourney_user_id),
       email: toStringValue(row.email),
       personRole: toStringValue(row.person_role),
+      anonymous: row.anonymous === true || row.anonymous === 1,
       events: toNumber(row.events),
       pageviews: toNumber(row.pageviews),
       exceptions: toNumber(row.exceptions),

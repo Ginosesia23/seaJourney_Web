@@ -91,7 +91,10 @@ async function attachMatchedUsers(data: PostHogAnalytics): Promise<PostHogAnalyt
   };
 
   data.recentEvents.forEach((row) => collect(row.distinctId, row.email));
-  data.people.forEach((row) => collect(row.distinctId, row.email));
+  data.people.forEach((row) => {
+    collect(row.distinctId, row.email);
+    collect(row.seaJourneyUserId);
+  });
   data.exceptions.forEach((row) => collect(row.distinctId, row.email));
   data.locatedPeople.forEach((row) => collect(row.distinctId, row.email));
 
@@ -137,7 +140,9 @@ async function attachMatchedUsers(data: PostHogAnalytics): Promise<PostHogAnalyt
     })),
     people: data.people.map((row) => ({
       ...row,
-      matchedUser: resolve(row.distinctId, row.email),
+      matchedUser:
+        (row.seaJourneyUserId ? byId.get(row.seaJourneyUserId) : undefined) ??
+        resolve(row.distinctId, row.email),
     })),
     exceptions: data.exceptions.map((row) => ({
       ...row,
