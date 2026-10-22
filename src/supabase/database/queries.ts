@@ -4,6 +4,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
+import { requestActivityRailRefresh } from '@/lib/activity-rail';
 import { timestampToISO } from './helpers';
 import type { StateLog, PassageLog, BridgeWatchLog, VesselAssignment, DailyStatus } from '@/lib/types';
 
@@ -23,13 +24,16 @@ function scheduleCrewPlanReconcile(
       }
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
+      const sessionUserId = sessionData.session?.user?.id;
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      // Coverage request first so the vessel inbox updates even if pause reconcile is a no-op.
-      if (vesselId && token) {
+      // Coverage requests must be opened as the assigned crew. If the vessel
+      // manager just created this assignment, posting with their session would
+      // email the vessel about pausing its own Professional subscription.
+      if (vesselId && token && sessionUserId === userId) {
         const coverageRes = await fetch('/api/vessel-plan-coverage', {
           method: 'POST',
           headers,
@@ -372,6 +376,7 @@ export async function updateDailyStateLogState(
     .single();
 
   if (error) throw error;
+  requestActivityRailRefresh();
 
   return {
     id: data.id,
@@ -414,6 +419,7 @@ export async function upsertStateLog(
     .single();
 
   if (error) throw error;
+  requestActivityRailRefresh();
 
   return {
     id: data.id,
@@ -460,6 +466,7 @@ export async function updateStateLogsBatch(
   );
 
   if (error) throw error;
+  requestActivityRailRefresh();
 }
 
 /**
@@ -477,6 +484,7 @@ export async function deleteVesselStateLogs(
     .eq('vessel_id', vesselId);
 
   if (error) throw error;
+  requestActivityRailRefresh();
 }
 
 /**
@@ -498,6 +506,7 @@ export async function deleteStateLogsForDates(
     .in('date', dates);
 
   if (error) throw error;
+  requestActivityRailRefresh();
 }
 
 /**
@@ -525,6 +534,7 @@ export async function deleteStateLogsOutsideAssignmentRange(
 
   const { error } = await query;
   if (error) throw error;
+  requestActivityRailRefresh();
 }
 
 /**
@@ -650,6 +660,7 @@ export async function updateUserProfile(
       }
     }
   }
+  requestActivityRailRefresh();
 }
 
 /**

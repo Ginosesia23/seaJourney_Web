@@ -95,6 +95,7 @@ export async function buildScanRowContexts(
             useCrewLogs: false,
             vesselType: vessel.type ?? null,
             watchDates: new Set(),
+            position: a.position ?? null,
           });
           seaTime = {
             startDate: rangeStart,

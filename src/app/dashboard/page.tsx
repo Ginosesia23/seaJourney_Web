@@ -5,7 +5,7 @@ import { Ship, LifeBuoy, Anchor, Loader2, Star, Waves, Building, Wrench, Calenda
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, getYear, subDays, startOfDay, isWithinInterval, parse, startOfMonth, endOfMonth, isSameMonth, isBefore, isAfter, endOfDay, addDays, differenceInDays } from 'date-fns';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser, useSupabase } from '@/supabase';
 import { useToast } from '@/hooks/use-toast';
 import { useCollection, useDoc } from '@/supabase/database';
@@ -17,7 +17,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { Vessel, SeaServiceRecord, StateLog, UserProfile, DailyStatus, Testimonial, VisaTracker, VisaEntry, VesselAssignment } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
-import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
+import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea, VESSEL_CALCULATION_CATEGORY_LABELS } from '@/lib/vessel-calculation-categories';
+import { isOfficerPosition, maritimePositionsByRank } from '@/lib/maritime-positions';
+import { vesselTypes } from '@/lib/vessel-types';
 import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
 import { cn } from '@/lib/utils';
@@ -27,12 +29,13 @@ import { getSubscriptionTierPricingMap } from '@/app/actions';
 import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
 import {
   DashboardHeader,
-  DashboardInlineMetrics,
   DashboardPanel,
   DashboardQuickLinks,
   DashboardStatRow,
   StateBreakdownBars,
 } from '@/components/dashboard/dashboard-home-ui';
+
+const CALCULATOR_POSITIONS = maritimePositionsByRank();
 
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: LucideIcon }[] = [
   { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
@@ -114,6 +117,7 @@ export default function DashboardPage() {
   const [vesselStateLogs, setVesselStateLogs] = useState<StateLog[] | null>(null);
   const [seaTimeRangeStart, setSeaTimeRangeStart] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [seaTimeRangeEnd, setSeaTimeRangeEnd] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
+  const [seaTimePosition, setSeaTimePosition] = useState<string>('Deckhand');
 
   // Fetch user profile to get active vessel
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>('users', user?.id);
@@ -517,7 +521,7 @@ export default function DashboardPage() {
         
         // Calculate sea time (vessel stats use all vessel logs, not user-specific, so no watch dates)
         const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(stateLogs, undefined, partOfActivePassageDates, {
-          vesselManagerSeaTime: true,
+          atAnchorAsSeaService: true,
         });
 
         // State breakdown
@@ -540,7 +544,7 @@ export default function DashboardPage() {
           return isWithinInterval(logDate, { start: monthStart, end: monthEnd });
         });
         const { totalSeaDays: monthSeaDays } = calculateStandbyDays(currentMonthLogs, undefined, undefined, {
-          vesselManagerSeaTime: true,
+          atAnchorAsSeaService: true,
         });
 
         // Fetch pending testimonials for this vessel
@@ -653,26 +657,71 @@ export default function DashboardPage() {
 
   // Sea time for vessel dashboard date range (quick calculator)
   const vesselSeaTimeInRange = useMemo(() => {
+    const category = getVesselCalculationCategory(currentVessel?.type ?? null);
+    const empty = {
+      totalDays: 0,
+      atSeaDays: 0,
+      standbyDays: 0,
+      seaServiceDays: 0,
+      underwayDays: 0,
+      atAnchorDays: 0,
+      inPortDays: 0,
+      inYardDays: 0,
+      onLeaveDays: 0,
+      commercialRules: isAllDaysExceptLeaveCountAsSea(category),
+      officerPosition: isOfficerPosition(seaTimePosition),
+      vesselCategory: category,
+    };
     if (!vesselStateLogs || vesselStateLogs.length === 0) return null;
     const start = seaTimeRangeStart;
     const end = seaTimeRangeEnd;
     if (!start || !end || end < start) return null;
     const filtered = vesselStateLogs.filter(log => log.date >= start && log.date <= end);
-    if (filtered.length === 0) return { totalDays: 0, atSeaDays: 0, standbyDays: 0, seaServiceDays: 0 };
+    if (filtered.length === 0) return empty;
     const partOfActivePassageDates = new Set<string>();
+    let underwayDays = 0;
+    let atAnchorDays = 0;
+    let inPortDays = 0;
+    let inYardDays = 0;
+    let onLeaveDays = 0;
     filtered.forEach(log => {
       if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date);
+      if (log.state === 'underway') underwayDays += 1;
+      else if (log.state === 'at-anchor') atAnchorDays += 1;
+      else if (log.state === 'in-port') inPortDays += 1;
+      else if (log.state === 'in-yard') inYardDays += 1;
+      else if (log.state === 'on-leave') onLeaveDays += 1;
     });
-    const { totalSeaDays, totalStandbyDays } = calculateStandbyDays(filtered, undefined, partOfActivePassageDates, {
-      vesselManagerSeaTime: true,
-    });
+    const commercialRules = isAllDaysExceptLeaveCountAsSea(category);
+    const officerPosition = isOfficerPosition(seaTimePosition);
+
+    let totalSeaDays: number;
+    let totalStandbyDays: number;
+    if (commercialRules) {
+      totalSeaDays = filtered.length - onLeaveDays;
+      totalStandbyDays = 0;
+    } else {
+      const result = calculateStandbyDays(filtered, undefined, partOfActivePassageDates, {
+        atAnchorAsSeaService: officerPosition,
+      });
+      totalSeaDays = result.totalSeaDays;
+      totalStandbyDays = result.totalStandbyDays;
+    }
     return {
       totalDays: filtered.length,
       atSeaDays: totalSeaDays,
       standbyDays: totalStandbyDays,
       seaServiceDays: totalSeaDays + totalStandbyDays,
+      underwayDays,
+      atAnchorDays,
+      inPortDays,
+      inYardDays,
+      onLeaveDays,
+      commercialRules,
+      officerPosition,
+      vesselCategory: category,
     };
-  }, [vesselStateLogs, seaTimeRangeStart, seaTimeRangeEnd]);
+  }, [vesselStateLogs, seaTimeRangeStart, seaTimeRangeEnd, seaTimePosition, currentVessel?.type]);
 
   useEffect(() => {
     if (vessels && user?.id) {
@@ -1126,7 +1175,7 @@ export default function DashboardPage() {
           logs,
           watchDates,
           partOfActivePassageV,
-          { vesselManagerSeaTime: isVesselManager }
+          { atAnchorAsSeaService: isVesselManager || isOfficer }
         );
         atSeaSum += totalSeaDays;
         standbySum += totalStandbyDays;
@@ -1134,7 +1183,7 @@ export default function DashboardPage() {
     });
 
     return { totalDays, atSeaDays: atSeaSum, standbyDays: standbySum };
-  }, [allStateLogs, selectedVessel, selectedYear, watchDates, vessels, isVesselManager, vesselAssignments]);
+  }, [allStateLogs, selectedVessel, selectedYear, watchDates, vessels, isVesselManager, isOfficer, vesselAssignments]);
 
   const [visaEntries, setVisaEntries] = useState<VisaEntry[]>([]);
 
@@ -1359,7 +1408,7 @@ export default function DashboardPage() {
     
     // Calculate MCA-compliant standby days and sea days for the past 7 days
     const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(past7DaysLogs, watchDates, partOfActivePassageDates, {
-      vesselManagerSeaTime: isVesselManager,
+      atAnchorAsSeaService: isVesselManager || isOfficer,
     });
     
     // Calculate stats with state breakdown
@@ -1381,7 +1430,7 @@ export default function DashboardPage() {
       inYardDays,
       standbyDays,
     };
-  }, [allStateLogs, watchDates, isVesselManager]);
+  }, [allStateLogs, watchDates, isVesselManager, isOfficer]);
 
   // Calculate stats for this month
   const thisMonthStats = useMemo(() => {
@@ -1411,7 +1460,7 @@ export default function DashboardPage() {
     
     // Calculate MCA-compliant standby days and sea days for this month
     const { totalStandbyDays, totalSeaDays } = calculateStandbyDays(thisMonthLogs, watchDates, partOfActivePassageDates, {
-      vesselManagerSeaTime: isVesselManager,
+      atAnchorAsSeaService: isVesselManager || isOfficer,
     });
     
     // Calculate stats with state breakdown
@@ -1433,7 +1482,7 @@ export default function DashboardPage() {
       inYardDays,
       standbyDays,
     };
-  }, [allStateLogs, watchDates, isVesselManager]);
+  }, [allStateLogs, watchDates, isVesselManager, isOfficer]);
 
   // Get today's status for current vessel
   const todayStatus = useMemo(() => {
@@ -1515,7 +1564,7 @@ export default function DashboardPage() {
     // Calculate MCA-compliant standby days using ALL logs (for proper voyage context)
     // Then filter standby periods to only count those since joining the vessel
     const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(currentVesselLogs, watchDates, partOfActivePassageDates, {
-      vesselManagerSeaTime: isVesselManager,
+      atAnchorAsSeaService: isVesselManager || isOfficer,
     });
     
     // Filter standby periods to only count days since joining the vessel
@@ -1558,7 +1607,7 @@ export default function DashboardPage() {
     // Calculate at sea days from filtered logs
     let atSea = 0;
     filteredLogs.forEach(log => {
-      if (log.state === 'underway' || (isVesselManager && log.state === 'at-anchor')) atSea++;
+      if (log.state === 'underway' || ((isVesselManager || isOfficer) && log.state === 'at-anchor')) atSea++;
     });
 
     // Add part of active passage days to at-sea count (these count as "at sea" regardless of state)
@@ -1618,7 +1667,7 @@ export default function DashboardPage() {
       serviceStartDate,
       serviceDuration
     };
-  }, [currentVesselLogs, currentVessel, vesselAssignments, watchDates, isVesselManager]);
+  }, [currentVesselLogs, currentVessel, vesselAssignments, watchDates, isVesselManager, isOfficer]);
 
   const longestPassage = useMemo(() => {
     // With new structure, each record is for one date, so "longest passage" 
@@ -1700,6 +1749,26 @@ export default function DashboardPage() {
     const atSeaDays =
       (vesselStats.stateBreakdown['underway'] || 0) +
       (vesselStats.stateBreakdown['at-anchor'] || 0);
+
+    const vesselTypeLabel =
+      vesselTypes.find((t) => t.value === currentVessel?.type)?.label ||
+      currentVessel?.type ||
+      'Vessel';
+
+    const loggedStateRows = vesselStates
+      .filter((state) => state.value !== 'on-leave')
+      .map((state) => ({
+        ...state,
+        count: vesselSeaTimeInRange
+          ? state.value === 'underway'
+            ? vesselSeaTimeInRange.underwayDays
+            : state.value === 'at-anchor'
+              ? vesselSeaTimeInRange.atAnchorDays
+              : state.value === 'in-port'
+                ? vesselSeaTimeInRange.inPortDays
+                : vesselSeaTimeInRange.inYardDays
+          : 0,
+      }));
 
     return (
       <div className="flex flex-col gap-6">
@@ -1833,7 +1902,7 @@ export default function DashboardPage() {
 
         <DashboardPanel
           title="Sea-time calculator"
-          description="MCA-compliant sea time for a selected date range"
+          description="Sea time for a selected date range, using this vessel’s type and the position you select"
           action={
             <Button asChild variant="ghost" size="sm" className="h-7">
               <Link href="/dashboard/calendar">
@@ -1843,46 +1912,164 @@ export default function DashboardPage() {
             </Button>
           }
         >
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="sea-time-from" className="text-xs text-muted-foreground">From</Label>
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sea-time-from" className="text-[11px] text-muted-foreground">
+                  From
+                </Label>
                 <Input
                   id="sea-time-from"
                   type="date"
                   value={seaTimeRangeStart}
                   onChange={(e) => setSeaTimeRangeStart(e.target.value)}
-                  className="rounded-lg"
+                  className="h-9 w-[10.75rem] rounded-md"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="sea-time-to" className="text-xs text-muted-foreground">To</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="sea-time-to" className="text-[11px] text-muted-foreground">
+                  To
+                </Label>
                 <Input
                   id="sea-time-to"
                   type="date"
                   value={seaTimeRangeEnd}
                   onChange={(e) => setSeaTimeRangeEnd(e.target.value)}
-                  className="rounded-lg"
+                  className="h-9 w-[10.75rem] rounded-md"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sea-time-position" className="text-[11px] text-muted-foreground">
+                  Position
+                </Label>
+                <Select value={seaTimePosition} onValueChange={setSeaTimePosition}>
+                  <SelectTrigger
+                    id="sea-time-position"
+                    className="h-9 w-[16.5rem] rounded-md"
+                  >
+                    <SelectValue placeholder="Select position" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Officers</SelectLabel>
+                      {CALCULATOR_POSITIONS.officers.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <SelectLabel>Deckhand / ratings</SelectLabel>
+                      {CALCULATOR_POSITIONS.ratings.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             {vesselSeaTimeInRange ? (
-              <DashboardInlineMetrics
-                items={[
-                  { label: 'Days logged', value: vesselSeaTimeInRange.totalDays },
-                  { label: 'At sea', value: vesselSeaTimeInRange.atSeaDays },
-                  {
-                    label: 'Standby',
-                    value: vesselSeaTimeInRange.standbyDays,
-                    tone: 'purple',
-                  },
-                  {
-                    label: 'Sea service',
-                    value: vesselSeaTimeInRange.seaServiceDays,
-                  },
-                ]}
-              />
+              <p className="text-[11px] text-muted-foreground">
+                {`${vesselTypeLabel} · ${VESSEL_CALCULATION_CATEGORY_LABELS[vesselSeaTimeInRange.vesselCategory].label}`}
+                {vesselSeaTimeInRange.commercialRules
+                  ? ' — commercial rules: all days onboard except leave count as sea time. Position does not change the total.'
+                  : vesselSeaTimeInRange.officerPosition
+                    ? ' — officer: at-anchor days count as sea service. In-port after a voyage can still be standby.'
+                    : ' — deckhand / rating: at-anchor days count as standby when they follow a voyage (MCA cap).'}
+              </p>
             ) : null}
+
+            {vesselSeaTimeInRange ? (
+              <>
+                <div className="flex flex-col gap-4 border-t border-border pt-4 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Sea service
+                    </p>
+                    <p className="mt-1 font-mono text-3xl font-medium tabular-nums tracking-tight">
+                      {vesselSeaTimeInRange.seaServiceDays}
+                      <span className="ml-1.5 text-sm font-sans font-normal text-muted-foreground">
+                        days
+                      </span>
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {vesselSeaTimeInRange.commercialRules
+                        ? 'All days onboard except leave'
+                        : vesselSeaTimeInRange.officerPosition
+                          ? 'Underway + at-anchor sea service'
+                          : 'Underway + qualifying standby'}
+                    </p>
+                  </div>
+                  <dl className="grid grid-cols-3 gap-x-6 gap-y-1">
+                    {[
+                      { label: 'Days logged', value: vesselSeaTimeInRange.totalDays },
+                      { label: 'At sea', value: vesselSeaTimeInRange.atSeaDays },
+                      {
+                        label: 'Standby',
+                        value: vesselSeaTimeInRange.standbyDays,
+                        className: 'text-[#7629BB]',
+                      },
+                    ].map((row) => (
+                      <div key={row.label} className="min-w-[4.5rem]">
+                        <dt className="text-[11px] text-muted-foreground">{row.label}</dt>
+                        <dd
+                          className={cn(
+                            'mt-0.5 font-mono text-lg font-medium tabular-nums tracking-tight',
+                            row.className,
+                          )}
+                        >
+                          {row.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+
+                <div className="space-y-3 border-t border-border pt-4">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Logged states in range
+                  </p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4 sm:gap-x-5">
+                    {loggedStateRows.map((row) => {
+                      const Icon = row.icon;
+                      return (
+                        <div key={row.value} className="min-w-0 space-y-2">
+                          <div
+                            className="h-1 rounded-full"
+                            style={{
+                              backgroundColor: row.color,
+                              opacity: row.count > 0 ? 1 : 0.22,
+                            }}
+                            title={`${row.label}: ${row.count}`}
+                          />
+                          <div className="flex items-center gap-1.5">
+                            <Icon
+                              className="h-3.5 w-3.5 shrink-0"
+                              style={{ color: row.color }}
+                            />
+                            <span className="truncate text-[11px] leading-none text-muted-foreground">
+                              {row.label}
+                            </span>
+                            <span
+                              className="ml-auto font-mono text-sm font-medium leading-none tabular-nums tracking-tight"
+                              style={{ color: row.color }}
+                            >
+                              {row.count}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="border-t border-border pt-4 text-sm text-muted-foreground">
+                Choose a date range to calculate sea time from vessel logs.
+              </p>
+            )}
           </div>
         </DashboardPanel>
       </div>

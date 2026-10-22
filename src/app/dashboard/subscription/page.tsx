@@ -54,6 +54,10 @@ import {
   resolveDisplayedSubscriptionTier,
 } from '@/lib/subscription-tier-labels';
 import {
+  catalogMonthlyPriceLabel,
+  overlayCatalogAndStripePrice,
+} from '@/lib/subscription-tier-pricing';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -120,7 +124,7 @@ interface StripeSubscriptionData {
 const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
     name: 'Crew Standard',
-    price: '£4.99',
+    price: catalogMonthlyPriceLabel('standard'),
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description: 'Essential sea time tracking for maritime professionals.',
@@ -136,7 +140,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Crew Premium',
-    price: '£9.99',
+    price: catalogMonthlyPriceLabel('premium'),
     priceSuffix: '/ month',
     description: 'Advanced logging and documentation for career progression.',
     features: [
@@ -155,7 +159,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Crew Professional',
-    price: '£14.99',
+    price: catalogMonthlyPriceLabel('professional'),
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description:
@@ -177,7 +181,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
 const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
     name: 'Vessel Standard',
-    price: '£35.99',
+    price: catalogMonthlyPriceLabel('vessel_lite'),
     priceSuffix: '/ month',
     description: 'Essential vessel management for small operations.',
     features: [
@@ -193,7 +197,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Vessel Premium',
-    price: '£79.99',
+    price: catalogMonthlyPriceLabel('vessel_basic'),
     priceSuffix: '/ month',
     description: 'Advanced vessel management for growing operations.',
     features: [
@@ -212,7 +216,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Vessel Professional',
-    price: '£139.99',
+    price: catalogMonthlyPriceLabel('vessel_pro'),
     priceSuffix: '/ month',
     description: 'Complete vessel management solution.',
     features: [
@@ -229,7 +233,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Vessel Fleet',
-    price: '£249.99',
+    price: catalogMonthlyPriceLabel('vessel_fleet'),
     priceSuffix: '/ month',
     description: 'Enterprise fleet management for large operations.',
     features: [
@@ -716,110 +720,12 @@ export default function ManageSubscriptionPage() {
 
         setStripeSubscription(subscriptionData || null);
 
-        const getTemplateTierKey = (templateName: string) => {
-          const lower = templateName.toLowerCase();
-          // Handle vessel plans
-          if (lower.includes('vessel')) {
-            if (lower.includes('fleet')) return 'vessel_fleet';
-            if (lower.includes('pro')) return 'vessel_pro';
-            if (lower.includes('premium') || lower.includes('basic')) return 'vessel_basic';
-            if (lower.includes('standard') || lower.includes('lite')) return 'vessel_lite';
-          }
-          // Handle crew plans (with or without "crew" prefix)
-          if (lower.includes('professional') || lower === 'pro' || lower === 'crew pro') return 'professional';
-          if (lower.includes('premium')) return 'premium';
-          if (lower.includes('standard')) return 'standard';
-          return lower;
-        };
-
-        // Helper to normalize tier names for matching
-        const normalizeTierName = (tier: string): string => {
-          return tier
-            .toLowerCase()
-            .replace(/^(sj_|sea_journey_)/i, '') // Remove common prefixes
-            .replace(/\s+/g, '_') // Replace spaces with underscores
-            .trim();
-        };
-
         console.log(`[SUBSCRIPTION PAGE] Mapping prices to plan templates...`);
         console.log(`[SUBSCRIPTION PAGE] Available templates:`, selectedPlanTemplates.map(t => t.name));
 
-        const mappedPlans: Plan[] = selectedPlanTemplates.map((template) => {
-          const templateTier = getTemplateTierKey(template.name);
-          const normalizedTemplateTier = normalizeTierName(templateTier);
-
-          const matchingPrice = stripePrices.find((price: StripePrice) => {
-            const rawPriceTier = (
-              price.metadata?.tier || price.metadata?.price_tier || price.nickname || ''
-            ).toString();
-            const priceTier = normalizeTierName(rawPriceTier);
-
-            // Match vessel plans with vessel prices, crew plans with crew prices
-            const isVesselPrice = priceTier.includes('vessel') || rawPriceTier.toLowerCase().includes('vessel');
-            const isVesselTemplate = templateTier.includes('vessel');
-            
-            // Only match if both are vessel or both are crew
-            if (isVesselPrice !== isVesselTemplate) {
-              return false;
-            }
-
-            // Try multiple matching strategies
-            const exactMatch = priceTier === normalizedTemplateTier || priceTier === templateTier;
-            const containsMatch = priceTier.includes(normalizedTemplateTier) || normalizedTemplateTier.includes(priceTier);
-            // Special handling for "pro" vs "professional"
-            const proMatch = (normalizedTemplateTier === 'professional' && priceTier === 'pro') ||
-                            (normalizedTemplateTier === 'pro' && priceTier === 'professional');
-            
-            // Handle vessel plan matching: "vessel basic" should match "vessel_basic"
-            // Extract the plan type (basic, lite, pro, fleet) from both
-            const templatePlanType = normalizedTemplateTier.split('_').pop() || '';
-            const pricePlanType = priceTier.split(/[_\s]+/).pop() || '';
-            const vesselMatch = isVesselTemplate && (
-              priceTier === normalizedTemplateTier || // Exact match after normalization
-              normalizedTemplateTier === priceTier || // Reverse exact match
-              (templatePlanType && pricePlanType && templatePlanType === pricePlanType) || // Plan type matches
-              priceTier.includes(templatePlanType) || // Price contains template plan type
-              normalizedTemplateTier.includes(pricePlanType) // Template contains price plan type
-            );
-
-            return exactMatch || containsMatch || proMatch || vesselMatch;
-          });
-
-          if (matchingPrice) {
-            const amount = (matchingPrice.unit_amount ?? 0) / 100;
-            const interval =
-              matchingPrice.recurring?.interval?.toString() || 'month';
-
-            console.log(`[SUBSCRIPTION PAGE] ✅ Matched "${template.name}" to price:`, {
-              priceId: matchingPrice.id,
-              amount: `£${amount.toFixed(2)}`,
-              interval: interval,
-              tier: matchingPrice.metadata?.tier || matchingPrice.nickname || 'unknown',
-            });
-
-            return {
-              ...template,
-              price: `£${amount.toFixed(2)}`,
-              priceSuffix: `/${interval}`,
-              priceId: matchingPrice.id,
-            };
-          }
-
-          console.log(`[SUBSCRIPTION PAGE] ⚠️ No price match found for template: "${template.name}" (tier key: "${templateTier}")`);
-          console.log(`[SUBSCRIPTION PAGE] Available Stripe prices:`, stripePrices.map((p: StripePrice) => ({
-            id: p.id,
-            tier: p.metadata?.tier || p.nickname || 'unknown',
-            amount: p.unit_amount ? `£${(p.unit_amount / 100).toFixed(2)}` : 'N/A',
-          })));
-
-          // Don't use template price - show unavailable instead
-          return {
-            ...template,
-            price: 'Price unavailable',
-            priceSuffix: '',
-            priceId: undefined,
-          };
-        });
+        const mappedPlans: Plan[] = selectedPlanTemplates.map((template) =>
+          overlayCatalogAndStripePrice(template, stripePrices),
+        );
 
         console.log(`[SUBSCRIPTION PAGE] Final mapped plans:`, mappedPlans.map(p => ({
           name: p.name,

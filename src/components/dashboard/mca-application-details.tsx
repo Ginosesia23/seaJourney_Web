@@ -644,7 +644,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                     };
                     
                     return (
-                      <FormItem className="flex flex-col">
+                      <FormItem className="flex flex-col sm:col-span-2">
                         <FormLabel>Date of Birth *</FormLabel>
                         <div className="grid grid-cols-3 gap-2">
                           <Select
@@ -704,11 +704,6 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                             </SelectContent>
                           </Select>
                         </div>
-                        {field.value && (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Selected: {format(field.value, "PPP")}
-                          </p>
-                        )}
                         <FormMessage />
                       </FormItem>
                     );
@@ -819,7 +814,7 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
                   control={form.control}
                   name="dischargeBookNumber"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="sm:col-span-2">
                       <FormLabel>Discharge book number</FormLabel>
                       <FormControl>
                         <Input placeholder="e.g. R123456" {...field} disabled={!isEditing} />
@@ -1049,19 +1044,22 @@ export function MCAApplicationDetailsCard(props?: MCAApplicationDetailsCardProps
             else setIsEditing(true);
           }}
         >
-          <SeaDialogContent size="lg" className="flex max-h-[90vh] flex-col">
+          <SeaDialogContent
+            size="xl"
+            tone="plain"
+            className="flex h-[min(44rem,calc(100dvh-1.5rem))] max-h-[calc(100dvh-1.5rem)] w-[min(48rem,calc(100vw-1.5rem))] max-w-none flex-col sm:rounded-2xl"
+          >
             <SeaDialogHeader
-              icon={FileCheck}
-              eyebrow="Official details"
+              variant="plain"
               title="Edit crew details"
-              description="Used for AMSA, MCA, Nav Watch, and other vessel-generated documents."
+              description="These fields fill AMSA, MCA, Nav Watch, and other generated documents."
             />
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit(onSubmit)}
                 className="flex min-h-0 flex-1 flex-col"
               >
-                <SeaDialogBody className="space-y-4">
+                <SeaDialogBody className="space-y-0 px-6 py-5">
                   {formFields}
                 </SeaDialogBody>
                 <SeaDialogFooter>

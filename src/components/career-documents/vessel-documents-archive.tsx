@@ -163,10 +163,10 @@ const KIND_META: Record<
   { label: string; short: string; badge: string }
 > = {
   vessel_generated: {
-    label: 'Testimonial (vessel)',
-    short: 'Testimonial',
+    label: 'Testimonial (verified)',
+    short: 'Verified',
     badge:
-      'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400',
+      'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
   },
   proof: {
     label: 'Proof of service',
@@ -1126,10 +1126,10 @@ export function VesselDocumentsArchive({
             <FolderOpen className="h-3.5 w-3.5" />
             <span>Vessel</span>
             <span className="text-border">/</span>
-            <span className="text-foreground">Generated documents</span>
+            <span className="text-foreground">Document archive</span>
           </div>
           <h1 className="mt-1 text-xl font-medium tracking-tight text-foreground">
-            Generated documents
+            Document archive
           </h1>
         </div>
         <div className="rounded-md border border-border bg-background px-4 py-12 text-center">
@@ -1240,11 +1240,11 @@ export function VesselDocumentsArchive({
               <span>{isVesselArchiveViewer ? 'Vessel' : 'Career'}</span>
               <span className="text-border">/</span>
               <span className="text-foreground">
-                {isVesselArchiveViewer ? 'Generated documents' : 'Documents'}
+                {isVesselArchiveViewer ? 'Document archive' : 'Documents'}
               </span>
             </div>
             <h1 className="text-xl font-medium tracking-tight text-foreground">
-              {isVesselArchiveViewer ? 'Generated documents' : 'Documents'}
+              {isVesselArchiveViewer ? 'Document archive' : 'Documents'}
             </h1>
             <p className="max-w-2xl text-sm text-muted-foreground">
               {isVesselArchiveViewer
@@ -1274,7 +1274,7 @@ export function VesselDocumentsArchive({
               >
                 <Link href="/dashboard/documents">
                   <Layers className="h-3.5 w-3.5" />
-                  Document generator
+                  Create document
                 </Link>
               </Button>
             ) : null}
@@ -1497,7 +1497,7 @@ export function VesselDocumentsArchive({
               {hasAnyDocs
                 ? 'Try clearing search or filters.'
                 : isVesselArchiveViewer
-                  ? 'Generate a testimonial or proof of service from Document generator — it will appear here for every crew member.'
+                  ? 'Create a testimonial or proof of service and it will appear here for every crew member.'
                   : 'When a vessel generates a document for you, it will show up here with any verification code.'}
             </p>
             {isVesselArchiveViewer && !hasAnyDocs ? (
@@ -1508,7 +1508,7 @@ export function VesselDocumentsArchive({
               >
                 <Link href="/dashboard/documents">
                   <Layers className="h-3.5 w-3.5" />
-                  Open Document generator
+                  Open Create document
                 </Link>
               </Button>
             ) : null}

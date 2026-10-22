@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { calendarStateExcelSolidArgb } from '@/lib/calendar-state-colors';
 import { calculateStandbyDays } from './standby-calculation';
+import { countsAtAnchorAsSeaService } from './maritime-positions';
 
 /** Blend AARRGGBB fill toward white (simulates translucent color on white, like calendar washes). */
 function mixArgbTowardWhite(argb: string, colorWeight: number): string {
@@ -115,9 +116,11 @@ export function exportToCSV(data: SeaTimeReportData): void {
       }
     });
     
-    const vesselManagerSeaTime = data.userProfile?.role === 'vessel';
     const { standbyPeriods } = calculateStandbyDays(data.stateLogs.filter(log => !!log.state), watchDates, partOfActivePassageDates, {
-      vesselManagerSeaTime,
+      atAnchorAsSeaService: countsAtAnchorAsSeaService({
+        position: data.userProfile?.position,
+        role: data.userProfile?.role,
+      }),
     });
     const standbyDates = new Set<string>();
     standbyPeriods.forEach(period => {
@@ -228,9 +231,11 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
     }
   });
   
-  const vesselManagerSeaTime = data.userProfile?.role === 'vessel';
   const { standbyPeriods } = calculateStandbyDays(stateLogs.filter(log => !!log.state), watchDates, partOfActivePassageDates, {
-    vesselManagerSeaTime,
+    atAnchorAsSeaService: countsAtAnchorAsSeaService({
+      position: data.userProfile?.position,
+      role: data.userProfile?.role,
+    }),
   });
   const standbyDates = new Set<string>();
   
@@ -737,13 +742,17 @@ export async function exportMasterDocExcel(data: SeaTimeReportData): Promise<voi
   stateLogs.forEach((log) => {
     if (log.isPartOfActivePassage) partOfActivePassageDates.add(log.date);
   });
-  const vesselManagerSeaTime = profile?.role === 'vessel';
   const realLogs = stateLogs.filter((l) => !!l.state);
   const { standbyPeriods } = calculateStandbyDays(
     realLogs,
     watchDates,
     partOfActivePassageDates,
-    { vesselManagerSeaTime },
+    {
+      atAnchorAsSeaService: countsAtAnchorAsSeaService({
+        position: profile?.position,
+        role: profile?.role,
+      }),
+    },
   );
   const standbyDates = new Set<string>();
   standbyPeriods.forEach((period) => {

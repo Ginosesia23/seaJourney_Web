@@ -30,6 +30,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { getVesselStateLogs } from '@/supabase/database/queries';
 import { DateComparisonView } from './date-comparison-view';
 import { cn } from '@/lib/utils';
+import { useActivityRail } from '@/components/activity-rail/activity-rail-provider';
 import { bearerHeaders } from '@/lib/applications/client';
 import type { UserProfile, Testimonial, Vessel, VesselClaimRequest, StateLog, SeaTimeRequest, VesselSeaTimeAccessRequest, VesselSeaTimeOffer } from '@/lib/types';
 
@@ -53,6 +54,7 @@ export default function InboxPage() {
   const { user } = useUser();
   const { supabase, session } = useSupabase();
   const { toast } = useToast();
+  const { refresh: refreshActivityRail } = useActivityRail();
   const [testimonials, setTestimonials] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
   const [approvedTestimonials, setApprovedTestimonials] = useState<(Testimonial & { user?: { email: string; first_name?: string; last_name?: string; username?: string } })[]>([]);
   const [captaincyRequests, setCaptaincyRequests] = useState<(VesselClaimRequest & { user?: { email: string; first_name?: string; last_name?: string; username?: string }, vessel?: { name: string } })[]>([]);
@@ -495,11 +497,22 @@ export default function InboxPage() {
                     crewById[row.id as string] = row;
                   }
                 }
+                const viewerEmail = (user.email || '').trim().toLowerCase();
                 setPlanCoverageRequests(
-                  (coverageRows || []).map((r) => ({
-                    ...r,
-                    crew: crewById[r.crew_user_id as string] || null,
-                  })) as typeof planCoverageRequests,
+                  (coverageRows || [])
+                    .filter((r) => {
+                      if (r.crew_user_id === user.id) return false;
+                      const crewEmail = (
+                        crewById[r.crew_user_id as string]?.email || ''
+                      )
+                        .trim()
+                        .toLowerCase();
+                      return !viewerEmail || !crewEmail || crewEmail !== viewerEmail;
+                    })
+                    .map((r) => ({
+                      ...r,
+                      crew: crewById[r.crew_user_id as string] || null,
+                    })) as typeof planCoverageRequests,
                 );
               }
 
@@ -824,6 +837,7 @@ export default function InboxPage() {
             ? 'Their personal plan can now pause under your vessel subscription.'
             : 'They will keep their personal plan active.',
       });
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -1152,6 +1166,7 @@ export default function InboxPage() {
       setIsDialogOpen(false);
       setSelectedTestimonial(null);
       setAction(null);
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error approving testimonial:', error);
       toast({
@@ -1256,6 +1271,7 @@ export default function InboxPage() {
       setSelectedTestimonial(null);
       setAction(null);
       setRejectionReason('');
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error rejecting testimonial:', error);
       toast({
@@ -1756,6 +1772,7 @@ export default function InboxPage() {
       setIsCaptainRoleDialogOpen(false);
       setSelectedCaptainRoleApplication(null);
       setAction(null);
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error approving captain role application:', error);
       toast({
@@ -1809,6 +1826,7 @@ export default function InboxPage() {
       setSelectedCaptainRoleApplication(null);
       setAction(null);
       setRejectionReason('');
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error rejecting captain role application:', error);
       toast({
@@ -1880,6 +1898,7 @@ export default function InboxPage() {
         setIsCaptaincyDialogOpen(false);
         setSelectedCaptaincyRequest(null);
         setAction(null);
+        refreshActivityRail({ silent: true });
       } else {
         // Update the request in the list with new approval status
         setCaptaincyRequests(prev => prev.map(r => {
@@ -1898,6 +1917,7 @@ export default function InboxPage() {
         setIsCaptaincyDialogOpen(false);
         setSelectedCaptaincyRequest(null);
         setAction(null);
+        refreshActivityRail({ silent: true });
       }
     } catch (error: any) {
       console.error('Error approving captaincy request:', error);
@@ -1951,6 +1971,7 @@ export default function InboxPage() {
       setSelectedCaptaincyRequest(null);
       setAction(null);
       setRejectionReason('');
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error rejecting captaincy request:', error);
       toast({
@@ -1996,6 +2017,7 @@ export default function InboxPage() {
       setAction(null);
       setRejectionReason('');
       setPreserveCrewLogs(true);
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error approving sea time request:', error);
       toast({
@@ -2039,6 +2061,7 @@ export default function InboxPage() {
       setIsVesselAccessDialogOpen(false);
       setSelectedVesselAccessRequest(null);
       setAction(null);
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error approving vessel access request:', error);
       toast({
@@ -2083,6 +2106,7 @@ export default function InboxPage() {
       setSelectedVesselAccessRequest(null);
       setAction(null);
       setRejectionReason('');
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error rejecting vessel access request:', error);
       toast({
@@ -2122,6 +2146,7 @@ export default function InboxPage() {
       setSelectedSeaTimeOffer(null);
       setAction(null);
       setPreserveCrewLogs(true);
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -2152,6 +2177,7 @@ export default function InboxPage() {
       setIsSeaTimeOfferDialogOpen(false);
       setSelectedSeaTimeOffer(null);
       setAction(null);
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -2204,6 +2230,7 @@ export default function InboxPage() {
       setSelectedSeaTimeRequest(null);
       setAction(null);
       setRejectionReason('');
+      refreshActivityRail({ silent: true });
     } catch (error: any) {
       console.error('Error rejecting sea time request:', error);
       toast({

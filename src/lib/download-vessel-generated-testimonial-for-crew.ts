@@ -144,7 +144,7 @@ export async function downloadVesselGeneratedTestimonialForCrew(
       {
         rangeStart: testimonial.start_date,
         rangeEnd: testimonial.end_date,
-        vesselManagerSeaTime: !useCrewLogs,
+        atAnchorAsSeaService: isOfficer,
       },
     );
 

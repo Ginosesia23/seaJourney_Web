@@ -124,7 +124,11 @@ export default function CalculationsPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                  <span><strong>Watch days:</strong> Days when you were on watch duty (officers only) — these count as &quot;at sea&quot; even if the vessel was at anchor</span>
+                  <span><strong>Officer at-anchor:</strong> On yacht, fishing and other class vessels, officers count every at-anchor day as sea service</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                  <span><strong>Watch days:</strong> Days when you were on watch duty (officers only) — these count as &quot;at sea&quot; even if the vessel was at anchor or in port</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
@@ -175,7 +179,7 @@ export default function CalculationsPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                  <span><strong>States counted:</strong> Only "in-port" and "at-anchor" states can be counted as standby days</span>
+                  <span><strong>States counted:</strong> Deckhands and other ratings: post-voyage &quot;in-port&quot; and &quot;at-anchor&quot; can count as standby (capped by the preceding voyage). Officers: only post-voyage &quot;in-port&quot; can be standby — at-anchor stays sea service. Commercial vessels do not use standby.</span>
                 </li>
               </ul>
             </div>

@@ -118,6 +118,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing vesselId' }, { status: 400 });
   }
 
+  const { data: caller } = await supabaseAdmin
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle();
+  const role = (caller?.role || '').toLowerCase();
+  const { data: managed } = await supabaseAdmin
+    .from('vessels')
+    .select('id')
+    .eq('id', vesselId)
+    .eq('vessel_manager_id', user.id)
+    .maybeSingle();
+  if (role === 'vessel' || role === 'admin' || managed) {
+    // Closes any leftover self-request that emailed the vessel about itself.
+    await ensurePendingVesselPlanCoverageRequest({
+      crewUserId: user.id,
+      vesselId,
+    });
+    return NextResponse.json({
+      success: true,
+      status: 'noop',
+      created: false,
+      message: 'Vessel accounts do not request plan coverage of themselves',
+    });
+  }
+
   const { data: assignment } = await supabaseAdmin
     .from('vessel_assignments')
     .select('id')

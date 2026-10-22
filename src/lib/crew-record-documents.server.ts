@@ -3,6 +3,7 @@ import {
   overlapInclusiveRange,
   type CareerSeaRecordRow,
   type SeaServiceDateConflict,
+  type VesselGeneratedCareerRow,
 } from '@/lib/crew-record-documents';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -12,7 +13,7 @@ export async function loadCrewRecordCareerSea(
   const { data, error } = await supabaseAdmin
     .from('crew_record_documents')
     .select(
-      'id, document_kind, counts_toward_career, at_sea_days, total_days, standby_days',
+      'id, document_kind, vessel_id, start_date, end_date, counts_toward_career, at_sea_days, total_days, standby_days',
     )
     .eq('crew_user_id', userId)
     .eq('counts_toward_career', true);
@@ -21,19 +22,44 @@ export async function loadCrewRecordCareerSea(
   return data as CareerSeaRecordRow[];
 }
 
+export async function loadVesselGeneratedCareerSea(
+  userId: string,
+): Promise<VesselGeneratedCareerRow[]> {
+  const { data, error } = await supabaseAdmin
+    .from('vessel_generated_testimonials')
+    .select(
+      'id, vessel_id, start_date, end_date, at_sea_days, total_days, standby_days',
+    )
+    .eq('crew_user_id', userId);
+
+  if (error || !data) return [];
+  return data as VesselGeneratedCareerRow[];
+}
+
 export async function withUploadedCareerSea<T extends {
   id: string;
   status: string;
   at_sea_days?: number | null;
   total_days?: number | null;
   standby_days?: number | null;
+  vessel_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
 }>(
   userId: string,
   testimonials: T[],
   proof: { id: string }[],
 ): Promise<{ testimonials: T[]; proofOfService: { id: string }[] }> {
-  const records = await loadCrewRecordCareerSea(userId);
-  return mergeCareerSeaFromRecordDocuments(testimonials, proof, records);
+  const [records, vesselGenerated] = await Promise.all([
+    loadCrewRecordCareerSea(userId),
+    loadVesselGeneratedCareerSea(userId),
+  ]);
+  return mergeCareerSeaFromRecordDocuments(
+    testimonials,
+    proof,
+    records,
+    vesselGenerated,
+  );
 }
 
 function ymd(value: unknown): string | null {
@@ -208,6 +234,8 @@ export async function findSeaServiceDateConflicts(opts: {
     const rowEnd = ymd(row.end_date);
     if (!rowStart || !rowEnd) continue;
     const vesselId = row.vessel_id ? String(row.vessel_id) : null;
+    const counts =
+      (Number(row.at_sea_days) || 0) > 0 || (Number(row.total_days) || 0) > 0;
     pushConflict(conflicts, {
       id: String(row.id),
       source: 'vessel_testimonial',
@@ -220,7 +248,7 @@ export async function findSeaServiceDateConflicts(opts: {
       proposedStart: startDate,
       proposedEnd: endDate,
       proposedVesselId,
-      countsTowardCareer: false,
+      countsTowardCareer: counts,
     });
   }
 

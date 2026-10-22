@@ -50,6 +50,7 @@ import { Button } from '@/components/ui/button';
 import Logo from '@/components/logo';
 import { AppStoreIcon } from '@/components/sections/cta';
 import { cn } from '@/lib/utils';
+import { catalogMonthlyPriceLabel } from '@/lib/subscription-tier-pricing';
 import { Facebook, Instagram, Twitter } from 'lucide-react';
 
 /**
@@ -1141,7 +1142,7 @@ const crewPlans: Array<{
 }> = [
   {
     name: 'Crew Standard',
-    price: '£4.99',
+    price: catalogMonthlyPriceLabel('standard'),
     suffix: '/ month',
     desc: 'Essential sea time tracking for maritime professionals.',
     features: [
@@ -1159,7 +1160,7 @@ const crewPlans: Array<{
   },
   {
     name: 'Crew Premium',
-    price: '£9.99',
+    price: catalogMonthlyPriceLabel('premium'),
     suffix: '/ month',
     desc: 'Advanced logging and documentation for career progression.',
     features: [
@@ -1179,7 +1180,7 @@ const crewPlans: Array<{
   },
   {
     name: 'Crew Professional',
-    price: '£14.99',
+    price: catalogMonthlyPriceLabel('professional'),
     suffix: '/ month',
     desc: 'Complete maritime career management and certification tracking.',
     features: [
@@ -1282,7 +1283,7 @@ function Pricing() {
         </div>
 
         <p className="mt-10 text-center text-sm" style={{ color: PALETTE.inkSoft }}>
-          Managing a fleet? Vessel plans start at £24.99 / month.{' '}
+          Managing a fleet? Vessel plans start at {catalogMonthlyPriceLabel('vessel_lite')} / month.{' '}
           <Link href="/pricing" className="font-semibold underline" style={{ color: a.primary }}>
             See vessel plans
           </Link>

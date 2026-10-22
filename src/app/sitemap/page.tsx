@@ -150,7 +150,7 @@ const SITEMAP_SECTIONS: SitemapSection[] = [
       { href: '/dashboard/crew', label: 'Manage crew', description: 'Active and past crew on your vessel', signedIn: true },
       { href: '/dashboard/watch-schedule', label: 'Nav Watch', description: 'Build and publish watch schedules', signedIn: true },
       { href: '/dashboard/crew-rotation', label: 'Onboard crew', description: 'Who is onboard and rotation status', signedIn: true },
-      { href: '/dashboard/documents', label: 'Document generator', description: 'Vessel form builder / docs', signedIn: true },
+      { href: '/dashboard/documents', label: 'Create document', description: 'Vessel form builder / docs', signedIn: true },
       { href: '/dashboard/vessel-roles', label: 'Team accounts', description: 'Linked captain / officer accounts', signedIn: true },
       { href: '/dashboard/requests', label: 'Sea-time requests', description: 'Incoming crew access requests', signedIn: true },
     ],

@@ -10,6 +10,7 @@ import type { Stripe } from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { getVesselCalculationCategory, isAllDaysExceptLeaveCountAsSea } from '@/lib/vessel-calculation-categories';
+import { countsAtAnchorAsSeaService } from '@/lib/maritime-positions';
 import { getSubscriptionTrialPeriodDaysForProduct } from '@/lib/stripe-checkout-trials';
 import {
   buildTierPricingMapFromStripePrices,
@@ -706,7 +707,10 @@ export async function generateSeaTimeReportData(
           {
             rangeStart: period.startDate,
             rangeEnd: period.endDate,
-            vesselManagerSeaTime: userProfile.role === 'vessel',
+            atAnchorAsSeaService: countsAtAnchorAsSeaService({
+              position: userProfile.position,
+              role: userProfile.role,
+            }),
           }
         );
         atSeaDays = totalSeaDays;

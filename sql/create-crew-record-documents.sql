@@ -1,7 +1,7 @@
 -- Historical / manually uploaded documents that a vessel attaches to a
 -- crew member's record (e.g. testimonials generated before SeaJourney).
 -- Visible to the crew member and to the vessel that uploaded them.
---
+
 -- Path in storage: <crew_user_id>/<document_id>-<filename>
 -- Uploads/downloads go through /api/crew-record-documents (service role).
 

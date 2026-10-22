@@ -291,7 +291,7 @@ export function ProofOfServicePanel({ embedded = false }: { embedded?: boolean }
             <p className="mt-3 max-w-md text-xs text-muted-foreground">
               When you leave a vessel, the vessel can generate a Proof of Service for your time on
               board and save it to your profile. Ask your vessel manager to create one from
-              Generator → Documents.
+              Create document.
             </p>
           </div>
         </div>

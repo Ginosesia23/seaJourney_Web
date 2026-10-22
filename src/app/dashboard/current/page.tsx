@@ -1258,10 +1258,10 @@ export default function CurrentPage() {
       return { standbyPeriods: [] };
     }
     const result = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates, {
-      vesselManagerSeaTime: isVesselAccount,
+      atAnchorAsSeaService: isVesselAccount || isOfficer,
     });
     return { standbyPeriods: result.standbyPeriods };
-  }, [stateLogs, watchDates, partOfActivePassageDates, isVesselAccount]);
+  }, [stateLogs, watchDates, partOfActivePassageDates, isVesselAccount, isOfficer]);
 
   // Create a Set of dates that are counted as standby
   // Exclude watch dates and part of active passage dates (these count as "at sea", not standby)
@@ -1284,6 +1284,11 @@ export default function CurrentPage() {
         const dateStr = format(currentDate, 'yyyy-MM-dd');
         const hasWatch = watchDates.has(dateStr);
         const isPartOfActivePassage = partOfActivePassageDates.has(dateStr);
+        const loggedState = stateLogMap.get(dateStr);
+        if ((isVesselAccount || isOfficer) && loggedState === 'at-anchor') {
+          currentDate = addDays(currentDate, 1);
+          continue;
+        }
         
         // Only add dates that are not watch days and not part of active passage
         if (!hasWatch && !isPartOfActivePassage) {
@@ -1295,7 +1300,7 @@ export default function CurrentPage() {
       }
     });
     return dates;
-  }, [standbyPeriods, watchDates, partOfActivePassageDates]);
+  }, [standbyPeriods, watchDates, partOfActivePassageDates, stateLogMap, isVesselAccount, isOfficer]);
 
 
   // Handler to open captaincy request dialog for looked up vessel
@@ -2903,7 +2908,10 @@ export default function CurrentPage() {
                 const hasWatch = watchDates.has(dateKey);
                 const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
                 const hasOverride = hasWatch || isPartOfActivePassage;
-                const isCountedStandby = standbyDatesSet.has(dateKey) && !hasOverride;
+                const isCountedStandby =
+                  standbyDatesSet.has(dateKey) &&
+                  !hasOverride &&
+                  !((isVesselAccount || isOfficer) && state === 'at-anchor');
                 
                 // Check if date is in selected range
                 let isInRange = false;
@@ -3347,10 +3355,10 @@ export default function CurrentPage() {
         }
       }
     } else {
-      // Crew card: underway + part of active passage + watch (officers); at-anchor is standby, not this total
+      // Crew: underway + officer at-anchor as sea; ratings use standby for at-anchor.
       const crewAtSeaDates = new Set<string>();
       for (const log of filteredLogs) {
-        if (log.state === 'underway') {
+        if (log.state === 'underway' || (isOfficer && log.state === 'at-anchor')) {
           atSea++;
           crewAtSeaDates.add(log.date);
         }
@@ -3371,7 +3379,7 @@ export default function CurrentPage() {
     // Then filter standby periods to only count those since joining the vessel
     // Exclude watch dates and part of active passage dates from standby calculation (these count as "at sea")
     const { totalStandbyDays, standbyPeriods } = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates, {
-      vesselManagerSeaTime: isVesselAccount,
+      atAnchorAsSeaService: isVesselAccount || isOfficer,
     });
     
     // Filter standby periods to only count days since joining the vessel
@@ -3425,7 +3433,7 @@ export default function CurrentPage() {
     })).filter(item => item.days > 0);
 
     return { totalDaysByState: chartData, atSeaDays: atSea, standbyDays: standby };
-  }, [stateLogs, assignmentStartDate, watchDates, partOfActivePassageDates, isVesselAccount]);
+  }, [stateLogs, assignmentStartDate, watchDates, partOfActivePassageDates, isVesselAccount, isOfficer]);
 
   const todayKey = format(new Date(), 'yyyy-MM-dd');
   const todayStatusValue = useMemo(() => {
@@ -4568,7 +4576,11 @@ export default function CurrentPage() {
                                   const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
                                   const hasWatch = watchDates.has(dateKey);
                                   const hasOverride = hasWatch || isPartOfActivePassage;
-                                  const isCountedStandby = standbyDatesSet.has(dateKey) && !hasOverride;
+                                  const dialogState = stateLogMap.get(dateKey);
+                                  const isCountedStandby =
+                                    standbyDatesSet.has(dateKey) &&
+                                    !hasOverride &&
+                                    !((isVesselAccount || isOfficer) && dialogState === 'at-anchor');
                                   
                                   if (isCountedStandby) {
                                     return (

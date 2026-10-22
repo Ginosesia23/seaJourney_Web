@@ -11,6 +11,8 @@ import { isCrewRestrictedDashboardHrefAllowed } from '@/lib/feature-flags/crew-r
 import { CrewVesselFeatureBoostProvider, useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Loader2 } from 'lucide-react';
+import { ActivityRail } from '@/components/activity-rail/activity-rail';
+import { ActivityRailProvider } from '@/components/activity-rail/activity-rail-provider';
 import { AppSidebar } from '@/components/app-sidebar';
 import { SiteHeader } from '@/components/site-header';
 import {
@@ -237,16 +239,17 @@ useEffect(() => {
       ));
 
   return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": "16.5rem",
-          "--header-height": "4rem",
-        } as React.CSSProperties
-      }
-    >
+    <ActivityRailProvider>
+      <SidebarProvider
+        style={
+          {
+            "--sidebar-width": "16.5rem",
+            "--header-height": "4rem",
+          } as React.CSSProperties
+        }
+      >
       <AppSidebar variant="inset" userProfile={userProfile} />
-      <SidebarInset className="flex flex-col h-svh overflow-hidden">
+      <SidebarInset className="flex h-svh flex-col overflow-hidden md:mr-0">
         <SiteHeader className="shrink-0" userProfile={userProfile} />
         <div
           className={cn(
@@ -294,7 +297,9 @@ useEffect(() => {
           )}
         </div>
       </SidebarInset>
-    </SidebarProvider>
+        <ActivityRail />
+      </SidebarProvider>
+    </ActivityRailProvider>
   );
 }
 

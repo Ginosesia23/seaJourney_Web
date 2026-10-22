@@ -181,6 +181,8 @@ export async function GET(req: NextRequest) {
       useCrewLogs: true,
       vesselType: (vesselRow?.type as string) ?? null,
       watchDates,
+      position: crewProfile?.position ?? null,
+      role: crewProfile?.role ?? null,
     });
 
     const seaTimeData = {

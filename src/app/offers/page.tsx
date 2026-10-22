@@ -44,6 +44,10 @@ import {
   CREW_TRIAL_DISPLAY_LABEL,
   VESSEL_TRIAL_DISPLAY_LABEL,
 } from '@/lib/stripe-checkout-trials';
+import {
+  catalogMonthlyPriceLabel,
+  overlayCatalogAndStripePrice,
+} from '@/lib/subscription-tier-pricing';
 
 interface Plan {
   name: string;
@@ -66,7 +70,7 @@ interface Plan {
 const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
     name: 'Crew Standard',
-    price: '£4.99',
+    price: catalogMonthlyPriceLabel('standard'),
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description: 'Essential sea time tracking for maritime professionals.',
@@ -83,7 +87,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Crew Premium',
-    price: '£9.99',
+    price: catalogMonthlyPriceLabel('premium'),
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description: 'Advanced logging and documentation for career progression.',
@@ -103,7 +107,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Crew Professional',
-    price: '£14.99',
+    price: catalogMonthlyPriceLabel('professional'),
     priceSuffix: '/ month',
     trialLabel: CREW_TRIAL_DISPLAY_LABEL,
     description:
@@ -127,7 +131,7 @@ const crewPlanTemplates: Omit<Plan, 'priceId'>[] = [
 const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   {
     name: 'Vessel Standard',
-    price: '£35.99',
+    price: catalogMonthlyPriceLabel('vessel_lite'),
     priceSuffix: '/ month',
     trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Essential vessel management for small operations.',
@@ -145,7 +149,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Vessel Premium',
-    price: '£79.99',
+    price: catalogMonthlyPriceLabel('vessel_basic'),
     priceSuffix: '/ month',
     trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Advanced vessel management for growing operations.',
@@ -166,7 +170,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Vessel Professional',
-    price: '£139.99',
+    price: catalogMonthlyPriceLabel('vessel_pro'),
     priceSuffix: '/ month',
     trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Complete vessel management solution.',
@@ -185,7 +189,7 @@ const vesselPlanTemplates: Omit<Plan, 'priceId'>[] = [
   },
   {
     name: 'Vessel Fleet',
-    price: '£249.99',
+    price: catalogMonthlyPriceLabel('vessel_fleet'),
     priceSuffix: '/ month',
     trialLabel: VESSEL_TRIAL_DISPLAY_LABEL,
     description: 'Enterprise fleet management for large operations.',
@@ -367,129 +371,13 @@ export default function OffersPage() {
           tier: p.metadata?.tier || p.nickname || 'unknown',
         })));
 
-        const getTemplateTierKey = (templateName: string) => {
-          const lower = templateName.toLowerCase();
-          // Handle vessel plans
-          if (lower.includes('vessel')) {
-            if (lower.includes('fleet')) return 'vessel_fleet';
-            if (lower.includes('pro')) return 'vessel_pro';
-            if (lower.includes('premium') || lower.includes('basic')) return 'vessel_basic';
-            if (lower.includes('standard') || lower.includes('lite')) return 'vessel_lite';
-          }
-          // Handle crew plans (with or without "crew" prefix)
-          if (lower.includes('professional') || lower === 'pro' || lower === 'crew pro') return 'professional';
-          if (lower.includes('premium')) return 'premium';
-          if (lower.includes('standard')) return 'standard';
-          return lower;
-        };
-
-        // Helper to normalize tier names for matching
-        const normalizeTierName = (tier: string): string => {
-          return tier
-            .toLowerCase()
-            .replace(/^(sj_|sea_journey_)/i, '') // Remove common prefixes
-            .replace(/\s+/g, '_') // Replace spaces with underscores
-            .trim();
-        };
-
         console.log('[OFFERS PAGE] Mapping prices to plan templates...');
         console.log('[OFFERS PAGE] Plan type:', showVesselPlans ? 'vessel' : 'crew');
         console.log('[OFFERS PAGE] Available templates:', selectedPlanTemplates.map(t => t.name));
-        
-        const mappedPlans: Plan[] = selectedPlanTemplates.map((template) => {
-          const templateTier = getTemplateTierKey(template.name);
-          const normalizedTemplateTier = normalizeTierName(templateTier);
-          console.log(`[OFFERS PAGE] Mapping template "${template.name}" (tier key: "${templateTier}", normalized: "${normalizedTemplateTier}")...`);
 
-          const matchingPrice = stripePrices.find((price) => {
-            const anyPrice: any = price;
-            const rawPriceTier = (
-              anyPrice.metadata?.tier ||
-              anyPrice.metadata?.price_tier ||
-              anyPrice.nickname ||
-              ''
-            ).toString();
-            const priceTier = normalizeTierName(rawPriceTier);
-
-            // Match vessel plans with vessel prices, crew plans with crew prices
-            const isVesselPrice = priceTier.includes('vessel') || rawPriceTier.toLowerCase().includes('vessel');
-            const isVesselTemplate = templateTier.includes('vessel');
-            
-            // Only match if both are vessel or both are crew
-            if (isVesselPrice !== isVesselTemplate) {
-              return false;
-            }
-
-            // Try multiple matching strategies
-            const exactMatch = priceTier === normalizedTemplateTier || priceTier === templateTier;
-            const containsMatch = priceTier.includes(normalizedTemplateTier) || normalizedTemplateTier.includes(priceTier);
-            // Special handling for "pro" vs "professional"
-            const proMatch = (normalizedTemplateTier === 'professional' && priceTier === 'pro') ||
-                            (normalizedTemplateTier === 'pro' && priceTier === 'professional');
-            
-            // Handle vessel plan matching: "vessel basic" should match "vessel_basic"
-            // Extract the plan type (basic, lite, pro, fleet) from both
-            const templatePlanType = normalizedTemplateTier.split('_').pop() || '';
-            const pricePlanType = priceTier.split(/[_\s]+/).pop() || '';
-            const vesselMatch = isVesselTemplate && (
-              priceTier === normalizedTemplateTier || // Exact match after normalization
-              normalizedTemplateTier === priceTier || // Reverse exact match
-              (templatePlanType && pricePlanType && templatePlanType === pricePlanType) || // Plan type matches
-              priceTier.includes(templatePlanType) || // Price contains template plan type
-              normalizedTemplateTier.includes(pricePlanType) // Template contains price plan type
-            );
-            
-            const match = exactMatch || containsMatch || proMatch || vesselMatch;
-
-            if (match) {
-              console.log(`[OFFERS PAGE] ✅ Found match for "${template.name}":`, {
-                price_id: anyPrice.id,
-                price_tier: rawPriceTier,
-                normalized_price_tier: priceTier,
-                template_tier: templateTier,
-                normalized_template_tier: normalizedTemplateTier,
-              });
-            }
-
-            return match;
-          });
-
-          if (matchingPrice) {
-            const anyPrice: any = matchingPrice;
-            const amount = (anyPrice.unit_amount ?? 0) / 100;
-            const interval = anyPrice.recurring?.interval || 'month';
-
-            const mappedPlan = {
-              ...template,
-              price: `£${amount.toFixed(2)}`,
-              priceSuffix: `/${interval}`,
-              priceId: anyPrice.id,
-            };
-            
-            console.log(`[OFFERS PAGE] ✅ Mapped "${template.name}" to:`, {
-              price: mappedPlan.price,
-              priceId: mappedPlan.priceId,
-              interval: interval,
-            });
-            
-            return mappedPlan;
-          }
-
-          console.log(`[OFFERS PAGE] ⚠️ No Stripe price found for "${template.name}"`);
-          console.log(`[OFFERS PAGE] Available Stripe prices:`, stripePrices.map((p: any) => ({
-            id: p.id,
-            tier: p.metadata?.tier || p.nickname || 'unknown',
-            amount: p.unit_amount ? `£${(p.unit_amount / 100).toFixed(2)}` : 'N/A',
-          })));
-          
-          // Don't use template price - show unavailable instead
-          return {
-            ...template,
-            price: 'Price unavailable',
-            priceSuffix: '',
-            priceId: undefined,
-          };
-        });
+        const mappedPlans: Plan[] = selectedPlanTemplates.map((template) =>
+          overlayCatalogAndStripePrice(template, stripePrices),
+        );
 
         console.log('[OFFERS PAGE] Final mapped plans:');
         mappedPlans.forEach((plan, index) => {

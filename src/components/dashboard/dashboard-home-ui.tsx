@@ -236,7 +236,12 @@ export function StateBreakdownBars({
 export function DashboardInlineMetrics({
   items,
 }: {
-  items: Array<{ label: string; value: string | number; tone?: string }>;
+  items: Array<{
+    label: string;
+    value: string | number;
+    tone?: string;
+    color?: string;
+  }>;
 }) {
   return (
     <div
@@ -244,7 +249,8 @@ export function DashboardInlineMetrics({
         'grid gap-3',
         items.length <= 2 && 'grid-cols-2',
         items.length === 3 && 'grid-cols-3',
-        items.length >= 4 && 'grid-cols-2 sm:grid-cols-4',
+        items.length === 4 && 'grid-cols-2 sm:grid-cols-4',
+        items.length >= 5 && 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5',
       )}
     >
       {items.map((item) => (
@@ -252,12 +258,18 @@ export function DashboardInlineMetrics({
           key={item.label}
           className="overflow-hidden rounded-md border border-border bg-muted/20 px-3 py-2.5"
         >
-          <p className="text-[11px] text-muted-foreground">{item.label}</p>
+          <p
+            className="text-[11px] text-muted-foreground"
+            style={item.color ? { color: item.color } : undefined}
+          >
+            {item.label}
+          </p>
           <p
             className={cn(
               'mt-0.5 font-mono text-lg font-medium tabular-nums tracking-tight',
               item.tone === 'purple' && 'text-[#7629BB]',
             )}
+            style={item.color ? { color: item.color } : undefined}
           >
             {item.value}
           </p>

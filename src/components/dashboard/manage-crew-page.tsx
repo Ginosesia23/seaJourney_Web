@@ -1618,6 +1618,8 @@ export default function CrewPage() {
                                 useCrewLogs: false,
                                 vesselType: vesselMeta?.type ?? null,
                                 watchDates: new Set<string>(),
+                                position: member.profile.position ?? null,
+                                role: member.profile.role ?? null,
                             });
 
                             return {
@@ -2267,6 +2269,8 @@ export default function CrewPage() {
                 useCrewLogs: false,
                 vesselType: vesselForType?.type ?? null,
                 watchDates,
+                position: member.profile.position ?? null,
+                role: member.profile.role ?? null,
             });
             const seaTimeData = {
                 totalDays: computed.totalDays,
@@ -2396,6 +2400,8 @@ export default function CrewPage() {
                 useCrewLogs: false,
                 vesselType: vesselForType?.type ?? null,
                 watchDates,
+                position: member.profile.position ?? null,
+                role: member.profile.role ?? null,
             });
             const data = {
                 totalDays: computed.totalDays,
@@ -3324,7 +3330,7 @@ export default function CrewPage() {
         effectivePeriodFiltered.vesselGeneratedTestimonials.length,
     ]);
 
-    /** Vessel Documents tab: official testimonials (when access approved) + generator drafts, newest period first. */
+    /** Vessel Documents tab: official testimonials (when access approved) + vessel-verified generator records. */
     const vesselMergedTestimonialRows = useMemo(() => {
         if (currentUserProfile?.role !== 'vessel') {
             return [] as Array<{ kind: 'official'; t: Testimonial } | { kind: 'vessel_draft'; t: VesselGeneratedTestimonial }>;
@@ -4140,7 +4146,7 @@ export default function CrewPage() {
                     {
                         rangeStart: testimonial.start_date,
                         rangeEnd: testimonial.end_date,
-                        vesselManagerSeaTime: !useCrewLogsForStandby,
+                        atAnchorAsSeaService: isOfficer,
                     },
                 );
 
@@ -4521,7 +4527,7 @@ export default function CrewPage() {
                     {
                         rangeStart: testimonial.start_date,
                         rangeEnd: testimonial.end_date,
-                        vesselManagerSeaTime: !useCrewLogs,
+                        atAnchorAsSeaService: isOfficer,
                     },
                 );
 
@@ -5188,7 +5194,8 @@ export default function CrewPage() {
 
             toast({
                 title: 'Success',
-                description: 'Testimonial saved successfully. You can generate PDFs from the table below.',
+                description:
+                    'Testimonial saved as verified documented sea service. It now counts toward this crew member\'s career sea time.',
             });
 
             void notifyCrewOfDocumentCreated(supabase, {
@@ -5360,7 +5367,8 @@ export default function CrewPage() {
 
             toast({
                 title: 'Success',
-                description: 'PDF generated successfully and saved to testimonials.',
+                description:
+                    'PDF generated and saved as verified documented sea service. It now counts toward this crew member\'s career sea time.',
             });
 
             void notifyCrewOfDocumentCreated(supabase, {
@@ -6635,7 +6643,7 @@ export default function CrewPage() {
                                                 })),
                                                 ...effectivePeriodFiltered.vesselGeneratedTestimonials.map((t) => ({
                                                     id: t.id,
-                                                    kind: 'Draft testimonial',
+                                                    kind: 'Verified testimonial',
                                                     label: `${format(parse(t.start_date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')} – ${format(parse((t.end_date || t.start_date) as string, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}`,
                                                     code: null as string | null,
                                                 })),
@@ -6753,6 +6761,7 @@ export default function CrewPage() {
                                         )}
                                         hasCrewAccess={hasAccess}
                                         crewDisplayName={calendarCrewName}
+                                        crewPosition={calendarMember.profile.position ?? null}
                                     />
                                 ) : (
                                     <p className="text-sm text-muted-foreground">
@@ -7022,14 +7031,14 @@ export default function CrewPage() {
                                                 <h3 className="text-lg font-semibold">Documents</h3>
                                                 <p className="text-sm text-muted-foreground mt-1">
                                                     Certificates, testimonials, proof of service, and application documents for this crew member. Generate new documents in{' '}
-                                                    <Link href={`/dashboard/documents?crewId=${selectedMemberData.profile.id}`} className="text-primary underline underline-offset-2 font-medium">Generator → Documents</Link>
+                                                    <Link href={`/dashboard/documents?crewId=${selectedMemberData.profile.id}`} className="text-primary underline underline-offset-2 font-medium">Create document</Link>
                                                     . Preview and download existing files here.
                                                 </p>
                                             </div>
                                             <Button variant="outline" className="rounded-xl" asChild>
                                                 <Link href={`/dashboard/documents?crewId=${selectedMemberData.profile.id}`}>
                                                     <FileText className="mr-2 h-4 w-4" />
-                                                    Open document generator
+                                                    Create document
                                                 </Link>
                                             </Button>
                                         </div>
@@ -7165,7 +7174,7 @@ export default function CrewPage() {
                                                             href={`/dashboard/documents?type=nav_watch&crewId=${selectedMemberData.profile.id}`}
                                                             className="text-primary underline underline-offset-2 font-medium"
                                                         >
-                                                            document generator
+                                                            Create document
                                                         </Link>
                                                         .
                                                     </p>
@@ -7205,7 +7214,7 @@ export default function CrewPage() {
                                                                 <AlertTriangle className="h-4 w-4" />
                                                                 <AlertTitle>Sea time access not approved</AlertTitle>
                                                                 <AlertDescription>
-                                                                    Official crew testimonials from shared logs appear here once this crew member has approved sea time sharing. Drafts you create in the generator still appear below until the captain approves them.
+                                                                    Official crew testimonials from shared logs appear here once this crew member has approved sea time sharing. Testimonials you create here are already verified documented sea service and count toward career tracking.
                                                                 </AlertDescription>
                                                             </Alert>
                                                         ) : null}
@@ -7215,9 +7224,9 @@ export default function CrewPage() {
                                                                     <FileText className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
                                                                     <h4 className="font-semibold mb-2">No testimonials yet</h4>
                                                                     <p className="text-sm text-muted-foreground max-w-md">
-                                                                        No generator drafts or official testimonials for this assignment period. Create a testimonial from{' '}
-                                                                        <Link href="/dashboard/documents" className="text-primary underline underline-offset-2 font-medium">Generator → Documents</Link>
-                                                                        — drafts show here as &quot;Not approved yet&quot; until sent to the captain for approval.
+                                                                        No testimonials for this assignment period yet. Create one from{' '}
+                                                                        <Link href="/dashboard/documents" className="text-primary underline underline-offset-2 font-medium">Create document</Link>
+                                                                        — it is saved as verified documented sea service and counts toward career tracking.
                                                                     </p>
                                                                 </CardContent>
                                                             </Card>
@@ -7367,10 +7376,10 @@ export default function CrewPage() {
                                                                                                 <Badge
                                                                                                     variant="outline"
                                                                                                     className={cn(
-                                                                                                        'text-xs border-amber-500/50 bg-amber-500/10 text-amber-950 dark:text-amber-100 dark:bg-amber-500/15 dark:border-amber-500/40'
+                                                                                                        'text-xs border-green-500/40 bg-green-500/15 text-green-800 dark:text-green-200 dark:bg-green-500/20 dark:border-green-500/30'
                                                                                                     )}
                                                                                                 >
-                                                                                                    Not approved yet
+                                                                                                    Verified
                                                                                                 </Badge>
                                                                                                 <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
                                                                                                     {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
@@ -7812,6 +7821,12 @@ export default function CrewPage() {
                                                                                     </span>
                                                                                 </div>
                                                                                 <div className="flex items-center gap-2 flex-wrap">
+                                                                                    <Badge
+                                                                                        variant="outline"
+                                                                                        className="text-xs border-green-500/40 bg-green-500/15 text-green-800 dark:text-green-200 dark:bg-green-500/20 dark:border-green-500/30"
+                                                                                    >
+                                                                                        Verified
+                                                                                    </Badge>
                                                                                     <Badge variant="outline" className="text-xs border-blue-500 text-blue-700 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400">
                                                                                         {testimonial.data_source === 'crew' ? 'Crew Logs' : 'Vessel Logs'}
                                                                                     </Badge>

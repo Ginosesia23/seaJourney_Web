@@ -5,6 +5,7 @@ import {
   getVesselCalculationCategory,
   isAllDaysExceptLeaveCountAsSea,
 } from '@/lib/vessel-calculation-categories';
+import { countsAtAnchorAsSeaService } from '@/lib/maritime-positions';
 
 export type SeaTimeInRangeResult = {
   totalDays: number;
@@ -50,10 +51,10 @@ function countStatesInRange(
  * Sea time for a crew member over a document/report date range.
  *
  * `useCrewLogs` identifies the data source, not the subject of the
- * calculation. When a vessel account generates a crew testimonial from
- * vessel logs, underway is still the crew member's at-sea service and
- * qualifying in-port / at-anchor days are standby. Do not use the vessel
- * manager's personal "underway + every anchored day" dashboard rule here.
+ * calculation. Position still controls yacht/MCA at-anchor rules:
+ * officers count at-anchor as sea service; deckhands count it as
+ * standby only when the voyage cap applies. Commercial vessels ignore
+ * position (all days onboard except leave are sea time).
  */
 export function computeSeaTimeInDateRange(options: {
   filteredLogs: StateLog[];
@@ -62,8 +63,14 @@ export function computeSeaTimeInDateRange(options: {
   useCrewLogs: boolean;
   vesselType: string | null | undefined;
   watchDates: Set<string>;
+  position?: string | null;
+  role?: string | null;
 }): SeaTimeInRangeResult {
   const { rangeStart, rangeEnd, useCrewLogs, vesselType, watchDates } = options;
+  const atAnchorAsSeaService = countsAtAnchorAsSeaService({
+    position: options.position,
+    role: options.role,
+  });
 
   const normalized = options.filteredLogs
     .map((l) => ({
@@ -93,7 +100,7 @@ export function computeSeaTimeInDateRange(options: {
     {
       rangeStart,
       rangeEnd,
-      vesselManagerSeaTime: false,
+      atAnchorAsSeaService,
     },
   );
 
@@ -169,7 +176,8 @@ export function computeSeaTimeInDateRange(options: {
         continue;
       }
       const state = effectiveState.get(dateStr) ?? logMap.get(dateStr)?.state;
-      const standbyEligible = state === 'in-port' || state === 'at-anchor';
+      const standbyEligible =
+        state === 'in-port' || (!atAnchorAsSeaService && state === 'at-anchor');
       if (standbyEligible) {
         if (!watchDates.has(dateStr) && !partOfActivePassageDates.has(dateStr)) {
           standbyDatesSet.add(dateStr);
@@ -237,6 +245,10 @@ export function computeSeaTimeInDateRange(options: {
       return;
     }
     if (voyageDatesSet.has(dateStr)) {
+      finalSeaDays++;
+      return;
+    }
+    if (atAnchorAsSeaService && state === 'at-anchor') {
       finalSeaDays++;
       return;
     }

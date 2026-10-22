@@ -255,8 +255,8 @@ const navGroups: NavGroup[] = [
     title: "Vessel documents",
     hideForRoles: ['crew', 'captain', 'admin'],
     items: [
-      { href: "/dashboard/documents", label: "Document generator", icon: Layers, disabled: false, requiredRole: "vessel", featureFlag: 'vessel_document_generator' },
-      { href: "/dashboard/vessel-documents", label: "Generated documents", icon: FolderOpen, disabled: false, requiredRole: "vessel" },
+      { href: "/dashboard/documents", label: "Create document", icon: Layers, disabled: false, requiredRole: "vessel", featureFlag: 'vessel_document_generator' },
+      { href: "/dashboard/vessel-documents", label: "Document archive", icon: FolderOpen, disabled: false, requiredRole: "vessel" },
     ]
   },
   {

@@ -303,6 +303,8 @@ export function AIScannerTab({
       const result = computeSeaTimeInDateRange({
         filteredLogs: filtered, rangeStart: startStr, rangeEnd: endStr,
         useCrewLogs: false, vesselType: vessel?.type ?? null, watchDates: new Set(),
+        position: selectedCrew.profile.position ?? null,
+        role: selectedCrew.profile.role ?? null,
       });
       setSeaTime({
         totalDays: result.totalDays, atSeaDays: result.atSeaDays, standbyDays: result.standbyDays,

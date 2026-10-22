@@ -56,6 +56,19 @@ export type CareerSeaRecordRow = {
   at_sea_days: number | null;
   total_days: number | null;
   standby_days: number | null;
+  vessel_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+};
+
+export type VesselGeneratedCareerRow = {
+  id: string;
+  vessel_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  at_sea_days?: number | null;
+  total_days?: number | null;
+  standby_days?: number | null;
 };
 
 type CareerTestimonialLike = {
@@ -64,6 +77,9 @@ type CareerTestimonialLike = {
   at_sea_days?: number | null;
   total_days?: number | null;
   standby_days?: number | null;
+  vessel_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
 };
 
 export const CREW_RECORD_KIND_LABELS: Record<CrewRecordDocumentKind, string> = {
@@ -240,10 +256,34 @@ export function seaTimeInsertFields(sea: CrewRecordSeaTimeFields) {
   };
 }
 
+function periodOverlapsCareerSea(
+  startDate: string | null,
+  endDate: string | null,
+  vesselId: string | null | undefined,
+  others: Array<{
+    start_date?: string | null;
+    end_date?: string | null;
+    vessel_id?: string | null;
+  }>,
+): boolean {
+  const start = optionalYmd(startDate);
+  const end = optionalYmd(endDate);
+  if (!start || !end) return false;
+  for (const other of others) {
+    const otherStart = optionalYmd(other.start_date);
+    const otherEnd = optionalYmd(other.end_date);
+    if (!otherStart || !otherEnd) continue;
+    if (vesselId && other.vessel_id && vesselId !== other.vessel_id) continue;
+    if (overlapInclusiveRange(start, end, otherStart, otherEnd)) return true;
+  }
+  return false;
+}
+
 export function mergeCareerSeaFromRecordDocuments<T extends CareerTestimonialLike>(
   testimonials: T[],
   proof: { id: string }[],
   records: CareerSeaRecordRow[],
+  vesselGenerated: VesselGeneratedCareerRow[] = [],
 ): { testimonials: T[]; proofOfService: { id: string }[] } {
   const extraTestimonials: T[] = [];
   const extraProof: { id: string }[] = [];
@@ -262,8 +302,50 @@ export function mergeCareerSeaFromRecordDocuments<T extends CareerTestimonialLik
       at_sea_days: atSea,
       total_days: total,
       standby_days: row.standby_days ?? 0,
+      vessel_id: row.vessel_id ?? null,
+      start_date: row.start_date ?? null,
+      end_date: row.end_date ?? null,
     } as T);
     extraProof.push({ id: syntheticId });
+  }
+
+  const alreadyCounting = [
+    ...testimonials.filter((t) => t.status === 'approved'),
+    ...extraTestimonials,
+  ];
+
+  const vesselGenSorted = [...vesselGenerated].sort((a, b) => {
+    const aStart = optionalYmd(a.start_date) || '';
+    const bStart = optionalYmd(b.start_date) || '';
+    return aStart.localeCompare(bStart);
+  });
+
+  for (const row of vesselGenSorted) {
+    const atSea = row.at_sea_days ?? 0;
+    const total = row.total_days ?? 0;
+    if (atSea <= 0 && total <= 0) continue;
+    if (
+      periodOverlapsCareerSea(
+        row.start_date ?? null,
+        row.end_date ?? null,
+        row.vessel_id,
+        alreadyCounting,
+      )
+    ) {
+      continue;
+    }
+    const synthetic = {
+      id: `vessel-gen:${row.id}`,
+      status: 'approved',
+      at_sea_days: atSea,
+      total_days: total,
+      standby_days: row.standby_days ?? 0,
+      vessel_id: row.vessel_id ?? null,
+      start_date: row.start_date ?? null,
+      end_date: row.end_date ?? null,
+    } as T;
+    extraTestimonials.push(synthetic);
+    alreadyCounting.push(synthetic);
   }
 
   return {

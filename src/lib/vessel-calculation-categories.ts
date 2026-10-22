@@ -64,7 +64,7 @@ export const VESSEL_CALCULATION_CATEGORY_LABELS: Record<
 > = {
   yacht_class: {
     label: 'Yacht class',
-    shortDescription: 'MCA-style rules: at sea, standby, yard and leave are calculated separately. Standby is limited by preceding voyage sea days.',
+    shortDescription: 'MCA-style rules: at sea, standby, yard and leave are calculated separately. Officers count at-anchor as sea service; deckhands count it as standby when the voyage cap applies.',
   },
   commercial_class: {
     label: 'Commercial class',

@@ -46,6 +46,13 @@ export interface CalculateStandbyDaysOptions {
    * do not count post-voyage 'at-anchor' as standby (only 'in-port' after a voyage can be standby).
    */
   vesselManagerSeaTime?: boolean;
+  /**
+   * Yacht/MCA officer (or equivalent): every logged at-anchor day is sea service,
+   * not standby. In-port after a voyage can still count as standby.
+   * Deckhand / rating: leave this unset so post-voyage at-anchor uses the
+   * standby rule (voyage cap / 14-day cap). Commercial callers skip this helper.
+   */
+  atAnchorAsSeaService?: boolean;
 }
 
 /**
@@ -80,7 +87,9 @@ export function calculateStandbyDays(
     return new Date(a.date).getTime() - new Date(b.date).getTime();
   });
 
-  const vesselManagerSeaTime = options?.vesselManagerSeaTime === true;
+  const atAnchorAsSeaService = options?.atAnchorAsSeaService === true;
+  const vesselManagerSeaTime =
+    options?.vesselManagerSeaTime === true || atAnchorAsSeaService;
 
   // Restrict to date range when provided (e.g. testimonial start_date / end_date)
   const rangeStart = options?.rangeStart;
@@ -255,7 +264,7 @@ export function calculateStandbyDays(
     const voyage = voyages[i];
     const voyageEndDate = voyage.endDate;
     let currentDate = addDays(voyageEndDate, 1); // Day after voyage ends
-    const standbyStartDate = currentDate;
+    let standbyStartDate = currentDate;
     let standbyDays = 0;
     
     // Find the start date of the next voyage (if any) to know when to stop counting standby
@@ -303,11 +312,25 @@ export function calculateStandbyDays(
         standbyDays++;
         currentDate = addDays(currentDate, 1);
       } else if (log.state === 'at-anchor') {
-        // Both modes count post-voyage at-anchor as standby. In vessel-manager mode the
-        // at-anchor day was initially added to the sea-days set above; we subtract it back
-        // out after this loop so it isn't double-counted.
-        standbyDays++;
-        currentDate = addDays(currentDate, 1);
+        if (atAnchorAsSeaService) {
+          // Officer yacht: at-anchor is sea service, never standby.
+          if (standbyDays === 0) {
+            // Still waiting for in-port — keep looking, and start the
+            // standby block on the first in-port day if it comes next.
+            currentDate = addDays(currentDate, 1);
+            standbyStartDate = currentDate;
+          } else {
+            // In-port standby already started; at-anchor is sea and ends it.
+            break;
+          }
+        } else {
+          // Deckhand / rating (and default MCA): post-voyage at-anchor is standby
+          // when the voyage / 14-day cap allows. In vessel-manager mode the
+          // at-anchor day was initially added to the sea-days set above; we
+          // subtract it back out after this loop so it isn't double-counted.
+          standbyDays++;
+          currentDate = addDays(currentDate, 1);
+        }
       } else {
         // in-yard, on-leave, underway, or any other state - end standby period; never count as standby
         console.log(`[Standby Calculation] Non-standby state '${log.state}' found for ${currentDateStr}, ending standby period`);
@@ -373,8 +396,8 @@ export function calculateStandbyDays(
 
       // Vessel-manager bookkeeping: at-anchor days now counted as standby
       // need to be removed from the sea total (they were added by default
-      // in the at-anchor sweep above).
-      if (vesselManagerSeaTime) {
+      // in the at-anchor sweep above). Officer mode keeps them as sea.
+      if (vesselManagerSeaTime && !atAnchorAsSeaService) {
         const log = logMap.get(dateStr);
         if (log?.state === 'at-anchor') atAnchorReclassifiedAsStandby++;
       }

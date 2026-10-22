@@ -20,32 +20,49 @@ import { cn } from '@/lib/utils';
  */
 
 type SeaDialogContentProps = React.ComponentPropsWithoutRef<typeof DialogContent> & {
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  /** `brand` = navy header + light close chip. `plain` = light header + standard close. */
+  tone?: 'brand' | 'plain';
 };
 
 const SIZE_CLASS = {
-  sm: 'sm:max-w-sm',
-  md: 'sm:max-w-md',
-  lg: 'sm:max-w-lg',
+  sm: 'max-w-sm sm:max-w-sm',
+  md: 'max-w-md sm:max-w-md',
+  lg: 'max-w-lg sm:max-w-lg',
+  xl: 'max-w-4xl sm:max-w-4xl',
+} as const;
+
+const CLOSE_CLASS = {
+  brand: [
+    '[&>button]:right-3 [&>button]:top-3 [&>button]:z-20',
+    '[&>button]:rounded-full [&>button]:border [&>button]:border-white/20',
+    '[&>button]:bg-white/10 [&>button]:p-1.5 [&>button]:text-white [&>button]:opacity-100',
+    '[&>button]:shadow-none [&>button]:backdrop-blur-sm',
+    '[&>button]:hover:bg-white/20 [&>button]:hover:text-white [&>button]:hover:opacity-100',
+    '[&>button]:focus:ring-white/40 [&>button]:focus:ring-offset-0',
+  ].join(' '),
+  plain: [
+    '[&>button]:right-4 [&>button]:top-4 [&>button]:z-20',
+    '[&>button]:rounded-md [&>button]:border-transparent [&>button]:bg-transparent',
+    '[&>button]:p-1.5 [&>button]:text-muted-foreground [&>button]:opacity-70',
+    '[&>button]:shadow-none [&>button]:backdrop-blur-none',
+    '[&>button]:hover:border-border [&>button]:hover:bg-muted',
+    '[&>button]:hover:text-foreground [&>button]:hover:opacity-100',
+    '[&>button]:focus:ring-ring [&>button]:focus:ring-offset-2',
+  ].join(' '),
 } as const;
 
 const SeaDialogContent = React.forwardRef<
   React.ElementRef<typeof DialogContent>,
   SeaDialogContentProps
->(({ className, size = 'md', children, ...props }, ref) => (
+>(({ className, size = 'md', tone = 'brand', children, ...props }, ref) => (
   <DialogContent
     ref={ref}
     className={cn(
       // Reset default padded “white box” look
       'gap-0 overflow-hidden border-0 bg-card p-0 shadow-[0_24px_80px_-12px_rgba(15,23,42,0.45)]',
       'rounded-2xl ring-1 ring-black/10 dark:ring-white/10',
-      // Close chip sits on the navy header
-      '[&>button]:right-3 [&>button]:top-3 [&>button]:z-20',
-      '[&>button]:rounded-full [&>button]:border [&>button]:border-white/20',
-      '[&>button]:bg-white/10 [&>button]:p-1.5 [&>button]:text-white [&>button]:opacity-100',
-      '[&>button]:shadow-none [&>button]:backdrop-blur-sm',
-      '[&>button]:hover:bg-white/20 [&>button]:hover:text-white [&>button]:hover:opacity-100',
-      '[&>button]:focus:ring-white/40 [&>button]:focus:ring-offset-0',
+      CLOSE_CLASS[tone],
       SIZE_CLASS[size],
       className,
     )}
@@ -61,6 +78,8 @@ type SeaDialogHeaderProps = React.HTMLAttributes<HTMLDivElement> & {
   title: React.ReactNode;
   description?: React.ReactNode;
   icon?: LucideIcon;
+  /** `brand` navy band. `plain` matches dashboard page headers. */
+  variant?: 'brand' | 'plain';
 };
 
 function SeaDialogHeader({
@@ -69,8 +88,34 @@ function SeaDialogHeader({
   title,
   description,
   icon: Icon,
+  variant = 'brand',
   ...props
 }: SeaDialogHeaderProps) {
+  if (variant === 'plain') {
+    return (
+      <div
+        className={cn('border-b border-border bg-background px-6 py-4 pr-14', className)}
+        {...props}
+      >
+        <DialogHeader className="space-y-1 text-left">
+          {eyebrow ? (
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {eyebrow}
+            </p>
+          ) : null}
+          <DialogTitle className="text-lg font-medium tracking-tight text-foreground">
+            {title}
+          </DialogTitle>
+          {description ? (
+            <DialogDescription className="text-sm text-muted-foreground">
+              {description}
+            </DialogDescription>
+          ) : null}
+        </DialogHeader>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -110,7 +155,7 @@ function SeaDialogHeader({
             {title}
           </DialogTitle>
           {description ? (
-            <DialogDescription className="max-w-[34ch] text-[13px] leading-relaxed text-white/70">
+            <DialogDescription className="max-w-xl text-[13px] leading-relaxed text-white/70">
               {description}
             </DialogDescription>
           ) : null}

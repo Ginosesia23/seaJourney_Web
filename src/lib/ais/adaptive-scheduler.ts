@@ -25,6 +25,13 @@ export const AIS_POLL_INTERVALS = {
   yard: 60,
 } as const;
 
+/**
+ * Stationary → underway: the live `/vessel` poll stays slow (30–60m) until
+ * the first underway check. `backfillPassageStartIfNeeded` then walks
+ * `/vessel_history` backward at the underway 5-minute step so the departure
+ * is not lost. See src/lib/ais/backfill-passage-start.ts.
+ */
+
 /** Keep fast polling this long after leaving underway before slowing down. */
 export const AIS_STATE_STABILITY_MINUTES = 20;
 

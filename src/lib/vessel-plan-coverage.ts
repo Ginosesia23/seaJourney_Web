@@ -76,6 +76,61 @@ export async function hasApprovedVesselPlanCoverage(
   return row?.status === 'approved';
 }
 
+function emailsMatch(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const left = (a || '').trim().toLowerCase();
+  const right = (b || '').trim().toLowerCase();
+  return !!left && !!right && left === right;
+}
+
+/** Vessel accounts (and the manager) must never request coverage of themselves. */
+async function isVesselSelfCoverageRequest(
+  crewUserId: string,
+  vesselId: string,
+  managerId: string | null,
+): Promise<boolean> {
+  if (managerId && managerId === crewUserId) return true;
+  if (await actorManagesVessel(crewUserId, vesselId)) return true;
+
+  const { data: crew } = await supabaseAdmin
+    .from('users')
+    .select('email, role')
+    .eq('id', crewUserId)
+    .maybeSingle();
+
+  const role = (crew?.role || '').toLowerCase();
+  if (role === 'vessel' || role === 'admin') return true;
+
+  if (!managerId) return false;
+  const { data: manager } = await supabaseAdmin
+    .from('users')
+    .select('email')
+    .eq('id', managerId)
+    .maybeSingle();
+  return emailsMatch(crew?.email, manager?.email);
+}
+
+async function closeSelfCoverageRequest(
+  requestId: string,
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('vessel_plan_coverage_requests')
+    .update({
+      status: 'rejected',
+      notes: 'Ignored: vessel account cannot request coverage of itself',
+      rejection_reason: 'self',
+      reviewed_at: new Date().toISOString(),
+      vessel_notified_at: new Date().toISOString(),
+    })
+    .eq('id', requestId)
+    .eq('status', 'pending');
+  if (error) {
+    console.error('[plan-coverage] Failed to close self coverage request', error);
+  }
+}
+
 async function notifyVesselOfPendingRequest(args: {
   requestId: string;
   vesselId: string;
@@ -85,6 +140,7 @@ async function notifyVesselOfPendingRequest(args: {
   alreadyNotified: boolean;
 }): Promise<void> {
   if (args.alreadyNotified || !args.managerId) return;
+  if (args.crewUserId === args.managerId) return;
 
   const [{ data: manager }, { data: crew }] = await Promise.all([
     supabaseAdmin
@@ -100,6 +156,7 @@ async function notifyVesselOfPendingRequest(args: {
   ]);
 
   if (!manager?.email) return;
+  if (emailsMatch(crew?.email, manager.email)) return;
 
   const crewName =
     [crew?.first_name, crew?.last_name].filter(Boolean).join(' ').trim() ||
@@ -136,6 +193,15 @@ export async function ensurePendingVesselPlanCoverageRequest(args: {
   status: VesselPlanCoverageStatus | 'noop';
   created: boolean;
 }> {
+  const meta = await vesselMeta(args.vesselId);
+  if (await isVesselSelfCoverageRequest(args.crewUserId, args.vesselId, meta.managerId)) {
+    const existing = await getCoverageRequest(args.crewUserId, args.vesselId);
+    if (existing?.status === 'pending') {
+      await closeSelfCoverageRequest(existing.id);
+    }
+    return { request: null, status: 'noop', created: false };
+  }
+
   const existing = await getCoverageRequest(args.crewUserId, args.vesselId);
   if (existing?.status === 'approved') {
     return { request: existing, status: 'approved', created: false };
@@ -152,7 +218,6 @@ export async function ensurePendingVesselPlanCoverageRequest(args: {
     return { request: existing, status: 'pending', created: false };
   }
 
-  const meta = await vesselMeta(args.vesselId);
   const payload = {
     crew_user_id: args.crewUserId,
     vessel_id: args.vesselId,
@@ -378,7 +443,7 @@ export async function listPendingCoverageForVessel(
     console.error('[plan-coverage] list pending failed', error);
     return [];
   }
-  return (data || []) as VesselPlanCoverageRequest[];
+  return omitSelfCoverageRequests((data || []) as VesselPlanCoverageRequest[]);
 }
 
 /** Pending requests across every vessel this login manages (RLS-safe on client). */
@@ -422,5 +487,25 @@ export async function listPendingCoverageForManager(
     console.error('[plan-coverage] list pending for manager failed', error);
     return [];
   }
-  return (data || []) as VesselPlanCoverageRequest[];
+  return omitSelfCoverageRequests((data || []) as VesselPlanCoverageRequest[]);
+}
+
+async function omitSelfCoverageRequests(
+  rows: VesselPlanCoverageRequest[],
+): Promise<VesselPlanCoverageRequest[]> {
+  const kept: VesselPlanCoverageRequest[] = [];
+  for (const row of rows) {
+    if (
+      await isVesselSelfCoverageRequest(
+        row.crew_user_id,
+        row.vessel_id,
+        row.vessel_manager_id,
+      )
+    ) {
+      await closeSelfCoverageRequest(row.id);
+      continue;
+    }
+    kept.push(row);
+  }
+  return kept;
 }

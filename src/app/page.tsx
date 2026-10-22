@@ -76,6 +76,7 @@ import {
 import Logo from '@/components/logo';
 import { cn } from '@/lib/utils';
 import { WkAuthNav } from '@/components/wk/wk-auth-nav';
+import { catalogMonthlyPriceLabel } from '@/lib/subscription-tier-pricing';
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -5845,19 +5846,19 @@ type PlanSummary = {
 
 const crewPlans: PlanSummary[] = [
   {
-    name: 'Crew Standard', price: '£4.99', suffix: '/ month',
+    name: 'Crew Standard', price: catalogMonthlyPriceLabel('standard'), suffix: '/ month',
     tagline: 'Essential sea time tracking for maritime professionals.',
     features: ['Unlimited sea time logging', 'Up to 3 vessels', 'MCA compliant calculations', 'PDF testimonials', 'Direct digital sign-offs'],
     accent: '#0ea5e9', icon: Shield,
   },
   {
-    name: 'Crew Premium', price: '£9.99', suffix: '/ month',
+    name: 'Crew Premium', price: catalogMonthlyPriceLabel('premium'), suffix: '/ month',
     tagline: 'Advanced logging and documentation for career progression.',
     features: ['All Crew Standard features', 'Unlimited vessels', 'Passage log book', 'Bridge watch log', 'Excel / CSV exports', 'Visa tracker'],
     accent: '#8b5cf6', icon: Zap, highlight: true,
   },
   {
-    name: 'Crew Professional', price: '£14.99', suffix: '/ month',
+    name: 'Crew Professional', price: catalogMonthlyPriceLabel('professional'), suffix: '/ month',
     tagline: 'Complete maritime career management and certification tracking.',
     features: ['All Crew Premium features', 'Advanced analytics', 'GPS passage tracking', 'AIS auto vessel states', 'Direct MCA submissions'],
     accent: '#10b981', icon: TrendingUp,
@@ -5866,19 +5867,19 @@ const crewPlans: PlanSummary[] = [
 
 const vesselPlans: PlanSummary[] = [
   {
-    name: 'Vessel Standard', price: '£49.99', suffix: '/ month',
+    name: 'Vessel Standard', price: catalogMonthlyPriceLabel('vessel_lite'), suffix: '/ month',
     tagline: 'Essential vessel management for small operations.',
     features: ['Single vessel', 'Crew assignments', 'Vessel state tracking', 'Digital testimonial approvals'],
     accent: '#0ea5e9', icon: Shield,
   },
   {
-    name: 'Vessel Premium', price: '£79.99', suffix: '/ month',
+    name: 'Vessel Premium', price: catalogMonthlyPriceLabel('vessel_basic'), suffix: '/ month',
     tagline: 'Advanced vessel management for growing operations.',
     features: ['All Standard features', 'Advanced crew analytics', 'AI form builder', 'Watch schedules', 'Onboard tracker', 'Vessel linked role accounts', 'Priority support'],
     accent: '#8b5cf6', icon: Zap, highlight: true,
   },
   {
-    name: 'Vessel Professional', price: '£99.99', suffix: '/ month',
+    name: 'Vessel Professional', price: catalogMonthlyPriceLabel('vessel_pro'), suffix: '/ month',
     tagline: 'Complete vessel management solution.',
     features: ['Multiple role assignments', 'All Premium features', 'Generate crew documents', 'End-to-end sign-off cycle: vessel → captain → crew', 'Free crew accounts while actively tracking this vessel'],
     accent: '#10b981', icon: TrendingUp,

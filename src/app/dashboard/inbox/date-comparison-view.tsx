@@ -152,7 +152,7 @@ export function DateComparisonView({
       vesselLogsInRange,
       undefined, // No watch dates for vessel (watch is crew-specific)
       vesselPartOfActivePassageDates,
-      { vesselManagerSeaTime: true }
+      { atAnchorAsSeaService: true }
     );
     
     // Create a set of vessel dates that are counted as standby (vessel account: in-port only after passage)
@@ -297,7 +297,7 @@ export function DateComparisonView({
       vesselLogsInRange,
       undefined, // No watch dates for vessel (watch is crew-specific)
       vesselPartOfActivePassageDates,
-      { vesselManagerSeaTime: true }
+      { atAnchorAsSeaService: true }
     );
     
     // At sea includes underway + at-anchor + passage/watch extras (vessel manager rules via calculateStandbyDays)

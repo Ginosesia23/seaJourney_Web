@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Check, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { catalogMonthlyPriceLabel } from '@/lib/subscription-tier-pricing';
 
 const plans = [
     {
         name: 'Crew Standard',
-        price: '£5.99',
+        price: catalogMonthlyPriceLabel('standard'),
         priceSuffix: '/ month',
         description: 'For dedicated professionals who need advanced tracking.',
         features: [
@@ -24,7 +25,7 @@ const plans = [
     },
     {
         name: 'Crew Premium',
-        price: '£9.99',
+        price: catalogMonthlyPriceLabel('premium'),
         priceSuffix: '/ month',
         description: 'For career-focused seafarers needing detailed analytics.',
         features: [
@@ -39,7 +40,7 @@ const plans = [
     },
     {
         name: 'Crew Professional',
-        price: '£14.99',
+        price: catalogMonthlyPriceLabel('professional'),
         priceSuffix: '/ month',
         description: 'The ultimate toolkit for maritime professionals.',
         features: [

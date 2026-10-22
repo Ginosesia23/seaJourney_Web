@@ -627,10 +627,10 @@ export default function CalendarPage() {
     }
     // Pass watchDates to exclude them from standby calculation
     const result = calculateStandbyDays(stateLogs, watchDates, partOfActivePassageDates, {
-      vesselManagerSeaTime: isVesselAccount,
+      atAnchorAsSeaService: isVesselAccount || isOfficer,
     });
     return { standbyPeriods: result.standbyPeriods };
-  }, [stateLogs, watchDates, partOfActivePassageDates, isVesselAccount]);
+  }, [stateLogs, watchDates, partOfActivePassageDates, isVesselAccount, isOfficer]);
 
   // Create a Set of dates that are counted as standby (for visual differentiation)
   // Exclude watch dates and part of active passage dates (these count as "at sea", not standby)
@@ -666,6 +666,14 @@ export default function CalendarPage() {
         const hasWatch = watchDates.has(dateStr);
         const isPartOfActivePassage = partOfActivePassageDates.has(dateStr);
         
+        const loggedState = stateLogMap.get(dateStr);
+        const atAnchorIsSea = isVesselAccount || isOfficer;
+        // Vessel/officer: at-anchor is sea service — never paint standby on it.
+        // In-port after the anchor stretch can still count as standby.
+        if (atAnchorIsSea && loggedState === 'at-anchor') {
+          currentDate = addDays(currentDate, 1);
+          continue;
+        }
         // Only add dates that are not watch days and not part of active passage
         if (!hasWatch && !isPartOfActivePassage) {
           dates.add(dateStr);
@@ -679,7 +687,7 @@ export default function CalendarPage() {
     });
     console.log(`[CALENDAR] Total standby dates in set: ${dates.size}`);
     return dates;
-  }, [standbyPeriods, watchDates, partOfActivePassageDates]);
+  }, [standbyPeriods, watchDates, partOfActivePassageDates, stateLogMap, isVesselAccount, isOfficer]);
 
   // Also create a set for all potential standby states (in-port, at-anchor) for visual indication
   const standbyStateDatesSet = useMemo(() => {
@@ -1619,7 +1627,11 @@ export default function CalendarPage() {
                 const isStandbyState = standbyStateDatesSet.has(dateKey);
                 const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
                 const hasWatch = watchDates.has(dateKey);
-                const isCountedStandby = standbyDatesSet.has(dateKey) && !isPartOfActivePassage && !hasWatch;
+                const isCountedStandby =
+                  standbyDatesSet.has(dateKey) &&
+                  !isPartOfActivePassage &&
+                  !hasWatch &&
+                  !((isVesselAccount || isOfficer) && state === 'at-anchor');
                 
                 // Check if date is in selected range
                 let isInRange = false;
@@ -2071,15 +2083,15 @@ export default function CalendarPage() {
                 </div>
               );
             })}
-            {!isVesselAccount && (
-              <div className="flex items-center gap-2">
-                <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-[5px] border border-border bg-muted/40">
-                  <Clock className="h-3 w-3 text-[#7629BB]" />
-                  <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px] bg-[#7629BB]" />
-                </div>
-                <span className="text-xs font-medium">Standby</span>
+            <div className="flex items-center gap-2">
+              <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-[5px] border border-border bg-muted/40">
+                <Clock className="h-3 w-3 text-[#7629BB]" />
+                <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px] bg-[#7629BB]" />
               </div>
-            )}
+              <span className="text-xs font-medium">
+                {isVesselAccount ? 'Standby (moored)' : 'Standby'}
+              </span>
+            </div>
           </div>
           <div className="border-t border-border pt-3">
             <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -2109,7 +2121,7 @@ export default function CalendarPage() {
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
               {isVesselAccount
-                ? 'Dates marked as part of active passage count as "at sea" and are shown with a blue bar along the bottom (~20% of the cell). The primary state fill remains visible above.'
+                ? 'At-anchor days count as sea service and do not show standby. Qualifying moored days after a voyage show a purple standby bar. Part of active passage shows a blue bar along the bottom (~20% of the cell).'
                 : 'Dates marked as watch (officers only) show a yellow bottom bar. Part of active passage shows a blue bottom bar. Standby shows a purple bottom bar. Each bar uses about 20% of the cell height; the primary state color fills the rest.'}
             </p>
           </div>
@@ -2319,7 +2331,12 @@ export default function CalendarPage() {
             const dateKey = format(selectedDate, 'yyyy-MM-dd');
             const isPartOfActivePassage = partOfActivePassageDates.has(dateKey);
             const hasWatch = watchDates.has(dateKey);
-            const isCountedStandby = standbyDatesSet.has(dateKey) && !isPartOfActivePassage && !hasWatch;
+            const dialogState = stateLogMap.get(dateKey);
+            const isCountedStandby =
+              standbyDatesSet.has(dateKey) &&
+              !isPartOfActivePassage &&
+              !hasWatch &&
+              !((isVesselAccount || isOfficer) && dialogState === 'at-anchor');
             
             if (isCountedStandby) {
               return (

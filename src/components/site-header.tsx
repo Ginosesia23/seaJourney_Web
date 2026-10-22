@@ -4,6 +4,7 @@ import * as React from "react"
 import { useMemo } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
+import { ActivityRailTrigger } from "@/components/activity-rail/activity-rail"
 import { Button } from "@/components/ui/button"
 import { Info } from "lucide-react"
 import {
@@ -33,7 +34,8 @@ const routeLabels: Record<string, string> = {
   "/dashboard/career-documents": "Career documents",
   "/dashboard/applications": "Career documents",
   "/dashboard/proof-of-service": "Career documents",
-  "/dashboard/vessel-documents": "Generated documents",
+  "/dashboard/documents": "Create document",
+  "/dashboard/vessel-documents": "Document archive",
   "/dashboard/export": "Export",
   "/dashboard/world-map": "World Map",
   "/dashboard/passages-map": "Passages Map",
@@ -190,6 +192,12 @@ export function SiteHeader({ className, userProfile, ...props }: SiteHeaderProps
       </div>
       {userProfile && (
         <div className="ml-auto flex items-center gap-2 px-4">
+          <ActivityRailTrigger
+            className={cn(
+              "rounded-full md:hidden",
+              isMapPage && "text-white/70 hover:bg-white/10 hover:text-white",
+            )}
+          />
           <Button
             variant="ghost"
             size="icon"

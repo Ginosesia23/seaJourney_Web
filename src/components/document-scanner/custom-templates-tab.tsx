@@ -389,6 +389,8 @@ export function CustomTemplatesTab({
         useCrewLogs: false,
         vesselType: vessel?.type ?? null,
         watchDates: new Set(),
+        position: selectedUseCrew?.profile.position ?? null,
+        role: selectedUseCrew?.profile.role ?? null,
       });
       setUseSeaTime({
         totalDays: result.totalDays,

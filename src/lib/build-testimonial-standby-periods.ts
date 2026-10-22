@@ -142,7 +142,7 @@ export async function buildTestimonialStandbyPeriods(
       {
         rangeStart: startDate,
         rangeEnd: endDate,
-        vesselManagerSeaTime: !useCrewLogsForStandby,
+        atAnchorAsSeaService: isOfficerProfile(crewPosition, crewRole),
       },
     );
 

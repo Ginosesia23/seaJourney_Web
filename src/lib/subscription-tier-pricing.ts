@@ -145,3 +145,85 @@ export function lookupTierPriceGbp(
   if (canonical && canonical in tierPricing) return tierPricing[canonical] ?? 0;
   return 0;
 }
+
+export function formatGbpAmount(amount: number): string {
+  if (!Number.isFinite(amount)) return 'Price unavailable';
+  return `£${amount.toFixed(2)}`;
+}
+
+/** Marketing / fallback monthly price for a plan name or tier key. */
+export function catalogMonthlyPriceLabel(planNameOrTier: string): string {
+  const tier = canonicalizeSubscriptionTier(planNameOrTier) ?? planNameOrTier;
+  return formatGbpAmount(lookupTierPriceGbp(FALLBACK_TIER_PRICING_GBP, tier));
+}
+
+export function findMatchingStripePrice<T extends StripePriceLike & { id?: string }>(
+  prices: readonly T[],
+  planNameOrTier: string,
+): T | undefined {
+  const templateTier = canonicalizeSubscriptionTier(planNameOrTier);
+  if (!templateTier) return undefined;
+  const isVesselTemplate = templateTier.startsWith('vessel_');
+
+  const matches = prices.filter((price) => {
+    const raw = String(
+      price.metadata?.tier || price.metadata?.price_tier || price.nickname || '',
+    );
+    const priceTier = canonicalizeSubscriptionTier(raw);
+    if (!priceTier) return false;
+    const isVesselPrice =
+      priceTier.startsWith('vessel_') || raw.toLowerCase().includes('vessel');
+    if (isVesselPrice !== isVesselTemplate) return false;
+    if (priceTier === templateTier) return true;
+    if (templateTier === 'professional' && (priceTier === 'pro' || priceTier === 'professional')) {
+      return true;
+    }
+    if (templateTier === 'pro' && (priceTier === 'pro' || priceTier === 'professional')) {
+      return true;
+    }
+    return false;
+  });
+
+  if (matches.length === 0) return undefined;
+  const monthly = matches.find((p) => (p.recurring?.interval || 'month') === 'month');
+  return monthly ?? matches[0];
+}
+
+export function overlayCatalogAndStripePrice<T extends {
+  name: string;
+  price: string;
+  priceSuffix?: string;
+  priceId?: string;
+}>(template: T, prices: readonly StripePriceLike[] | null | undefined): T {
+  const catalog = catalogMonthlyPriceLabel(template.name);
+  const match = prices?.length
+    ? findMatchingStripePrice(prices as Array<StripePriceLike & { id?: string }>, template.name)
+    : undefined;
+
+  if (!match || match.unit_amount == null) {
+    return {
+      ...template,
+      price: catalog,
+      priceSuffix: template.priceSuffix ?? '/ month',
+    };
+  }
+
+  const stripeAmount = match.unit_amount / 100;
+  const catalogAmount = lookupTierPriceGbp(
+    FALLBACK_TIER_PRICING_GBP,
+    canonicalizeSubscriptionTier(template.name) ?? template.name,
+  );
+  if (Math.abs(stripeAmount - catalogAmount) > 0.001) {
+    console.warn(
+      `[pricing] Stripe amount £${stripeAmount.toFixed(2)} for "${template.name}" differs from catalog £${catalogAmount.toFixed(2)}. Showing catalog price.`,
+    );
+  }
+
+  const interval = match.recurring?.interval || 'month';
+  return {
+    ...template,
+    price: catalog,
+    priceSuffix: `/ ${interval}`,
+    priceId: (match as { id?: string }).id,
+  };
+}

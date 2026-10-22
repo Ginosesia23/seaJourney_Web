@@ -792,6 +792,8 @@ export default function DocumentsGeneratorPage() {
         useCrewLogs,
         vesselType: vessel?.type ?? null,
         watchDates,
+        position: selectedCrew.profile.position ?? null,
+        role: selectedCrew.profile.role ?? null,
       });
       setCalculatedSeaTime({
         totalDays: result.totalDays,
@@ -1105,7 +1107,11 @@ export default function DocumentsGeneratorPage() {
         .select()
         .single();
       if (saveError) throw saveError;
-      toast({ title: 'Success', description: 'Document saved. It has been added to the crew member\'s page.' });
+      toast({
+        title: 'Success',
+        description:
+          'Document saved as verified documented sea service. It now counts toward this crew member\'s career sea time.',
+      });
       setCalculatedSeaTime(null);
       setDocumentStartDate(undefined);
       setDocumentEndDate(undefined);

@@ -8,6 +8,7 @@
  * One refresh per vessel regardless of how many crew/users are watching.
  */
 
+import { backfillPassageStartIfNeeded } from '@/lib/ais/backfill-passage-start';
 import { classifyLiveAisSample } from '@/lib/ais/classify-state';
 import {
   getAisPollingIntervalMinutes,
@@ -659,6 +660,21 @@ export async function refreshVesselAIS(
       success: true,
       errorMessage: null,
     });
+
+    try {
+      await backfillPassageStartIfNeeded({
+        vesselId,
+        previousState: existing?.seajourney_state,
+        previousFetchedAt:
+          existing?.last_successful_fetch_at ?? existing?.fetched_at ?? null,
+        currentState: classified.seajourneyState,
+        currentPosition: raw,
+        mmsi: lookup.mmsi,
+        imo: lookup.imo,
+      });
+    } catch (e) {
+      console.warn('[ais-service] passage start backfill failed', vesselId, e);
+    }
 
     return rowToSnapshot(saved, 'datalastic', false);
   } finally {

@@ -43,6 +43,7 @@ import {
 } from '@/components/dashboard/state-month-grid';
 import type { DailyStatus, PassageLog, StateLog } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { isOfficerPosition } from '@/lib/maritime-positions';
 import {
   getPassageLogs,
   getPassageLogsByVessel,
@@ -127,6 +128,7 @@ type Props = {
   leavePeriods: LeavePeriodLike[];
   hasCrewAccess: boolean;
   crewDisplayName?: string | null;
+  crewPosition?: string | null;
 };
 
 type SourceMode = 'vessel' | 'crew';
@@ -224,6 +226,7 @@ export function CrewMemberStateCalendar({
   leavePeriods,
   hasCrewAccess,
   crewDisplayName,
+  crewPosition,
 }: Props) {
   const todayIso = format(new Date(), 'yyyy-MM-dd');
   const effectiveEnd =
@@ -461,9 +464,10 @@ export function CrewMemberStateCalendar({
       {
         rangeStart,
         rangeEnd: effectiveEnd,
-        // Vessel-source view uses vessel-manager standby rules (post-voyage
-        // at-anchor stays sea time; only in-port after a voyage is standby).
-        vesselManagerSeaTime: source === 'vessel' || !hasCrewAccess,
+        // Vessel logs and officers: at-anchor is sea service. Deckhand crew
+        // logs: at-anchor can be standby after a voyage (MCA cap).
+        atAnchorAsSeaService:
+          source === 'vessel' || !hasCrewAccess || isOfficerPosition(crewPosition),
       },
     );
     const dates = new Set<string>();
@@ -481,6 +485,15 @@ export function CrewMemberStateCalendar({
       while (currentDate <= periodEndDate && counted < period.countedDays) {
         const dateStr = format(currentDate, 'yyyy-MM-dd');
         // Leave (or post-leave return mid-stretch) must never paint as standby.
+        const atAnchorAsSea =
+          source === 'vessel' ||
+          !hasCrewAccess ||
+          isOfficerPosition(crewPosition);
+        const dayLog = activeLogsForStandby.find((l) => l.date === dateStr);
+        if (atAnchorAsSea && dayLog?.state === 'at-anchor') {
+          currentDate = addDays(currentDate, 1);
+          continue;
+        }
         if (
           inAssignmentRange(dateStr) &&
           !leaveDates.has(dateStr) &&
@@ -504,6 +517,7 @@ export function CrewMemberStateCalendar({
     effectiveEnd,
     source,
     hasCrewAccess,
+    crewPosition,
   ]);
 
   const secondaryByDate = useMemo(() => {
