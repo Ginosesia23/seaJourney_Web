@@ -11,6 +11,7 @@ const DOCUMENT_KINDS: CrewDocumentKind[] = [
   'nav_watch',
   'proof_of_service',
   'application',
+  'record_upload',
 ];
 
 /**

@@ -194,6 +194,12 @@ export interface VesselGeneratedTestimonial {
     share_used_at?: string | null;
 }
 
+export type {
+  CrewRecordDocument,
+  CrewRecordDocumentKind,
+  CrewRecordDocumentOrigin,
+} from '@/lib/crew-record-documents';
+
 /** Proof of service: one record per vessel/period, stored on crew profile for evidence of experience */
 export interface ProofOfService {
   id: string;

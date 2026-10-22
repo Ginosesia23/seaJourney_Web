@@ -59,7 +59,7 @@ export type EvaluationContext = {
   certificates: CertificateRow[];
   testimonials: TestimonialRow[];
   proofOfService: ProofRow[];
-  /** Documented totals from approved testimonials */
+  /** Documented totals from approved testimonials and uploaded sea-service records */
   documentedSea: { atSeaDays: number; totalDays: number; standbyDays: number };
   /** Live tracked totals from state logs (optional) */
   trackedSea?: { atSeaDays: number; totalDays: number; standbyDays: number } | null;
@@ -384,7 +384,7 @@ function evaluateOne(
             ? 'standby days'
             : 'at-sea days';
       const sourceLabel =
-        source === 'tracked' ? 'tracked logs' : 'approved testimonials';
+        source === 'tracked' ? 'tracked logs' : 'documented sea service';
       const met = current >= min;
       return {
         ...base,

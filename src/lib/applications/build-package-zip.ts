@@ -18,6 +18,7 @@ import {
   type ApplicationRequirement,
   type ApplicationTemplate,
 } from '@/lib/applications/types';
+import { withUploadedCareerSea } from '@/lib/crew-record-documents.server';
 import { CERTIFICATES_BUCKET } from '@/lib/certificates/storage';
 import type { Testimonial, UserProfile } from '@/lib/types';
 
@@ -148,12 +149,23 @@ export async function buildApplicationPackageZip(
   const completedManualIds = new Set<string>(
     (application?.completed_manual_ids as string[] | null) || [],
   );
+  const careerSea = await withUploadedCareerSea(
+    userId,
+    (testimonials || []) as Array<{
+      id: string;
+      status: string;
+      at_sea_days?: number | null;
+      total_days?: number | null;
+      standby_days?: number | null;
+    }>,
+    (proofRows || []).map((p) => ({ id: p.id })),
+  );
   const evaluations = evaluateRequirements(mappedReqs, {
     profile: profileRow as Record<string, unknown>,
     certificates: certificates || [],
-    testimonials: testimonials || [],
-    proofOfService: (proofRows || []).map((p) => ({ id: p.id })),
-    documentedSea: sumDocumentedSea(testimonials || []),
+    testimonials: careerSea.testimonials,
+    proofOfService: careerSea.proofOfService,
+    documentedSea: sumDocumentedSea(careerSea.testimonials),
     trackedSea: null,
     completedManualIds,
   });
@@ -419,7 +431,7 @@ export async function buildApplicationPackageZip(
         },
         progress,
         evaluations,
-        documentedSea: sumDocumentedSea(testimonials || []),
+        documentedSea: sumDocumentedSea(careerSea.testimonials),
         generatedAt: new Date().toISOString(),
         warnings,
       },

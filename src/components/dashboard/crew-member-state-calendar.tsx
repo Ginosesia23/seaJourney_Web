@@ -369,8 +369,11 @@ export function CrewMemberStateCalendar({
       if (!inAssignmentRange(d)) continue;
       map.set(d, log.state as DailyStatus);
     }
+    for (const d of leaveDates) {
+      map.set(d, 'on-leave');
+    }
     return map;
-  }, [crewLogs, rangeStart, effectiveEnd]);
+  }, [crewLogs, leaveDates, rangeStart, effectiveEnd]);
 
   const displayStateByDate =
     source === 'crew' && hasCrewAccess ? crewStateByDate : vesselStateByDate;

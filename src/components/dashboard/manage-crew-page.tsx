@@ -71,6 +71,7 @@ import { CrewMemberStateCalendar } from '@/components/dashboard/crew-member-stat
 import { MiniStatTile } from '@/components/dashboard/mini-stat-tile';
 import { CrewCareerProgressWorkspace } from '@/components/dashboard/crew-career-progress-workspace';
 import { CrewCertificatesPanel } from '@/components/dashboard/crew-certificates-panel';
+import { CrewRecordDocumentsPanel } from '@/components/dashboard/crew-record-documents-panel';
 import {
     CrewMemberDossier,
     type CrewDossierAttentionItem,
@@ -1809,8 +1810,23 @@ export default function CrewPage() {
                     title: newValue ? 'Marked onboard' : 'Marked off-board',
                     description: newValue
                         ? 'Onboard status updated. The crew member has been notified.'
-                        : 'Leave recorded. The crew member has been notified.',
+                        : 'Leave recorded on the crew and vessel calendars. The crew member has been notified.',
                 });
+                try {
+                    const leaveRes = await fetch(
+                        `/api/crew-leave-periods?crewUserId=${encodeURIComponent(crewUserId)}&vesselId=${encodeURIComponent(vesselId)}`,
+                    );
+                    if (leaveRes.ok) {
+                        const { leavePeriods } = await leaveRes.json();
+                        setCrewMembers((prev) =>
+                            prev.map((m) =>
+                                m.profile.id === crewUserId ? { ...m, leavePeriods } : m,
+                            ),
+                        );
+                    }
+                } catch {
+                    // Calendar overlay will catch up on the next leave fetch.
+                }
             } catch (err: unknown) {
                 setCrewMembers((prev) =>
                     prev.map((m) =>
@@ -7027,6 +7043,17 @@ export default function CrewPage() {
                                                     Crew details for this member are complete. These details are used when you generate AMSA, MCA, Nav Watch, and other documents.
                                                 </AlertDescription>
                                             </Alert>
+                                        ) : null}
+
+                                        {(currentUserProfile?.role === 'vessel' || currentUserProfile?.role === 'admin') &&
+                                        selectedMemberData.assignment.vesselId ? (
+                                            <CrewRecordDocumentsPanel
+                                                crewUserId={selectedMemberData.profile.id}
+                                                crewDisplayName={fullName}
+                                                vesselId={selectedMemberData.assignment.vesselId}
+                                                canManage
+                                                className="mb-6"
+                                            />
                                         ) : null}
 
                                         <CrewCertificatesPanel

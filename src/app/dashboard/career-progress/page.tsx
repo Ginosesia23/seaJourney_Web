@@ -137,7 +137,7 @@ function resolveSeaTimeSummary(
       sourceLabel:
         evalItem.config.source === 'tracked'
           ? 'tracked logs'
-          : 'approved testimonials',
+          : 'documented sea service',
       met: evalItem.met,
       title: evalItem.title,
       href: evalItem.href,
@@ -159,7 +159,7 @@ function resolveSeaTimeSummary(
       target: min,
       metricLabel: seaTimeMetricShort(metric),
       sourceLabel:
-        source === 'tracked' ? 'tracked logs' : 'approved testimonials',
+        source === 'tracked' ? 'tracked logs' : 'documented sea service',
       met: current >= min,
       title: `Sea service toward ${milestone.label}`,
       href:
@@ -1135,7 +1135,7 @@ function SeaTimeProgressInline({
   const remaining = Math.max(0, target - current);
   const metric = seaTimeMetricShort(item.config.metric);
   const sourceLabel =
-    item.config.source === 'tracked' ? 'tracked logs' : 'approved testimonials';
+    item.config.source === 'tracked' ? 'tracked logs' : 'documented sea service';
   const isStandby = item.config.metric === 'standbyDays';
   const rowTone = tone || (complete ? 'verified' : 'outstanding');
 

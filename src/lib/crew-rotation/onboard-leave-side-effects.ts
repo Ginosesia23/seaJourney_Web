@@ -1,8 +1,9 @@
 /**
  * Side effects when the Onboard Tracker marks a crew member off / on board:
  *   - open/close tagged `crew_leave_periods`
- *   - when the crew has approved sea-time access, mirror leave onto their
- *     `daily_state_logs` as `on-leave` (so their own sea-time counts)
+ *   - mirror leave onto the crew member's `daily_state_logs` as `on-leave`
+ *     so their calendar (and the vessel-side crew calendar) shows time away
+ *     instead of the vessel's underway / in-port state
  *   - push / inbox notify the crew member
  *
  * Log notes use `ONBOARD_TOGGLE_LEAVE_MARKER` so AIS sync treats them as
@@ -26,9 +27,10 @@ async function refreshVesselAisEntitlementSafe(vesselId: string): Promise<void> 
   }
 }
 
-/** How far ahead we pre-write on-leave days when a leave end is far away.
- *  Open leave periods are extended day-by-day via rotation sync / AIS. */
-export const ONBOARD_LEAVE_LOG_HORIZON_DAYS = 21;
+/** How far ahead we pre-write on-leave days when a leave end is far away
+ *  (manual sign-off uses a 10-year sentinel). Open leave is extended by
+ *  rotation sync so later months stay on leave. */
+export const ONBOARD_LEAVE_LOG_HORIZON_DAYS = 366;
 
 export const ONBOARD_TOGGLE_LOG_NOTE = `${ONBOARD_TOGGLE_LEAVE_MARKER} Off-board via Onboard Tracker`;
 
@@ -177,8 +179,8 @@ export async function closeOnboardToggleLeave(args: {
 }
 
 /**
- * Mirror onboard-toggle leave onto the crew member's daily_state_logs when
- * they have approved sea-time access for this vessel.
+ * Mirror onboard-toggle leave onto the crew member's daily_state_logs so
+ * their own calendar / sea-time record shows On Leave (not the vessel state).
  */
 export async function applyOnboardToggleToCrewLogs(args: {
   crewUserId: string;
@@ -186,16 +188,13 @@ export async function applyOnboardToggleToCrewLogs(args: {
   /** true = back on board (clear future toggle leave logs) */
   onboard: boolean;
   leaveEndIso?: string | null;
+  /** First day to write. Defaults to today (do not rewrite past days). */
+  startIso?: string | null;
 }): Promise<{
   applied: boolean;
   daysTouched: number;
-  skipped?: 'no_access' | 'noop';
+  skipped?: 'noop';
 }> {
-  const access = await hasApprovedSeaTimeAccess(args.crewUserId, args.vesselId);
-  if (!access) {
-    return { applied: false, daysTouched: 0, skipped: 'no_access' };
-  }
-
   const today = todayIso();
 
   if (args.onboard) {
@@ -231,16 +230,25 @@ export async function applyOnboardToggleToCrewLogs(args: {
     return { applied: true, daysTouched: ids.length };
   }
 
-  // Off-board → write on-leave for today through min(leaveEnd, horizon).
-  const horizonEnd = format(
+  // Off-board → write on-leave so crew calendars show time away instead of
+  // the vessel state. Cap to a rolling window; rotation sync extends later months.
+  const start =
+    args.startIso && args.startIso <= today ? args.startIso : today;
+  const windowStart = format(
+    addDays(parseISO(today), -(ONBOARD_LEAVE_LOG_HORIZON_DAYS - 1)),
+    'yyyy-MM-dd',
+  );
+  const windowEnd = format(
     addDays(parseISO(today), ONBOARD_LEAVE_LOG_HORIZON_DAYS),
     'yyyy-MM-dd',
   );
-  const leaveEnd = args.leaveEndIso && args.leaveEndIso >= today
-    ? args.leaveEndIso
-    : horizonEnd;
-  const fillEnd = leaveEnd < horizonEnd ? leaveEnd : horizonEnd;
-  const dates = eachDateInclusive(today, fillEnd);
+  const fillStart = start > windowStart ? start : windowStart;
+  const leaveEnd =
+    args.leaveEndIso && args.leaveEndIso >= fillStart
+      ? args.leaveEndIso
+      : windowEnd;
+  const fillEnd = leaveEnd < windowEnd ? leaveEnd : windowEnd;
+  const dates = eachDateInclusive(fillStart, fillEnd);
   if (dates.length === 0) {
     return { applied: false, daysTouched: 0, skipped: 'noop' };
   }
@@ -266,15 +274,15 @@ export async function applyOnboardToggleToCrewLogs(args: {
   return { applied: true, daysTouched: rows.length };
 }
 
-/** Ensure today's log is on-leave for every open toggle leave on a vessel
- *  (crew with approved access only). Used by rotation sync / cron-adjacent paths. */
+/** Fill on-leave logs for every open toggle leave on a vessel.
+ *  Used by rotation sync so later months stay on leave on crew calendars. */
 export async function ensureTodayOnLeaveForOpenToggleLeaves(
   vesselId: string,
 ): Promise<number> {
   const today = todayIso();
   const { data: openLeaves, error } = await supabaseAdmin
     .from('crew_leave_periods')
-    .select('crew_user_id, end_date')
+    .select('crew_user_id, start_date, end_date')
     .eq('vessel_id', vesselId)
     .lte('start_date', today)
     .gte('end_date', today)
@@ -288,6 +296,7 @@ export async function ensureTodayOnLeaveForOpenToggleLeaves(
       crewUserId: leave.crew_user_id as string,
       vesselId,
       onboard: false,
+      startIso: (leave.start_date as string) || today,
       leaveEndIso: leave.end_date as string,
     });
     if (result.applied) touched += result.daysTouched;
@@ -353,17 +362,13 @@ export async function hasOpenOnboardToggleLeave(
 
 /**
  * True when AIS / daily sync should force `on-leave` for this crew today:
- * open tagged leave (or active manual off-board override) AND the crew has
- * approved sea-time access so the vessel is allowed to write their logs.
+ * open tagged leave, or an active manual off-board override.
  */
 export async function shouldForceOnLeaveFromOnboardTracker(
   crewUserId: string,
   vesselId: string,
   dateIso: string = todayIso(),
 ): Promise<boolean> {
-  const access = await hasApprovedSeaTimeAccess(crewUserId, vesselId);
-  if (!access) return false;
-
   if (await hasOpenOnboardToggleLeave(crewUserId, vesselId, dateIso)) {
     return true;
   }

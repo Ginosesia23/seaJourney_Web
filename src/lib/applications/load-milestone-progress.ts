@@ -1,11 +1,13 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { generateSeaTimeReportData } from '@/app/actions';
+import { withUploadedCareerSea } from '@/lib/crew-record-documents.server';
 import {
   evaluateRequirements,
   progressFromEvaluations,
   sumDocumentedSea,
   type MilestoneProgressSnapshot,
 } from '@/lib/applications/evaluate-requirements';
+import type { RequirementEvaluation } from '@/lib/applications/types';
 import {
   mapMilestoneRequirement,
   toApplicationRequirements,
@@ -106,7 +108,24 @@ async function loadSharedUserData(userId: string) {
     supabaseAdmin.from('proof_of_service').select('id').eq('crew_user_id', userId),
   ]);
 
-  return { profile, certificates, testimonials, proof };
+  const merged = await withUploadedCareerSea(
+    userId,
+    (testimonials || []) as Array<{
+      id: string;
+      status: string;
+      at_sea_days?: number | null;
+      total_days?: number | null;
+      standby_days?: number | null;
+    }>,
+    (proof || []) as Array<{ id: string }>,
+  );
+
+  return {
+    profile,
+    certificates,
+    testimonials: merged.testimonials,
+    proof: merged.proofOfService,
+  };
 }
 
 function buildMilestoneLookups(milestones: Array<{ id: string; level_key: string }>) {

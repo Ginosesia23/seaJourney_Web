@@ -41,6 +41,14 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import type { UserProfile, Testimonial, VesselGeneratedTestimonial } from '@/lib/types';
+import {
+  CREW_RECORD_KIND_LABELS,
+  CREW_RECORD_ORIGIN_LABELS,
+  type CrewRecordDocument,
+  type CrewRecordDocumentOrigin,
+  mapCrewRecordDocumentRow,
+} from '@/lib/crew-record-documents';
+import { downloadWithAuth } from '@/lib/applications/client';
 import { hasPaidDashboardAccess } from '@/supabase/database/subscription-helpers';
 import { downloadVesselGeneratedTestimonialForCrew } from '@/lib/download-vessel-generated-testimonial-for-crew';
 import { downloadTestimonialPdfForCrewMember } from '@/lib/download-testimonial-pdf-for-crew';
@@ -79,7 +87,7 @@ type ApprovedTestimonialRow = {
   approved_at: string;
 };
 
-type DocKind = 'vessel_generated' | 'proof' | 'approved' | 'pending';
+type DocKind = 'vessel_generated' | 'proof' | 'approved' | 'pending' | 'uploaded';
 type TypeFilter = 'all' | DocKind;
 type SortKey = 'newest' | 'oldest' | 'crew' | 'period';
 
@@ -100,12 +108,14 @@ type UnifiedRow = {
   formatLabel?: string;
   verificationDisplay: string;
   hasVerification: boolean;
-  action: 'vessel_pdf' | 'pos_pdf' | 'pdf_url' | 'testimonial_pdf' | 'stored_pdf';
+  action: 'vessel_pdf' | 'pos_pdf' | 'pdf_url' | 'testimonial_pdf' | 'stored_pdf' | 'record_file';
   vesselGenerated?: VesselGeneratedTestimonial;
   proofRow?: ProofOfServiceRow;
   pdfUrl?: string | null;
   testimonialForPdf?: Testimonial;
   testimonialIdForPdf?: string;
+  recordDocumentId?: string;
+  origin?: CrewRecordDocumentOrigin;
 };
 
 function formatSjCode(code: string | null | undefined): string {
@@ -176,6 +186,12 @@ const KIND_META: Record<
     badge:
       'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300',
   },
+  uploaded: {
+    label: 'Uploaded record',
+    short: 'Uploaded',
+    badge:
+      'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300',
+  },
 };
 
 export type VesselDocumentsArchiveProps = {
@@ -190,7 +206,7 @@ export function VesselDocumentsArchive({
   forcePersonal = false,
 }: VesselDocumentsArchiveProps = {}) {
   const { user } = useUser();
-  const { supabase } = useSupabase();
+  const { supabase, session } = useSupabase();
   const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -201,6 +217,7 @@ export function VesselDocumentsArchive({
     Record<string, { pdf_url: string | null; vessel_id: string | null }>
   >({});
   const [pendingTestimonials, setPendingTestimonials] = useState<Testimonial[]>([]);
+  const [uploadedRecords, setUploadedRecords] = useState<CrewRecordDocument[]>([]);
   const [vesselNames, setVesselNames] = useState<Record<string, string>>({});
   const [crewProfiles, setCrewProfiles] = useState<Record<string, UserProfile>>({});
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -262,6 +279,7 @@ export function VesselDocumentsArchive({
       setApprovedRows([]);
       setApprovedMeta({});
       setPendingTestimonials([]);
+      setUploadedRecords([]);
       setCrewProfiles({});
       setVesselNames({});
       setLoading(false);
@@ -299,12 +317,20 @@ export function VesselDocumentsArchive({
         posQuery = posQuery.eq('vessel_id', vesselFilterId);
       }
 
-      const [vgRes, posRes, approvedRes] = await Promise.all([
+      let uploadedQuery = supabase
+        .from('crew_record_documents')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (crewFilterId) uploadedQuery = uploadedQuery.eq('crew_user_id', crewFilterId);
+      if (vesselFilterId) uploadedQuery = uploadedQuery.eq('vessel_id', vesselFilterId);
+
+      const [vgRes, posRes, approvedRes, uploadedRes] = await Promise.all([
         vgQuery,
         posQuery,
         testimonialIds.length > 0
           ? supabase.from('approved_testimonials').select('*').in('testimonial_id', testimonialIds)
           : Promise.resolve({ data: [] as ApprovedTestimonialRow[], error: null }),
+        uploadedQuery,
       ]);
 
       if (vgRes.error) console.error('[vessel-documents]', vgRes.error);
@@ -312,14 +338,21 @@ export function VesselDocumentsArchive({
       if ('error' in approvedRes && approvedRes.error) {
         console.error('[vessel-documents]', approvedRes.error);
       }
+      if (uploadedRes.error) {
+        console.error('[vessel-documents] uploaded records', uploadedRes.error);
+      }
 
       const vg = (vgRes.data || []) as VesselGeneratedTestimonial[];
       const pos = (posRes.data || []) as ProofOfServiceRow[];
       const approved = (approvedRes.data || []) as ApprovedTestimonialRow[];
+      const uploaded = ((uploadedRes.data || []) as Record<string, unknown>[]).map((row) =>
+        mapCrewRecordDocumentRow(row),
+      );
 
       setVesselGenerated(vg);
       setProofRows(pos);
       setApprovedRows(approved);
+      setUploadedRecords(uploaded);
 
       const approvedTidSet = new Set(approved.map((a) => a.testimonial_id));
 
@@ -364,6 +397,7 @@ export function VesselDocumentsArchive({
       pos.forEach((x) => {
         if (x.crew_user_id) crewIdSet.add(x.crew_user_id);
       });
+      uploaded.forEach((x) => crewIdSet.add(x.crewUserId));
       if (crewIdSet.size > 0 && isVesselArchiveViewer) {
         const { data: crewRows, error: crewErr } = await supabase
           .from('users')
@@ -387,6 +421,7 @@ export function VesselDocumentsArchive({
       const vesselIdSet = new Set<string>();
       vg.forEach((x) => vesselIdSet.add(x.vessel_id));
       pos.forEach((x) => vesselIdSet.add(x.vessel_id));
+      uploaded.forEach((x) => vesselIdSet.add(x.vesselId));
       approved.forEach((a) => {
         const vid = meta[a.testimonial_id]?.vessel_id;
         if (vid) vesselIdSet.add(vid);
@@ -491,6 +526,38 @@ export function VesselDocumentsArchive({
       });
     });
 
+    uploadedRecords.forEach((row) => {
+      const day = row.issuedOn || row.createdAt.slice(0, 10);
+      const start = row.startDate || day;
+      const end = row.endDate || day;
+      const seaBits = [
+        row.atSeaDays != null ? `${row.atSeaDays} at sea` : null,
+        row.totalDays != null ? `${row.totalDays} total` : null,
+        row.countsTowardCareer ? 'career tracking' : null,
+      ].filter(Boolean);
+      rows.push({
+        key: `up-${row.id}`,
+        kind: 'uploaded',
+        sortAt: row.createdAt,
+        typeLabel: CREW_RECORD_KIND_LABELS[row.documentKind],
+        shortType: CREW_RECORD_KIND_LABELS[row.documentKind],
+        crewName: crewProfiles[row.crewUserId]
+          ? displayNameFromProfile(crewProfiles[row.crewUserId]!)
+          : undefined,
+        crewUserId: row.crewUserId,
+        vesselName: vesselNames[row.vesselId] || row.vesselName || '—',
+        startDate: start,
+        endDate: end,
+        totalDays: row.totalDays ?? undefined,
+        periodExtra: [CREW_RECORD_ORIGIN_LABELS[row.origin], ...seaBits].join(' · '),
+        verificationDisplay: '—',
+        hasVerification: false,
+        action: 'record_file',
+        recordDocumentId: row.id,
+        origin: row.origin,
+      });
+    });
+
     pendingTestimonials.forEach((t) => {
       const code = formatSjCode(t.testimonial_code);
       rows.push({
@@ -519,6 +586,7 @@ export function VesselDocumentsArchive({
     approvedRows,
     approvedMeta,
     pendingTestimonials,
+    uploadedRecords,
     vesselNames,
     crewProfiles,
   ]);
@@ -614,6 +682,33 @@ export function VesselDocumentsArchive({
         title: 'Could not copy',
         description: 'Clipboard access was blocked.',
       });
+    }
+  };
+
+  const handleDownloadRecordFile = async (documentId: string, downloadKey: string) => {
+    if (!session?.access_token) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not download',
+        description: 'Your session has expired. Please refresh and try again.',
+      });
+      return;
+    }
+    setDownloadingId(downloadKey);
+    try {
+      await downloadWithAuth(
+        `/api/crew-record-documents/${documentId}/file?download=1`,
+        session.access_token,
+        'document',
+      );
+    } catch (e) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not download',
+        description: e instanceof Error ? e.message : 'Try again later.',
+      });
+    } finally {
+      setDownloadingId((cur) => (cur === downloadKey ? null : cur));
     }
   };
 
@@ -886,6 +981,22 @@ export function VesselDocumentsArchive({
             )}
             <span className="ml-1.5 hidden sm:inline">PDF</span>
           </Button>
+        ) : row.action === 'record_file' && row.recordDocumentId ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 rounded-md border-border px-2 text-xs"
+            disabled={busy}
+            onClick={() => void handleDownloadRecordFile(row.recordDocumentId!, row.key)}
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            <span className="ml-1.5 hidden sm:inline">File</span>
+          </Button>
         ) : row.action === 'testimonial_pdf' &&
           (row.testimonialForPdf || row.testimonialIdForPdf) ? (
           <Button
@@ -929,7 +1040,13 @@ export function VesselDocumentsArchive({
         >
           {row.shortType}
         </span>
-        {row.formatLabel ? (
+        {row.origin ? (
+          <div className="mt-1">
+            <span className="inline-flex rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-200">
+              {CREW_RECORD_ORIGIN_LABELS[row.origin]}
+            </span>
+          </div>
+        ) : row.formatLabel ? (
           <div className="mt-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
             {row.formatLabel}
           </div>
@@ -1045,6 +1162,11 @@ export function VesselDocumentsArchive({
       count: stats.testimonials,
     },
     { id: 'proof', label: 'Proofs', count: stats.proofs },
+    {
+      id: 'uploaded',
+      label: 'Uploaded',
+      count: tableRows.filter((r) => r.kind === 'uploaded').length,
+    },
     ...(isPersonalDocsViewer
       ? ([
           {

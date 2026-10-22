@@ -129,7 +129,7 @@ function resolveSeaTimeSummary(
       sourceLabel:
         evalItem.config.source === 'tracked'
           ? 'tracked logs'
-          : 'approved testimonials',
+          : 'documented sea service',
       met: evalItem.met,
       title: evalItem.title,
     };
@@ -150,7 +150,7 @@ function resolveSeaTimeSummary(
       target: min,
       metricLabel: seaTimeMetricShort(metric),
       sourceLabel:
-        source === 'tracked' ? 'tracked logs' : 'approved testimonials',
+        source === 'tracked' ? 'tracked logs' : 'documented sea service',
       met: current >= min,
       title: `Sea service toward ${milestone.label}`,
     };

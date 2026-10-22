@@ -8,6 +8,7 @@ import {
 } from '@/lib/applications/evaluate-requirements';
 import type { ApplicationRequirement } from '@/lib/applications/types';
 import { generateSeaTimeReportData } from '@/app/actions';
+import { withUploadedCareerSea } from '@/lib/crew-record-documents.server';
 
 type Params = { params: Promise<{ templateId: string }> };
 
@@ -59,6 +60,18 @@ async function loadProgress(userId: string, templateId: string) {
     mapRequirement,
   ) as ApplicationRequirement[];
 
+  const careerSea = await withUploadedCareerSea(
+    userId,
+    (testimonials || []) as Array<{
+      id: string;
+      status: string;
+      at_sea_days?: number | null;
+      total_days?: number | null;
+      standby_days?: number | null;
+    }>,
+    (proof || []) as Array<{ id: string }>,
+  );
+
   const needsTracked = mappedReqs.some(
     (r) =>
       r.requirement_type === 'sea_time_min' &&
@@ -95,9 +108,9 @@ async function loadProgress(userId: string, templateId: string) {
   const evaluations = evaluateRequirements(mappedReqs, {
     profile: profile as Record<string, unknown> | null,
     certificates: certificates || [],
-    testimonials: testimonials || [],
-    proofOfService: proof || [],
-    documentedSea: sumDocumentedSea(testimonials || []),
+    testimonials: careerSea.testimonials,
+    proofOfService: careerSea.proofOfService,
+    documentedSea: sumDocumentedSea(careerSea.testimonials),
     trackedSea,
     completedManualIds,
   });
@@ -128,7 +141,7 @@ async function loadProgress(userId: string, templateId: string) {
     application: applicationOut,
     evaluations,
     progress,
-    documentedSea: sumDocumentedSea(testimonials || []),
+    documentedSea: sumDocumentedSea(careerSea.testimonials),
     trackedSea,
   };
 }

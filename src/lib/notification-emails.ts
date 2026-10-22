@@ -436,7 +436,8 @@ export type CrewDocumentKind =
   | 'testimonial'
   | 'nav_watch'
   | 'proof_of_service'
-  | 'application';
+  | 'application'
+  | 'record_upload';
 
 export type CrewDocumentCreatedEmailArgs = {
   to: string;
@@ -481,6 +482,12 @@ const CREW_DOCUMENT_KIND_META: Record<
     subjectPrefix: 'Application generated',
     ctaLabel: 'Open career documents',
     ctaPath: '/dashboard/career-documents',
+  },
+  record_upload: {
+    heading: 'Document added to your records',
+    subjectPrefix: 'Document added',
+    ctaLabel: 'Open career documents',
+    ctaPath: '/dashboard/career-documents?tab=archive',
   },
 };
 

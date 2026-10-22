@@ -299,7 +299,7 @@ export default function ApplyDetailPage() {
           <Metric
             label="At sea"
             value={String(documentedSea.atSeaDays)}
-            hint="from approved testimonials"
+            hint="from documented sea service"
           />
           <Metric
             label="Still needed"

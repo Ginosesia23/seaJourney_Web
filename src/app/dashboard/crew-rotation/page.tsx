@@ -1796,7 +1796,7 @@ export default function CrewRotationPage() {
   // ---- Low-level write --------------------------------------------------
   // Single funnel for every onboard mutation made from this page. Optimistic
   // UI update, then POST /api/crew-rotation/onboard-status which updates the
-  // assignment, leave periods, crew daily logs (when access approved), and
+  // assignment, leave periods, crew daily logs as on-leave, and
   // notifies the crew member.
   const applyOnboardChange = useCallback(
     async (
