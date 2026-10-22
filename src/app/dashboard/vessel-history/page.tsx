@@ -23,6 +23,7 @@ import type { Vessel, VesselAssignment, UserProfile, StateLog } from '@/lib/type
 import { UnifiedVesselSearchPicker } from '@/components/dashboard/unified-vessel-search-picker';
 import { VesselHistoryCard } from '@/components/dashboard/vessel-history-card';
 import { useToast } from '@/hooks/use-toast';
+import { captureEvent } from '@/components/providers/posthog-provider';
 
 export default function VesselHistoryPage() {
   const { user } = useUser();
@@ -548,6 +549,7 @@ export default function VesselHistoryPage() {
         endDate: endDateStr || null,
         position: newAssignmentPosition || null,
       });
+      captureEvent('sea_time_started', { source: 'vessel_history', active_service: !endDateStr });
 
       toast({
         title: 'Assignment Added',

@@ -5,12 +5,16 @@ import { usePathname } from 'next/navigation';
 import posthog from 'posthog-js';
 import { useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
+import { hasPaidDashboardAccess } from '@/supabase/database/subscription-helpers';
 import type { UserProfile } from '@/lib/types';
 
 const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
 
 let didInit = false;
+
+const SUBSCRIPTION_PATHS = new Set(['/offers', '/dashboard/subscription']);
+const ONBOARDED_KEY_PREFIX = 'sj_onboarding_completed:';
 
 /** Local dev traffic would otherwise pollute the production project. */
 function isLocalHost(): boolean {
@@ -35,6 +39,24 @@ function initPostHog() {
     opt_out_capturing_by_default: true,
   });
   didInit = true;
+}
+
+/** No-op until the provider has opted this visitor in (admins and localhost stay out). */
+export function captureEvent(event: string, properties?: Record<string, unknown>) {
+  if (!didInit || posthog.has_opted_out_capturing()) return;
+  posthog.capture(event, properties);
+}
+
+/** Once per user per browser: the first time the account has dashboard access. */
+function captureOnboardingCompleted(userId: string, role: string | undefined) {
+  try {
+    const key = `${ONBOARDED_KEY_PREFIX}${userId}`;
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, '1');
+    posthog.capture('onboarding_completed', { role });
+  } catch {
+    // localStorage can be unavailable (private mode) — skip rather than spam.
+  }
 }
 
 function profileRole(profile: UserProfile | null | undefined): string {
@@ -87,6 +109,10 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       name: name || undefined,
       seaJourney_user_id: user.id,
     });
+
+    if (hasPaidDashboardAccess(profile)) {
+      captureOnboardingCompleted(user.id, raw?.role || undefined);
+    }
   }, [identityReady, isAdmin, user?.id, user?.email, profile]);
 
   useEffect(() => {
@@ -99,6 +125,9 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       $current_url: window.location.href,
       $pathname: pathname,
     });
+    if (SUBSCRIPTION_PATHS.has(pathname)) {
+      posthog.capture('subscription_viewed');
+    }
   }, [pathname, shouldCapture]);
 
   return <>{children}</>;

@@ -53,6 +53,7 @@ import { hasActiveSubscription, isVesselLinkedAccount } from '@/supabase/databas
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
+import { captureEvent } from '@/components/providers/posthog-provider';
 import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
 import {
   MonthStateSummary,
@@ -2371,6 +2372,7 @@ export default function CurrentPage() {
         endDate: endDateStr,
         position: data.position || null,
       });
+      captureEvent('sea_time_started', { source: 'start_service', active_service: isActiveService });
 
       // 2. Update user profile to set active vessel (only if no end date, meaning it's still active)
       // For vessel accounts, the form start date becomes the official profile start_date
