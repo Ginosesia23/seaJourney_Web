@@ -17,6 +17,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useUser, useSupabase } from '@/supabase';
+import { captureEvent } from '@/components/providers/posthog-provider';
 import { useCollection, useDoc } from '@/supabase/database';
 import { createVessel, getVesselStateLogs, getVesselSeaService, updateUserProfile, deleteVesselStateLogs, updateStateLogsBatch, getVesselAssignment, getVesselAssignments, updateVesselAssignment, createVesselAssignment } from '@/supabase/database/queries';
 import Link from 'next/link';
@@ -1036,6 +1037,7 @@ export default function VesselsPage() {
         endDate: endDateStr,
         position: null,
       });
+      captureEvent('sea_time_started', { source: 'past_vessel', active_service: false });
       
       toast({ 
         title: 'Past Vessel Added', 

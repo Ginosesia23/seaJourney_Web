@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { redeemPartnerPromoCode } from '@/lib/partner-promo';
+import { captureServerEvent } from '@/lib/posthog-server';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -101,6 +102,20 @@ export async function POST(req: NextRequest) {
       } else if (lastResult.error && lastResult.error !== 'User not found') {
         promo = { ok: false, error: lastResult.error };
       }
+    }
+
+    // The route is public: only count signups for a real auth user with this email.
+    try {
+      const { data: authLookup } = await supabaseAdmin.auth.admin.getUserById(userId);
+      const authEmail = authLookup?.user?.email?.toLowerCase();
+      if (authEmail && authEmail === String(email).toLowerCase()) {
+        await captureServerEvent(userId, 'user_signed_up', {
+          role: role ?? 'crew',
+          has_promo_code: Boolean(code),
+        });
+      }
+    } catch (err) {
+      console.warn('[CREATE PROFILE API] Signup tracking failed:', err);
     }
 
     return NextResponse.json({
