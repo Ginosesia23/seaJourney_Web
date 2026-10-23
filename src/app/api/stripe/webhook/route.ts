@@ -15,6 +15,7 @@ import {
   reconcileCrewPersonalPlansForManager,
   shouldSkipStripeTierSyncWhilePaused,
 } from "@/lib/crew-personal-plan-on-vessel";
+import { captureServerEvent } from "@/lib/posthog-server";
 
 export const runtime = "nodejs";
 
@@ -478,6 +479,12 @@ export async function POST(req: NextRequest) {
           console.error("[STRIPE WEBHOOK] Failed to store mapping:", error);
         } else {
           console.log("[STRIPE WEBHOOK] ✅ Stored mapping:", updated);
+
+          await captureServerEvent(userId, "subscription_purchased", {
+            tier,
+            subscription_id: subscriptionId,
+            payment_status: session.payment_status,
+          });
           
           // Ensure vessel accounts have their active_vessel_id set
           await ensureVesselActiveVesselId(userId);
