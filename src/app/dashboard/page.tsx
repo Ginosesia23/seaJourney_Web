@@ -24,6 +24,7 @@ import { findMissingDays } from '@/lib/fill-missing-days';
 import { calculateVisaCompliance, detectVisaRules } from '@/lib/visa-compliance';
 import { cn } from '@/lib/utils';
 import { StatePill } from '@/components/state-pill';
+import { calendarStateSolid } from '@/lib/calendar-state-colors';
 import { hasActiveSubscription, countsTowardPaidMrr, excludeTestingAccounts } from '@/supabase/database/subscription-helpers';
 import { getSubscriptionTierPricingMap } from '@/app/actions';
 import { lookupTierPriceGbp } from '@/lib/subscription-tier-pricing';
@@ -38,11 +39,11 @@ import {
 const CALCULATOR_POSITIONS = maritimePositionsByRank();
 
 const vesselStates: { value: DailyStatus; label: string; color: string, icon: LucideIcon }[] = [
-  { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
-  { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-  { value: 'in-port', label: 'Moored', color: 'hsl(var(--chart-green))', icon: Building },
-  { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: LifeBuoy },
-  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
+  { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
+  { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor'), icon: Anchor },
+  { value: 'in-port', label: 'Moored', color: calendarStateSolid('in-port'), icon: Building },
+  { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave'), icon: LifeBuoy },
+  { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard'), icon: Wrench },
 ];
 
 /** Only count logs that fall within a vessel_assignment interval for that vessel (matches Vessel History). */
@@ -2412,7 +2413,7 @@ export default function DashboardPage() {
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
             {past7DaysStats.atSeaDays > 0 && (
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-blue))' }} />
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: calendarStateSolid('underway') }} />
                 <span className="text-muted-foreground">
                   <span className="font-mono font-medium text-foreground">{past7DaysStats.atSeaDays}</span> at sea
                 </span>
@@ -2428,7 +2429,7 @@ export default function DashboardPage() {
             )}
             {past7DaysStats.atAnchorDays > 0 && (
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-orange))' }} />
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: calendarStateSolid('at-anchor') }} />
                 <span className="text-muted-foreground">
                   <span className="font-mono font-medium text-foreground">{past7DaysStats.atAnchorDays}</span> at anchor
                 </span>
@@ -2436,7 +2437,7 @@ export default function DashboardPage() {
             )}
             {past7DaysStats.inPortDays > 0 && (
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-green))' }} />
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: calendarStateSolid('in-port') }} />
                 <span className="text-muted-foreground">
                   <span className="font-mono font-medium text-foreground">{past7DaysStats.inPortDays}</span> moored
                 </span>
@@ -2444,7 +2445,7 @@ export default function DashboardPage() {
             )}
             {past7DaysStats.onLeaveDays > 0 && (
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-gray))' }} />
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: calendarStateSolid('on-leave') }} />
                 <span className="text-muted-foreground">
                   <span className="font-mono font-medium text-foreground">{past7DaysStats.onLeaveDays}</span> on leave
                 </span>
@@ -2452,7 +2453,7 @@ export default function DashboardPage() {
             )}
             {past7DaysStats.inYardDays > 0 && (
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--chart-red))' }} />
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: calendarStateSolid('in-yard') }} />
                 <span className="text-muted-foreground">
                   <span className="font-mono font-medium text-foreground">{past7DaysStats.inYardDays}</span> in yard
                 </span>

@@ -5330,10 +5330,10 @@ function LiveAISPhoneGraphic() {
     /** solid tint applied to the icon and active-state fill */
     tint: string;
   }> = [
-    { key: 'underway', label: 'Underway',  icon: Compass,  tint: '#38bdf8' },
-    { key: 'anchor',   label: 'At Anchor', icon: Anchor,   tint: '#f97316' },
-    { key: 'in-port',  label: 'Moored',   icon: Building, tint: '#34d399' },
-    { key: 'in-yard',  label: 'In Yard',   icon: Wrench,   tint: '#f87171' },
+    { key: 'underway', label: 'Underway',  icon: Compass,  tint: '#3EA7F5' },
+    { key: 'anchor',   label: 'At Anchor', icon: Anchor,   tint: '#F87416' },
+    { key: 'in-port',  label: 'Moored',   icon: Building, tint: '#41A060' },
+    { key: 'in-yard',  label: 'In Yard',   icon: Wrench,   tint: '#B93D30' },
   ];
   // Force an active state (matches the screenshot: "At Anchor" selected).
   const activeStateKey: PhoneStateKey = 'anchor';
@@ -5514,11 +5514,11 @@ function LiveAISPhoneGraphic() {
                     className="flex flex-col items-center gap-1 rounded-xl px-1 py-2"
                     style={{
                       backgroundColor: active
-                        ? 'rgba(249, 115, 22, 0.18)'
+                        ? '#FEE7D7'
                         : 'rgba(148, 163, 184, 0.06)',
                       border: `1px solid ${
                         active
-                          ? 'rgba(249, 115, 22, 0.45)'
+                          ? '#F87416'
                           : 'rgba(148, 163, 184, 0.14)'
                       }`,
                     }}
@@ -5527,16 +5527,16 @@ function LiveAISPhoneGraphic() {
                       className="inline-flex h-5 w-5 items-center justify-center rounded-md"
                       style={{
                         backgroundColor: active
-                          ? 'rgba(249, 115, 22, 0.28)'
+                          ? '#FEE7D7'
                           : `color-mix(in srgb, ${s.tint} 16%, transparent)`,
-                        color: active ? '#fdba74' : s.tint,
+                        color: active ? '#F87416' : s.tint,
                       }}
                     >
                       <s.icon className="h-3 w-3" />
                     </span>
                     <span
                       className="text-[8.5px] font-medium"
-                      style={{ color: active ? '#fdba74' : '#cbd5e1' }}
+                      style={{ color: active ? '#F87416' : '#cbd5e1' }}
                     >
                       {s.label}
                     </span>

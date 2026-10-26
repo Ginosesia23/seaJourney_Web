@@ -24,6 +24,7 @@ import {
   hasApprovedVesselPlanCoverage,
 } from '@/lib/vessel-plan-coverage';
 import { VESSEL_PLANS_THAT_PAUSE_CREW_BILLING } from '@/lib/vessel-crew-plan-constants';
+import { syncVesselCoveredCrewAccess } from '@/lib/vessel-crew-access.server';
 
 /** Vessel plans that cover assigned crew — personal billing should pause. */
 export { VESSEL_PLANS_THAT_PAUSE_CREW_BILLING };
@@ -277,6 +278,22 @@ export async function reconcileCrewPersonalPlanForUser(
   const row = user as UserPlanRow;
   const covering = await coveringActiveAssignments(userId);
   const qualifying = covering.find((c) => c.coverageApproved) || covering[0] || null;
+
+  const coveredVesselIds = covering
+    .filter((entry) => entry.coverageApproved)
+    .map((entry) => entry.vesselId);
+  if (row.managed_by_vessel_id) coveredVesselIds.push(row.managed_by_vessel_id);
+  if (
+    qualifying?.coverageApproved &&
+    row.personal_plan_paused_for_vessel_id
+  ) {
+    coveredVesselIds.push(row.personal_plan_paused_for_vessel_id);
+  }
+  try {
+    await syncVesselCoveredCrewAccess(userId, [...new Set(coveredVesselIds)]);
+  } catch (err) {
+    console.error('[crew-plan] Failed to sync vessel data access', err);
+  }
 
   // Open a pending request for every Pro/Fleet assignment that is not yet approved.
   // Self-join must always notify the vessel — do not wait for a paid personal plan.

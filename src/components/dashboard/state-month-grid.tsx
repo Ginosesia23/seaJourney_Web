@@ -6,6 +6,7 @@ import {
   endOfMonth,
   format,
   getDay,
+  isToday,
 } from 'date-fns';
 
 import {
@@ -18,7 +19,8 @@ import {
   MonthStateSummary,
   buildMonthSummaryItems,
 } from '@/components/dashboard/month-state-summary';
-import { calendarStateSolid } from '@/lib/calendar-state-colors';
+import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import { calendarDayCellStyle, calendarStandbyIndicatorColor } from '@/lib/calendar-state-colors';
 import type { DailyStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import {
@@ -71,8 +73,8 @@ type MonthGridProps = {
   /** Rich hover content (passages, notes) keyed by yyyy-MM-dd. */
   dayHoverByDate?: Map<string, DayHoverInfo>;
   /**
-   * Bottom strip on the day cell (main calendar design):
-   * purple = counted standby.
+   * Extra day marker: purple bottom bar = counted standby,
+   * blue bottom bar = part of passage.
    */
   secondaryByDate?: Map<string, DaySecondaryIndicator>;
   /** Collapsible month day-count summary (Calendar page design). Default true. */
@@ -100,6 +102,7 @@ export function StateMonthGrid({
   size = 'default',
   className,
 }: MonthGridProps) {
+  useCalendarColorStyle();
   const compact = size === 'compact';
   const monthEnd = endOfMonth(monthStart);
   const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -198,7 +201,7 @@ export function StateMonthGrid({
                       'relative flex h-full w-full items-center justify-center font-medium',
                       secondary && 'overflow-hidden',
                       compact ? 'text-[10px] leading-none' : 'text-[10px]',
-                      state ? 'text-white' : 'border bg-card text-muted-foreground/50',
+                      !state && 'border bg-card text-muted-foreground/50',
                       accent === 'conflict' &&
                         (compact
                           ? 'ring-1 ring-amber-500 ring-offset-0'
@@ -209,9 +212,9 @@ export function StateMonthGrid({
                     )}
                     style={
                       state
-                        ? {
-                            backgroundColor: calendarStateSolid(state),
-                          }
+                        ? calendarDayCellStyle(state, {
+                            today: isToday(d),
+                          })
                         : undefined
                     }
                   >
@@ -224,7 +227,8 @@ export function StateMonthGrid({
                     )}
                     {secondary === 'standby' && (
                       <div
-                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-[#7629BB]"
+                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px]"
+                        style={{ backgroundColor: calendarStandbyIndicatorColor() }}
                         aria-hidden
                       />
                     )}
@@ -265,8 +269,15 @@ export function StateMonthGrid({
                       <div className="text-muted-foreground">No state logged</div>
                     )}
                     {secondary === 'standby' && (
-                      <div className="flex items-center gap-1.5 text-[#7629BB] dark:text-purple-300">
-                        <span className="h-1.5 w-3 rounded-sm bg-[#7629BB]" aria-hidden />
+                      <div
+                        className="flex items-center gap-1.5"
+                        style={{ color: calendarStandbyIndicatorColor() }}
+                      >
+                        <span
+                          className="h-1.5 w-3 rounded-sm"
+                          style={{ backgroundColor: calendarStandbyIndicatorColor() }}
+                          aria-hidden
+                        />
                         Counted as standby
                       </div>
                     )}

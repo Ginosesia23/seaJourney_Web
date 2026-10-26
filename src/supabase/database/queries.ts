@@ -5,8 +5,24 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import { requestActivityRailRefresh } from '@/lib/activity-rail';
+import { requestCrewOnboardSync } from '@/lib/crew-rotation/crew-onboard-sync';
 import { timestampToISO } from './helpers';
 import type { StateLog, PassageLog, BridgeWatchLog, VesselAssignment, DailyStatus } from '@/lib/types';
+
+function scheduleCrewOnboardSync(
+  supabase: SupabaseClient,
+  userId: string,
+  vesselId: string,
+) {
+  if (typeof window === 'undefined') return;
+  void supabase.auth.getSession().then(({ data }) => {
+    if (data.session?.user?.id !== userId) return;
+    requestCrewOnboardSync({
+      vesselId,
+      accessToken: data.session?.access_token,
+    });
+  });
+}
 
 function scheduleCrewPlanReconcile(
   supabase: SupabaseClient,
@@ -377,6 +393,7 @@ export async function updateDailyStateLogState(
 
   if (error) throw error;
   requestActivityRailRefresh();
+  scheduleCrewOnboardSync(supabase, userId, vesselId);
 
   return {
     id: data.id,
@@ -420,6 +437,7 @@ export async function upsertStateLog(
 
   if (error) throw error;
   requestActivityRailRefresh();
+  scheduleCrewOnboardSync(supabase, userId, vesselId);
 
   return {
     id: data.id,
@@ -467,6 +485,7 @@ export async function updateStateLogsBatch(
 
   if (error) throw error;
   requestActivityRailRefresh();
+  scheduleCrewOnboardSync(supabase, userId, vesselId);
 }
 
 /**

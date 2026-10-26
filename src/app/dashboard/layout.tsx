@@ -13,6 +13,8 @@ import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Loader2 } from 'lucide-react';
 import { ActivityRail } from '@/components/activity-rail/activity-rail';
 import { ActivityRailProvider } from '@/components/activity-rail/activity-rail-provider';
+import { CalendarColorStyleProvider } from '@/components/calendar-color-style-provider';
+import { parseCalendarColorStyle } from '@/lib/calendar-state-colors';
 import { AppSidebar } from '@/components/app-sidebar';
 import { SiteHeader } from '@/components/site-header';
 import {
@@ -306,10 +308,17 @@ useEffect(() => {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
   const { data: userProfile } = useDoc<UserProfile>('users', user?.id);
+  const initialCalendarStyle = parseCalendarColorStyle(
+    (userProfile as { calendar_color_style?: unknown; calendarColorStyle?: unknown } | null)
+      ?.calendarColorStyle ??
+      (userProfile as { calendar_color_style?: unknown } | null)?.calendar_color_style,
+  );
 
   return (
     <CrewVesselFeatureBoostProvider userProfile={userProfile}>
-      <DashboardContent>{children}</DashboardContent>
+      <CalendarColorStyleProvider userId={user?.id} initialStyle={initialCalendarStyle}>
+        <DashboardContent>{children}</DashboardContent>
+      </CalendarColorStyleProvider>
     </CrewVesselFeatureBoostProvider>
   );
 }

@@ -9,6 +9,8 @@
  * Feature flags → Access tiers — same control surface as Standard / Premium.
  */
 
+import { CREW_ROTATION_PLANNER_ENABLED } from '@/lib/crew-rotation';
+
 export type FeatureAudience = 'crew' | 'vessel' | 'both';
 
 export type FeatureFlagKey =
@@ -124,10 +126,10 @@ export const FEATURE_FLAG_CATALOG: FeatureFlagDefinition[] = [
   {
     key: 'crew_rotation',
     label: 'Onboard crew tracker',
-    description: 'Vessel onboard / rotation tracker.',
+    description: 'Vessel onboard / rotation tracker. Parked — it was fighting the crew onboard toggle.',
     audience: 'vessel',
     routes: ['/dashboard/crew-rotation'],
-    defaultEnabled: true,
+    defaultEnabled: false,
     defaultMinVesselTier: 'vessel_basic',
   },
   {
@@ -290,6 +292,9 @@ export function resolveFeatureEnabledMap(
       map[row.key as FeatureFlagKey] = !!row.enabled;
     }
   }
+  if (!CREW_ROTATION_PLANNER_ENABLED) {
+    map.crew_rotation = false;
+  }
   return map;
 }
 
@@ -298,6 +303,7 @@ export function isFeatureEnabledInMap(
   key: FeatureFlagKey,
   opts?: { isAdmin?: boolean },
 ): boolean {
+  if (key === 'crew_rotation' && !CREW_ROTATION_PLANNER_ENABLED) return false;
   if (opts?.isAdmin) return true;
   if (!map) {
     const def = getFeatureDefinition(key);

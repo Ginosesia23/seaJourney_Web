@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { FileSignature, Loader2, Users } from 'lucide-react';
+import { InboxRemoveButton } from '@/components/dashboard/inbox-remove-button';
 
 import { useSupabase, useUser } from '@/supabase';
 import { useDoc } from '@/supabase/database';
@@ -25,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { inboxHideKey, readHiddenInboxKeys } from '@/lib/inbox-hidden';
 import { cn } from '@/lib/utils';
 
 type KindFilter = 'all' | 'testimonial' | 'access';
@@ -41,6 +43,7 @@ type UserLite = {
 
 export type VesselSentRequestItem = {
   id: string;
+  recordId: string;
   kind: 'testimonial' | 'access';
   status: ItemStatus;
   statusText: string;
@@ -111,7 +114,7 @@ export function VesselSentRequestsPanel({
 }) {
   const router = useRouter();
   const { user } = useUser();
-  const { supabase } = useSupabase();
+  const { supabase, session } = useSupabase();
   const { data: userProfile } = useDoc<UserProfile>('users', user?.id);
   const [isLoading, setIsLoading] = useState(true);
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
@@ -209,6 +212,7 @@ export function VesselSentRequestsPanel({
         else statusText = 'Captain';
         next.push({
           id: `t-${t.id}`,
+          recordId: t.id,
           kind: 'testimonial',
           status,
           statusText,
@@ -232,6 +236,7 @@ export function VesselSentRequestsPanel({
             : '';
         next.push({
           id: `a-${a.id}`,
+          recordId: a.id,
           kind: 'access',
           status,
           statusText:
@@ -246,8 +251,9 @@ export function VesselSentRequestsPanel({
         });
       }
 
+      const hidden = readHiddenInboxKeys(user.id);
       next.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      setItems(next);
+      setItems(next.filter((item) => !hidden.has(inboxHideKey(item.kind, item.recordId))));
       onPendingCountChange?.(next.filter((i) => i.status === 'pending').length);
     } catch (err) {
       console.error('[vessel-sent-requests]', err);
@@ -431,6 +437,9 @@ export function VesselSentRequestsPanel({
               <TableHead className="h-9 bg-muted/40 px-3 text-right text-[11px] font-normal text-muted-foreground">
                 Sent
               </TableHead>
+              <TableHead className="h-9 bg-muted/40 px-3 text-right text-[11px] font-normal text-muted-foreground">
+                Actions
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -465,6 +474,18 @@ export function VesselSentRequestsPanel({
                 </TableCell>
                 <TableCell className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums text-muted-foreground">
                   {formatCompactDate(item.createdAt)}
+                </TableCell>
+                <TableCell
+                  className="whitespace-nowrap px-3 py-2 text-right"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <InboxRemoveButton
+                    kind={item.kind}
+                    id={item.recordId}
+                    accessToken={session?.access_token}
+                    userId={user?.id}
+                    onRemoved={() => void load()}
+                  />
                 </TableCell>
               </TableRow>
             ))}

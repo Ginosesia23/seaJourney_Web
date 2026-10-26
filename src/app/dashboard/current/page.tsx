@@ -53,7 +53,15 @@ import { hasActiveSubscription, isVesselLinkedAccount } from '@/supabase/databas
 import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
-import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
+import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import {
+  calendarDayCellStyle,
+  calendarStandbyIndicatorColor,
+  calendarStateFill,
+  calendarStateIconTileStyle,
+  calendarStateSolid,
+  calendarStateWash,
+} from '@/lib/calendar-state-colors';
 import {
   MonthStateSummary,
   buildMonthSummaryItems,
@@ -156,6 +164,7 @@ const vesselStates: { value: DailyStatus; label: string; color: string; icon: Re
 ];
 
 export default function CurrentPage() {
+  useCalendarColorStyle();
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedState, setSelectedState] = useState<DailyStatus | null>(null);
@@ -2987,7 +2996,10 @@ export default function CurrentPage() {
                           </div>
                         )}
                         {isCountedStandby && (
-                          <div className="flex items-center gap-2 text-[#7629BB]">
+                          <div
+                            className="flex items-center gap-2"
+                            style={{ color: calendarStandbyIndicatorColor() }}
+                          >
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
                           </div>
@@ -3073,21 +3085,22 @@ export default function CurrentPage() {
                             isInRange && !hasOverride && !isCountedStandby && !isRangeStartOnly && "border-2 border-blue-500 border-solid",
                             // Range start/end dates when both are selected
                             (isRangeStart || isRangeEnd) && !isRangeStartOnly && !hasOverride && !isCountedStandby && !hasWatch && !isPartOfActivePassage && "border-2 border-blue-600 border-solid ring-2 ring-blue-500/30 ring-offset-1",
-                            isCurrentDay && !isInRange && !isRangeStartOnly && "ring-2 ring-primary ring-offset-2",
+                            isCurrentDay && !stateInfo && !isInRange && !isRangeStartOnly && "ring-2 ring-primary ring-offset-2",
                             // Outline for dates in assignment range without state - only show if not in selected range or start
                             shouldShowOutline && !hasOverride && !isCountedStandby && !hasWatch && !isPartOfActivePassage && !isInRange && !isRangeStartOnly && "border-2 border-dashed border-muted-foreground/40",
-                            stateInfo 
-                              ? "text-white" 
+                            stateInfo
+                              ? undefined
                               : "bg-muted/50 text-muted-foreground hover:bg-muted"
                           )}
                           style={
-                            // Primary state fill; watch/passage/standby use bottom strip
+                            // Pale day square + colored number; today uses the state outline
                             backgroundStyle
                               ? backgroundStyle
                               : stateInfo 
                                 ? { 
-                                    backgroundColor: stateInfo.color,
-                                    // Ensure blue border shows even when date has a state
+                                    ...calendarDayCellStyle(stateInfo.value, {
+                                      today: isCurrentDay && !isInRange && !isRangeStartOnly,
+                                    }),
                                     ...(isRangeStartOnly ? { border: '2px solid hsl(217 91% 50%)', borderColor: 'hsl(217 91% 50%)' } : {})
                                   } 
                                 : isInRange 
@@ -3114,7 +3127,8 @@ export default function CurrentPage() {
                           )}
                           {secondaryIndicatorBar === 'standby' && (
                             <div
-                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-[#7629BB]"
+                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px]"
+                              style={{ backgroundColor: calendarStandbyIndicatorColor() }}
                               aria-hidden
                             />
                           )}
@@ -4077,9 +4091,9 @@ export default function CurrentPage() {
                                       <>
                                         <span
                                           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-                                          style={{ backgroundColor: cur.color }}
+                                          style={calendarStateIconTileStyle(cur.value)}
                                         >
-                                          <TodayTriggerIcon className="h-3.5 w-3.5 text-white" />
+                                          <TodayTriggerIcon className="h-3.5 w-3.5" />
                                         </span>
                                         <span className="min-w-0 truncate" style={{ color: cur.color }}>
                                           {cur.label}
@@ -4428,12 +4442,12 @@ export default function CurrentPage() {
                                                         : "hover:bg-muted/40"
                                                     )}
                                                     style={{
-                                                      backgroundColor: isSelected 
-                                                        ? calendarStateWash(state.value, 22) 
+                                                      backgroundColor: isSelected
+                                                        ? calendarStateFill(state.value)
                                                         : calendarStateWash(state.value, 12),
-                                                      borderColor: isSelected 
-                                                        ? state.color 
-                                                        : calendarStateWash(state.value, 52),
+                                                      borderColor: isSelected
+                                                        ? state.color
+                                                        : calendarStateWash(state.value, 32),
                                                       ...(isSelected
                                                         ? ({ '--tw-ring-color': state.color } as CSSProperties)
                                                         : {}),
@@ -4457,9 +4471,9 @@ export default function CurrentPage() {
                                                 >
                                                     <div 
                                                         className="h-10 w-10 rounded-md flex items-center justify-center" 
-                                                        style={{ backgroundColor: state.color }}
+                                                        style={calendarStateIconTileStyle(state.value)}
                                                     >
-                                                      <StateIcon className="h-5 w-5 text-white" />
+                                                      <StateIcon className="h-5 w-5" />
                                                     </div>
                                                     <span className="font-medium text-sm">{state.label}</span>
                         {isSelected && (

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 import {
+  CREW_ROTATION_PLANNER_ENABLED,
   getRotationStatus,
   normaliseRotation,
   ONBOARD_TOGGLE_LEAVE_MARKER,
@@ -39,6 +40,10 @@ import { ensureTodayOnLeaveForOpenToggleLeaves } from '@/lib/crew-rotation/onboa
  */
 export async function POST(req: NextRequest) {
   try {
+    if (!CREW_ROTATION_PLANNER_ENABLED) {
+      return NextResponse.json({ updated: [], disabled: true });
+    }
+
     const body = await req.json();
     const { vesselId } = body;
 

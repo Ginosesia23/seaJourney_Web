@@ -1,106 +1,203 @@
+import type { CSSProperties } from 'react';
 import type { DailyStatus } from '@/lib/types';
 
 /**
- * Standby indicator (calendar bottom strip, legend, month summary).
+ * Standby indicator (calendar bottom bar, legend, month summary).
  * Base was Tailwind purple-600 `#9333ea`; darkened 20% (RGB × 0.8).
  */
 export const STANDBY_INDICATOR_COLOR = '#7629BB';
+export const STANDBY_INDICATOR_COLOR_ON_DARK = '#A56BE0';
+
+export type CalendarColorStyle = 'light' | 'dark';
+/** App / system theme. Separate from the light-vs-saturated palette choice. */
+export type CalendarAppearance = 'light' | 'dark';
+
+export type CalendarStateSwatch = {
+  /** Saturated color for charts, dots, and icons */
+  accent: string;
+  /** Text and icon on the day square */
+  text: string;
+  /** Day square fill */
+  fill: string;
+  /** Today outline */
+  today: string;
+};
+
+export const CALENDAR_COLOR_STYLE_STORAGE_KEY = 'sea-calendar-color-style';
+export const DEFAULT_CALENDAR_COLOR_STYLE: CalendarColorStyle = 'dark';
+
+/** New pale squares with colored numbers (light UI). */
+export const CALENDAR_STATE_COLORS_LIGHT: Record<DailyStatus, CalendarStateSwatch> = {
+  underway: { accent: '#3EA7F5', text: '#3EA7F5', fill: '#DEF0FD', today: '#2D5F85' },
+  'at-anchor': { accent: '#F87416', text: '#F87416', fill: '#FEE7D7', today: '#8D4511' },
+  'in-port': { accent: '#41A060', text: '#41A060', fill: '#DFEFE4', today: '#2E5C38' },
+  'in-yard': { accent: '#B93D30', text: '#B93D30', fill: '#F3DEDC', today: '#6D281F' },
+  'on-leave': { accent: '#667071', text: '#667071', fill: '#E5E7E7', today: '#424341' },
+};
+
+/**
+ * Same light-square language on a dark UI: deep tinted fills, bright numbers.
+ * Accents stay the designed hues so charts and icons still match.
+ */
+export const CALENDAR_STATE_COLORS_LIGHT_ON_DARK: Record<DailyStatus, CalendarStateSwatch> = {
+  underway: { accent: '#3EA7F5', text: '#8CC9F8', fill: '#1C4768', today: '#3EA7F5' },
+  'at-anchor': { accent: '#F87416', text: '#F9A15A', fill: '#5C351D', today: '#F87416' },
+  'in-port': { accent: '#41A060', text: '#7BC293', fill: '#1D4436', today: '#41A060' },
+  'in-yard': { accent: '#B93D30', text: '#E08A82', fill: '#462325', today: '#B93D30' },
+  'on-leave': { accent: '#667071', text: '#B4BBBB', fill: '#2A343C', today: '#9AA3A4' },
+};
+
+/** Previous saturated fills with white numbers. */
+export const CALENDAR_STATE_COLORS_DARK: Record<DailyStatus, CalendarStateSwatch> = {
+  underway: { accent: '#4D81B4', text: '#FFFFFF', fill: '#4D81B4', today: '#2D5F85' },
+  'at-anchor': { accent: '#CF7427', text: '#FFFFFF', fill: '#CF7427', today: '#8D4511' },
+  'in-port': { accent: '#159A4C', text: '#FFFFFF', fill: '#159A4C', today: '#2E5C38' },
+  'in-yard': { accent: '#C94848', text: '#FFFFFF', fill: '#C94848', today: '#6D281F' },
+  'on-leave': { accent: '#667483', text: '#FFFFFF', fill: '#667483', today: '#424341' },
+};
+
+export const CALENDAR_STATE_COLORS = CALENDAR_STATE_COLORS_DARK;
 
 /** Maps each logged state to its theme chart token (HSL components only, no hsl() wrapper). */
 export const CALENDAR_STATE_CHART_VAR: Record<DailyStatus, string> = {
-    underway: 'chart-blue',
-    'at-anchor': 'chart-orange',
-    'in-port': 'chart-green',
-    'on-leave': 'chart-gray',
-    'in-yard': 'chart-red',
+  underway: 'chart-blue',
+  'at-anchor': 'chart-orange',
+  'in-port': 'chart-green',
+  'on-leave': 'chart-gray',
+  'in-yard': 'chart-red',
 };
 
-/**
- * Light theme HSL for each chart token — must match `:root` chart variables in globals.css.
- * Excel applies the same black-mix ratio as {@link calendarStateSolid}.
- */
-const LIGHT_THEME_CHART_HSL: Record<DailyStatus, readonly [number, number, number]> = {
-    underway: [213, 60, 60],
-    'at-anchor': [25, 95, 58],
-    'in-port': [142, 76, 41],
-    'on-leave': [213, 15, 55],
-    'in-yard': [0, 84, 65],
-};
+let currentStyle: CalendarColorStyle = DEFAULT_CALENDAR_COLOR_STYLE;
+let currentAppearance: CalendarAppearance = 'light';
 
-/** Same proportion as `:root` `--calendar-state-mix-pct` for Excel parity with color-mix(black). */
-const CALENDAR_SOLID_BLACK_MIX_RATIO = 0.16;
-
-/** Matches `color-mix(..., var(--calendar-state-mix) var(--calendar-state-mix-pct))` in globals. */
-const CALENDAR_SOLID_MIX = 'var(--calendar-state-mix) var(--calendar-state-mix-pct)';
-
-function hslToRgbBytes(h: number, sPercent: number, lPercent: number): { r: number; g: number; b: number } {
-    const s = sPercent / 100;
-    const l = lPercent / 100;
-    const hn = h / 360;
-    let r: number;
-    let g: number;
-    let b: number;
-    if (s === 0) {
-        r = g = b = l;
-    } else {
-        const hue2rgb = (p: number, q: number, t: number) => {
-            let tt = t;
-            if (tt < 0) tt += 1;
-            if (tt > 1) tt -= 1;
-            if (tt < 1 / 6) return p + (q - p) * 6 * tt;
-            if (tt < 1 / 2) return q;
-            if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
-            return p;
-        };
-        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-        const p = 2 * l - q;
-        r = hue2rgb(p, q, hn + 1 / 3);
-        g = hue2rgb(p, q, hn);
-        b = hue2rgb(p, q, hn - 1 / 3);
-    }
-    return {
-        r: Math.round(r * 255),
-        g: Math.round(g * 255),
-        b: Math.round(b * 255),
-    };
+export function parseCalendarColorStyle(value: unknown): CalendarColorStyle | null {
+  return value === 'light' || value === 'dark' ? value : null;
 }
 
-function byteToHex2(n: number): string {
-    return n.toString(16).padStart(2, '0').toUpperCase();
+export function getCalendarColorStyle(): CalendarColorStyle {
+  return currentStyle;
+}
+
+export function setCalendarColorStyle(style: CalendarColorStyle): void {
+  currentStyle = style;
+}
+
+export function getCalendarAppearance(): CalendarAppearance {
+  return currentAppearance;
+}
+
+export function setCalendarAppearance(appearance: CalendarAppearance): void {
+  currentAppearance = appearance;
+}
+
+export function calendarStatePalette(
+  style: CalendarColorStyle = currentStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): Record<DailyStatus, CalendarStateSwatch> {
+  if (style === 'dark') return CALENDAR_STATE_COLORS_DARK;
+  return appearance === 'dark' ? CALENDAR_STATE_COLORS_LIGHT_ON_DARK : CALENDAR_STATE_COLORS_LIGHT;
+}
+
+function hexToArgb(hex: string): string {
+  return `FF${hex.replace('#', '').toUpperCase()}`;
+}
+
+export function calendarStateSwatch(
+  state: string | null | undefined,
+  style: CalendarColorStyle = currentStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): CalendarStateSwatch | null {
+  if (!state || !(state in CALENDAR_STATE_COLORS_LIGHT)) return null;
+  return calendarStatePalette(style, appearance)[state as DailyStatus];
+}
+
+/** Saturated color for charts, dots, and icons. */
+export function calendarStateSolid(
+  state: DailyStatus,
+  style: CalendarColorStyle = currentStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): string {
+  return calendarStatePalette(style, appearance)[state].accent;
+}
+
+/** Day-square fill. */
+export function calendarStateFill(
+  state: DailyStatus,
+  style: CalendarColorStyle = currentStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): string {
+  return calendarStatePalette(style, appearance)[state].fill;
+}
+
+/** Today outline. */
+export function calendarStateTodayOutline(
+  state: DailyStatus,
+  style: CalendarColorStyle = currentStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): string {
+  return calendarStatePalette(style, appearance)[state].today;
+}
+
+export function calendarStandbyIndicatorColor(
+  _style?: CalendarColorStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): string {
+  return appearance === 'dark' ? STANDBY_INDICATOR_COLOR_ON_DARK : STANDBY_INDICATOR_COLOR;
 }
 
 /**
- * Excel solid fill ARGB (AARRGGBB) matching calendar day cells: chart color mixed toward black.
+ * Tinted chrome (picker tiles, chips). Mixes the accent color toward white.
+ * Higher `opacityPercent` = stronger tint.
  */
+export function calendarStateWash(
+  state: DailyStatus,
+  opacityPercent: number,
+  style: CalendarColorStyle = currentStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): string {
+  const accent = calendarStatePalette(style, appearance)[state].accent;
+  const ground = appearance === 'dark' ? '#0B1520' : 'white';
+  return `color-mix(in srgb, ${accent} ${opacityPercent}%, ${ground})`;
+}
+
+/** Day cell: fill, number color, optional today inset outline. */
+export function calendarDayCellStyle(
+  state: DailyStatus,
+  opts?: { today?: boolean },
+  style: CalendarColorStyle = currentStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): CSSProperties {
+  const swatch = calendarStatePalette(style, appearance)[state];
+  return {
+    backgroundColor: swatch.fill,
+    color: swatch.text,
+    ...(opts?.today ? { boxShadow: `inset 0 0 0 2px ${swatch.today}` } : {}),
+  };
+}
+
+/** Legend / picker icon tile. */
+export function calendarStateIconTileStyle(
+  state: DailyStatus,
+  style: CalendarColorStyle = currentStyle,
+  appearance: CalendarAppearance = currentAppearance,
+): CSSProperties {
+  const swatch = calendarStatePalette(style, appearance)[state];
+  return {
+    backgroundColor: swatch.fill,
+    color: style === 'dark' ? '#FFFFFF' : swatch.text,
+  };
+}
+
 export function calendarStateExcelSolidArgb(state: string | null | undefined): string {
-    if (!state || !(state in CALENDAR_STATE_CHART_VAR)) {
-        return 'FFFFFFFF';
-    }
-    const daily = state as DailyStatus;
-    const [h, s, l] = LIGHT_THEME_CHART_HSL[daily];
-    const rMix = CALENDAR_SOLID_BLACK_MIX_RATIO;
-    const sMix = s * (1 - rMix);
-    const lMix = l * (1 - rMix);
-    const { r, g, b } = hslToRgbBytes(h, sMix, lMix);
-    return `FF${byteToHex2(r)}${byteToHex2(g)}${byteToHex2(b)}`;
+  const swatch = calendarStateSwatch(state, currentStyle, 'light');
+  return swatch ? hexToArgb(swatch.fill) : 'FFFFFFFF';
 }
 
-/** Day cells, legend tiles, solid borders — theme-aware via `--calendar-state-mix*` in globals.css. */
-export function calendarStateSolid(state: DailyStatus): string {
-    const v = CALENDAR_STATE_CHART_VAR[state];
-    return `color-mix(in hsl, hsl(var(--${v})), ${CALENDAR_SOLID_MIX})`;
-}
-
-/**
- * Tinted wash for buttons and chrome. `opacityPercent` is how much of the darkened base to mix vs transparent
- * (higher = stronger tint), tuned to replace older `hsl(var(--chart-*) / 0.08)` style fills.
- */
-export function calendarStateWash(state: DailyStatus, opacityPercent: number): string {
-    const v = CALENDAR_STATE_CHART_VAR[state];
-    const base = `color-mix(in hsl, hsl(var(--${v})), ${CALENDAR_SOLID_MIX})`;
-    return `color-mix(in srgb, ${base} ${opacityPercent}%, transparent)`;
+export function calendarStateExcelTextArgb(state: string | null | undefined): string {
+  const swatch = calendarStateSwatch(state, currentStyle, 'light');
+  return swatch ? hexToArgb(swatch.text) : 'FF000000';
 }
 
 export function getCalendarStateChartVar(state: DailyStatus): string {
-    return CALENDAR_STATE_CHART_VAR[state];
+  return CALENDAR_STATE_CHART_VAR[state];
 }

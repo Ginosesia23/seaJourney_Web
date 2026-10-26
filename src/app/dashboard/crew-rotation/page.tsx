@@ -79,6 +79,7 @@ import {
   buildOffBoardDatesByUser,
   buildOwedDatesByUser,
   computeCrewOnboardSummary,
+  CREW_ROTATION_PLANNER_ENABLED,
   formatRotationShort,
   getEndOfOnBlock,
   getNextRotationTransition,
@@ -1084,12 +1085,14 @@ function CurrentlyOnboardPanel({
                 </FilterPill>
               )}
             </div>
+            {CREW_ROTATION_PLANNER_ENABLED && (
             <Button variant="outline" size="sm" onClick={onRunSync} disabled={isSyncing}>
               {isSyncing
                 ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
                 : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
               Sync with rotation
             </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1656,14 +1659,8 @@ export default function CrewRotationPage() {
     }
   }, [activeVesselId, isSyncing, loadData]);
 
-  // Run sync once after initial load (only if rotations exist)
-  const [hasSynced, setHasSynced] = useState(false);
-  useEffect(() => {
-    if (!isLoading && !hasSynced && rotations.length > 0) {
-      setHasSynced(true);
-      runSync();
-    }
-  }, [isLoading, hasSynced, rotations.length, runSync]);
+  // Rotation planner is parked — do not auto-sync onboard flags from it.
+  const [hasSynced, setHasSynced] = useState(true);
 
   // ---- Conflict dialog state -------------------------------------------
   // Opened when a manager toggles a row whose new value disagrees with
@@ -2386,6 +2383,7 @@ export default function CrewRotationPage() {
             </p>
           </div>
         </div>
+        {CREW_ROTATION_PLANNER_ENABLED && (
         <Button
           variant="outline"
           size="sm"
@@ -2397,6 +2395,7 @@ export default function CrewRotationPage() {
             : <RefreshCw className="mr-2 h-4 w-4" />}
           Sync with rotation
         </Button>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

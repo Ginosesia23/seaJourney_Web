@@ -72,6 +72,7 @@ export const VESSEL_LINKED_CORE_FEATURES: Array<{ label: string; description: st
   { label: 'Inbox', description: 'Sign-offs and messages' },
   { label: 'Past vessels', description: 'Assignment history and resume past service' },
   { label: 'Profile', description: 'This linked login’s account' },
+  { label: 'Data & privacy', description: 'How we store and use account data' },
   { label: 'Career documents', description: 'Documents generated for them' },
   { label: 'Signature', description: 'Sign documents for the vessel', captainOnly: true },
   { label: 'Sea-time requests', description: 'Approve crew sea-time access', captainOnly: true },
@@ -83,6 +84,8 @@ export const VESSEL_LINKED_CORE_HREFS = [
   '/dashboard/current',
   '/dashboard/calendar',
   '/dashboard/profile',
+  '/dashboard/privacy',
+  '/dashboard/settings',
   '/dashboard/inbox',
   '/dashboard/training-signoffs',
   '/dashboard/feedback',
@@ -100,6 +103,8 @@ export const CREW_LIMITED_ALLOWED_HREFS = [
   '/dashboard/current',
   '/dashboard/calendar',
   '/dashboard/profile',
+  '/dashboard/privacy',
+  '/dashboard/settings',
   '/dashboard/inbox',
   '/dashboard/training-signoffs',
   '/dashboard/feedback',
@@ -333,6 +338,10 @@ export function vesselLinkedOwnedVesselId(profile: unknown): string | null {
 function hrefMatchesPath(pathname: string, href: string): boolean {
   const path = pathname.split('?')[0].replace(/\/$/, '') || pathname;
   if (href === '/dashboard') return path === '/dashboard';
+  // Settings is a page, not a folder grant — do not unlock /settings/signature.
+  if (href === '/dashboard/settings') {
+    return path === '/dashboard/settings' || path === '/dashboard/settings/calendar';
+  }
   return path === href || path.startsWith(`${href}/`);
 }
 

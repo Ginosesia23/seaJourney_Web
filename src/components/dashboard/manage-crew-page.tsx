@@ -85,8 +85,8 @@ import {
 import type { CrewRotation } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import {
+  CREW_ROTATION_PLANNER_ENABLED,
   formatRotationShort,
-  getNextRotationTransition,
   getRotationStatus,
   manualSignOffOverrideUntil,
   ONBOARD_TOGGLE_LEAVE_MARKER,
@@ -658,7 +658,7 @@ function SortableRow({
                                         Open details
                                     </DropdownMenuItem>
                                 )}
-                                {isVesselManager && (
+                                {isVesselManager && CREW_ROTATION_PLANNER_ENABLED && (
                                     <DropdownMenuItem asChild>
                                         <Link href="/dashboard/crew-rotation">
                                             <Ship className="mr-2 h-4 w-4" />
@@ -1672,7 +1672,11 @@ export default function CrewPage() {
     // trigger on the rotation page itself.
     useEffect(() => {
         const vesselId = currentUserProfile?.activeVesselId;
-        if (currentUserProfile?.role !== 'vessel' || !vesselId) {
+        if (
+            !CREW_ROTATION_PLANNER_ENABLED ||
+            currentUserProfile?.role !== 'vessel' ||
+            !vesselId
+        ) {
             setCrewRotations([]);
             setHasRunRotationSync(false);
             return;
@@ -1687,35 +1691,7 @@ export default function CrewPage() {
                 const list: CrewRotation[] = json.rotations ?? [];
                 setCrewRotations(list);
 
-                // Run sync once per vessel session — only if rotations exist.
-                if (list.length > 0 && !hasRunRotationSync) {
-                    setHasRunRotationSync(true);
-                    try {
-                        const sync = await fetch('/api/crew-rotation/sync', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ vesselId }),
-                        });
-                        const syncJson = await sync.json();
-                        const updates: Array<{ to: boolean }> = syncJson.updated ?? [];
-                        if (updates.length > 0) {
-                            // Server flipped some onboard flags — refresh the crew
-                            // list so the UI matches the database.
-                            setCrewRefreshTrigger((n) => n + 1);
-                            const movedOn = updates.filter((u) => u.to).length;
-                            const movedOff = updates.filter((u) => !u.to).length;
-                            const parts: string[] = [];
-                            if (movedOn > 0) parts.push(`${movedOn} moved on-board`);
-                            if (movedOff > 0) parts.push(`${movedOff} moved off-board`);
-                            toast({
-                                title: 'Rotation sync',
-                                description: parts.join(', ') + ' based on the rotation pattern.',
-                            });
-                        }
-                    } catch (err) {
-                        console.warn('[CREW PAGE] rotation sync failed (non-fatal):', err);
-                    }
-                }
+                // Rotation planner is parked — do not sync onboard flags from it.
             } catch (err) {
                 console.warn('[CREW PAGE] rotation fetch failed (non-fatal):', err);
             }
@@ -1753,15 +1729,7 @@ export default function CrewPage() {
             const newValue = !previousValue;
             const vesselId = currentUserProfile.activeVesselId;
             const crewUserId = member.profile.id;
-            const rotation = effectiveRotationFor(crewUserId);
-            const todayStatus = rotation ? getRotationStatus(rotation, new Date()) : null;
-
-            const leaveEndDate =
-                !newValue && rotation && todayStatus === 'off'
-                    ? getNextRotationTransition(rotation, new Date())
-                    : !newValue
-                      ? manualSignOffOverrideUntil()
-                      : null;
+            const leaveEndDate = !newValue ? manualSignOffOverrideUntil() : null;
             const overrideUntil = newValue ? null : manualSignOffOverrideUntil();
 
             setTogglingOnboardIds((prev) => {
@@ -1808,11 +1776,18 @@ export default function CrewPage() {
                     );
                 }
 
+                const crewLogsSynced = Boolean(
+                    (payload as { crewLogsSynced?: boolean }).crewLogsSynced,
+                );
                 toast({
                     title: newValue ? 'Marked onboard' : 'Marked off-board',
                     description: newValue
-                        ? 'Onboard status updated. The crew member has been notified.'
-                        : 'Leave recorded on the crew and vessel calendars. The crew member has been notified.',
+                        ? crewLogsSynced
+                            ? 'Onboard status updated and their leave day was cleared.'
+                            : 'Onboard status updated. Their personal log is unchanged until they grant sea-time access.'
+                        : crewLogsSynced
+                            ? 'They are off-board and their sea-time record now shows on leave.'
+                            : 'They are off-board on the vessel. Their personal log updates once they grant sea-time access.',
                 });
                 try {
                     const leaveRes = await fetch(
@@ -1851,7 +1826,7 @@ export default function CrewPage() {
                 });
             }
         },
-        [supabase, currentUserProfile?.role, currentUserProfile?.activeVesselId, effectiveRotationFor],
+        [supabase, currentUserProfile?.role, currentUserProfile?.activeVesselId],
     );
 
     // Fetch access requests for crew members (vessel managers only)

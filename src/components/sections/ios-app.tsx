@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Smartphone, BookOpen, ArrowRight, CheckCircle2, Ship, Anchor, Building, LifeBuoy, Waves } from 'lucide-react';
 import { AppStoreIcon } from '@/components/sections/cta';
 import { motion, AnimatePresence } from 'framer-motion';
+import { CALENDAR_STATE_COLORS } from '@/lib/calendar-state-colors';
 
 const features = [
   'Log sea time on the go',
@@ -35,10 +36,10 @@ const iosAppFeatures = [
 type VesselState = 'underway' | 'at-anchor' | 'in-port' | 'on-leave';
 
 const vesselStates = {
-  'underway': { name: 'Underway', icon: Waves, color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.3)' },
-  'at-anchor': { name: 'At Anchor', icon: Anchor, color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.15)', borderColor: 'rgba(249, 115, 22, 0.3)' },
-  'in-port': { name: 'Moored', icon: Building, color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.3)' },
-  'on-leave': { name: 'On Leave', icon: LifeBuoy, color: '#f59e0b', bgColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)' },
+  'underway': { name: 'Underway', icon: Waves, color: CALENDAR_STATE_COLORS.underway.text, bgColor: CALENDAR_STATE_COLORS.underway.fill, borderColor: CALENDAR_STATE_COLORS.underway.today },
+  'at-anchor': { name: 'At Anchor', icon: Anchor, color: CALENDAR_STATE_COLORS['at-anchor'].text, bgColor: CALENDAR_STATE_COLORS['at-anchor'].fill, borderColor: CALENDAR_STATE_COLORS['at-anchor'].today },
+  'in-port': { name: 'Moored', icon: Building, color: CALENDAR_STATE_COLORS['in-port'].text, bgColor: CALENDAR_STATE_COLORS['in-port'].fill, borderColor: CALENDAR_STATE_COLORS['in-port'].today },
+  'on-leave': { name: 'On Leave', icon: LifeBuoy, color: CALENDAR_STATE_COLORS['on-leave'].text, bgColor: CALENDAR_STATE_COLORS['on-leave'].fill, borderColor: CALENDAR_STATE_COLORS['on-leave'].today },
 };
 
 const IOSApp = () => {
@@ -209,14 +210,15 @@ const IOSApp = () => {
                                 <motion.div 
                                 className="h-8 w-8 rounded-lg flex items-center justify-center"
                                   style={{ 
-                                    backgroundColor: isActive ? state.color : 'rgba(148, 163, 184, 0.2)'
+                                    backgroundColor: isActive ? state.bgColor : 'rgba(148, 163, 184, 0.2)',
+                                    color: isActive ? state.color : undefined,
                                   }}
                                   animate={{
                                     scale: isActive ? [1, 1.1, 1] : 1,
                                   }}
                                   transition={{ duration: 0.3 }}
                               >
-                                  <StateIcon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                                  <StateIcon className={`h-4 w-4 ${isActive ? '' : 'text-slate-400'}`} />
                                 </motion.div>
                                 <p className={`text-xs font-medium ${isActive ? 'text-white' : 'text-slate-400'}`}>
                                   {state.name}

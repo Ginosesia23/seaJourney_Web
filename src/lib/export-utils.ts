@@ -7,7 +7,10 @@ import type { SeaTimeReportData } from '@/app/actions';
 import { format, parse, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
-import { calendarStateExcelSolidArgb } from '@/lib/calendar-state-colors';
+import {
+  calendarStateExcelSolidArgb,
+  calendarStateExcelTextArgb,
+} from '@/lib/calendar-state-colors';
 import { calculateStandbyDays } from './standby-calculation';
 import { countsAtAnchorAsSeaService } from './maritime-positions';
 
@@ -260,8 +263,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
   const passageYesFill = mixArgbTowardWhite('FF2563EB', 0.34);
   const watchYesFill = mixArgbTowardWhite('FFFACC15', 0.62);
   const standbyYesFill = mixArgbTowardWhite('FF7629BB', 0.32);
-  /** State column: tinted like calendarStateWash-style chips on a white ground */
-  const stateFillColorWeight = 0.38;
+  /** State column uses the calendar day-square fill and text hex. */
 
   // Create a sheet for each month
   for (const monthKey of sortedMonths) {
@@ -359,8 +361,7 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
 
           // State column (column 3)
           if (colNumber === 3) {
-            const solid = calendarStateExcelSolidArgb(log.state);
-            const fillArgb = solid === 'FFFFFFFF' ? solid : mixArgbTowardWhite(solid, stateFillColorWeight);
+            const fillArgb = calendarStateExcelSolidArgb(log.state);
             cell.fill = {
               type: 'pattern' as const,
               pattern: 'solid' as const,
@@ -369,7 +370,9 @@ export async function exportToExcelXML(data: SeaTimeReportData): Promise<void> {
             cell.font = {
               ...cell.font,
               bold: true,
-              ...(fillArgb !== 'FFFFFFFF' ? { color: { argb: fontArgbForFill(fillArgb) } } : {}),
+              ...(fillArgb !== 'FFFFFFFF'
+                ? { color: { argb: calendarStateExcelTextArgb(log.state) } }
+                : {}),
             };
           }
 
@@ -946,15 +949,13 @@ export async function exportMasterDocExcel(data: SeaTimeReportData): Promise<voi
       ]);
 
       if (log.state) {
-        const solid = calendarStateExcelSolidArgb(log.state);
-        const fill = mixArgbTowardWhite(solid, 0.38);
         row.getCell(3).fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: fill },
+          fgColor: { argb: calendarStateExcelSolidArgb(log.state) },
         };
         row.getCell(3).font = {
-          color: { argb: fontArgbForFill(fill) },
+          color: { argb: calendarStateExcelTextArgb(log.state) },
           bold: true,
           size: 10,
         };

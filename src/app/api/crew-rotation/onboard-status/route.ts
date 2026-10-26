@@ -4,6 +4,7 @@ import { format, parseISO, startOfDay } from 'date-fns';
 import {
   applyOnboardToggleToCrewLogs,
   closeOnboardToggleLeave,
+  hasApprovedSeaTimeAccess,
   notifyCrewOnboardChange,
   openOrExtendOnboardToggleLeave,
 } from '@/lib/crew-rotation/onboard-leave-side-effects';
@@ -15,7 +16,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
  *
  * Vessel manager marks a crew member on/off board. Updates the assignment,
  * opens/closes tagged leave periods, mirrors on-leave onto the crew member's
- * daily_state_logs when they have approved sea-time access, and notifies them.
+ * daily_state_logs only when they have approved sea-time access, and notifies them.
  *
  * Body:
  *   assignmentId, vesselId, crewUserId, onboard,
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest) {
     let leaveAction: string | null = null;
     let logsResult: Awaited<ReturnType<typeof applyOnboardToggleToCrewLogs>> | null =
       null;
+    const canWriteCrewLogs = await hasApprovedSeaTimeAccess(crewUserId, vesselId);
 
     if (previousOnboard !== onboard) {
       if (!(skipSignOffLeave && !onboard)) {
@@ -170,18 +172,21 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      logsResult = await applyOnboardToggleToCrewLogs({
-        crewUserId,
-        vesselId,
-        onboard,
-        leaveEndIso,
-      });
+      if (canWriteCrewLogs) {
+        logsResult = await applyOnboardToggleToCrewLogs({
+          crewUserId,
+          vesselId,
+          onboard,
+          leaveEndIso,
+        });
+      }
 
       // Always notify on a real status flip — fire-and-forget style.
       void notifyCrewOnboardChange({
         crewUserId,
         vesselId,
         onboard,
+        crewLogsSynced: Boolean(logsResult?.applied),
       });
     }
 
@@ -191,6 +196,7 @@ export async function POST(req: NextRequest) {
       onboard,
       leaveAction,
       logs: logsResult,
+      crewLogsSynced: Boolean(logsResult?.applied),
       notified: previousOnboard !== onboard,
     });
   } catch (err: unknown) {

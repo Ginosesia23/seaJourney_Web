@@ -20,7 +20,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { calendarStateSolid, STANDBY_INDICATOR_COLOR } from '@/lib/calendar-state-colors';
+import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import { calendarStandbyIndicatorColor, calendarStateSolid } from '@/lib/calendar-state-colors';
 import type { DailyStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -101,7 +102,7 @@ export function buildMonthSummaryItems(opts: {
       label: 'Standby days',
       shortLabel: 'Standby',
       count: opts.counts.standby || 0,
-      color: STANDBY_INDICATOR_COLOR,
+      color: calendarStandbyIndicatorColor(),
       Icon: Clock,
     });
   }
@@ -131,6 +132,7 @@ export function MonthStateSummary({
   className,
   title = 'Month summary',
 }: MonthStateSummaryProps) {
+  useCalendarColorStyle();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const isControlled = openControlled !== undefined;
   const open = isControlled ? openControlled : uncontrolledOpen;

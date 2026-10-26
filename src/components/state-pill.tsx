@@ -1,14 +1,16 @@
 'use client';
 
+import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import { calendarStateSwatch } from '@/lib/calendar-state-colors';
 import { cn } from '@/lib/utils';
 
-/** CSS variable refs for use with alpha, e.g. hsl(var(--chart-blue) / 0.15) */
+/** Text/icon hex for each logged state. */
 export const STATE_COLORS: Record<string, string> = {
-  underway: 'var(--chart-blue)',
-  'at-anchor': 'var(--chart-orange)',
-  'in-port': 'var(--chart-green)',
-  'on-leave': 'var(--chart-gray)',
-  'in-yard': 'var(--chart-red)',
+  underway: '#3EA7F5',
+  'at-anchor': '#F87416',
+  'in-port': '#41A060',
+  'on-leave': '#667071',
+  'in-yard': '#B93D30',
 };
 
 export const STATE_LABELS: Record<string, string> = {
@@ -28,10 +30,11 @@ interface StatePillProps {
 }
 
 export function StatePill({ stateKey, label, className }: StatePillProps) {
+  useCalendarColorStyle();
   if (!stateKey) return null;
-  const varRef = STATE_COLORS[stateKey];
+  const swatch = calendarStateSwatch(stateKey);
   const text = label ?? STATE_LABELS[stateKey] ?? stateKey;
-  if (!varRef) {
+  if (!swatch) {
     return (
       <span className={cn('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium', className)}>
         {text}
@@ -45,9 +48,9 @@ export function StatePill({ stateKey, label, className }: StatePillProps) {
         className
       )}
       style={{
-        backgroundColor: `hsl(${varRef} / 0.15)`,
-        borderColor: `hsl(${varRef} / 0.4)`,
-        color: `hsl(${varRef})`,
+        backgroundColor: swatch.fill,
+        borderColor: swatch.accent,
+        color: swatch.text,
       }}
     >
       {text}

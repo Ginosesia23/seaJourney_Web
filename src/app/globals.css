@@ -48,16 +48,15 @@
     --sidebar-border: 209 47% 18%;
     --sidebar-ring: 213 90% 60%;
 
-    /* Chart Colors — +5% lightness vs previous for calendar / legend */
-    --chart-blue: 213 60% 60%;
-    --chart-orange: 25 95% 58%;
-    --chart-green: 142 76% 41%;
-    --chart-gray: 213 15% 55%;
-    --chart-red: 0 84% 65%;
+    /* Chart / state colors — text+icon hex from the calendar palette */
+    --chart-blue: 206 90% 60%;   /* Underway #3EA7F5 */
+    --chart-orange: 25 94% 53%;  /* At Anchor #F87416 */
+    --chart-green: 140 42% 44%;  /* Moored #41A060 */
+    --chart-gray: 186 27% 42%;   /* On Leave #667071 */
+    --chart-red: 6 59% 46%;      /* Yard #B93D30 */
     /* Standby (MCA-style counted days) — distinct from at-anchor state (orange) */
     --chart-purple: 270 55% 53%;
 
-    /* State solids: mix chart toward black (same idea as pre-wash tweak) */
     --calendar-state-mix: black;
     --calendar-state-mix-pct: 16%;
   }
@@ -106,12 +105,12 @@
     --sidebar-border: 209 47% 18%;
     --sidebar-ring: 213 90% 60%;
 
-     /* Chart Colors */
-    --chart-blue: 205 90% 70%;
-    --chart-orange: 25 95% 60%;
-    --chart-green: 142 76% 46%;
-    --chart-gray: 215 14% 54%;
-    --chart-red: 0 84% 70%;
+     /* Chart / state colors — same hex palette as light */
+    --chart-blue: 206 90% 60%;
+    --chart-orange: 25 94% 53%;
+    --chart-green: 140 42% 44%;
+    --chart-gray: 186 27% 42%;
+    --chart-red: 6 59% 46%;
     --chart-purple: 270 50% 68%;
 
     --calendar-state-mix: black;

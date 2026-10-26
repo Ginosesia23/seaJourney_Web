@@ -22,6 +22,12 @@ import { addDays, addMonths, addWeeks, differenceInDays, format, parseISO, start
 
 import type { CrewRotation, RotationUnit } from './types';
 
+/**
+ * Rotation / leave planner is parked. It was overwriting the onboard
+ * toggle. Set this back to true when we resume the feature.
+ */
+export const CREW_ROTATION_PLANNER_ENABLED = false;
+
 /** Schema shape used by server-side code that reads from the DB directly
  *  (snake_case columns). Keep in sync with the `crew_rotations` table. */
 export interface CrewRotationRow {

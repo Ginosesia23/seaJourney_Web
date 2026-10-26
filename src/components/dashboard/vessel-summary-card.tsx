@@ -7,13 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Ship, Anchor, Calendar, Waves, Building, Briefcase, Wrench, PlayCircle, Loader2, Trash2, CreditCard, Pencil, Users } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
+import { calendarStateSolid } from '@/lib/calendar-state-colors';
 
 const vesselStates: { value: string; label: string, color: string, icon: React.FC<any> }[] = [
-    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
-    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-    { value: 'in-port', label: 'Moored', color: 'hsl(var(--chart-green))', icon: Building },
-    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Wrench },
+    { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
+    { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor'), icon: Anchor },
+    { value: 'in-port', label: 'Moored', color: calendarStateSolid('in-port'), icon: Building },
+    { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave'), icon: Briefcase },
+    { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard'), icon: Wrench },
 ];
 
 type VesselSummary = {

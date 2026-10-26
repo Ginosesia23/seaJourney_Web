@@ -14,6 +14,8 @@ import {
   InboxViewTabs,
 } from '@/components/dashboard/inbox-page-ui';
 import { VesselSentRequestsPanel } from '@/components/dashboard/vessel-sent-requests-panel';
+import { InboxRemoveButton } from '@/components/dashboard/inbox-remove-button';
+import { inboxHideKey, readHiddenInboxKeys } from '@/lib/inbox-hidden';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -200,6 +202,35 @@ export default function InboxPage() {
   const isAdmin = useMemo(() => {
     return userProfile?.role?.toLowerCase() === 'admin';
   }, [userProfile]);
+
+  const hiddenInboxKeys = useMemo(() => {
+    const keys = readHiddenInboxKeys(user?.id);
+    const fromProfile =
+      (userProfileRaw as { inbox_hidden_items?: unknown; inboxHiddenItems?: unknown } | null)
+        ?.inboxHiddenItems ??
+      (userProfileRaw as { inbox_hidden_items?: unknown } | null)?.inbox_hidden_items;
+    if (Array.isArray(fromProfile)) {
+      for (const key of fromProfile) {
+        if (typeof key === 'string') keys.add(key);
+      }
+    }
+    return keys;
+  }, [user?.id, userProfileRaw]);
+
+  const visibleSeaTimeRequests = useMemo(
+    () => seaTimeRequests.filter((request) => !hiddenInboxKeys.has(inboxHideKey('sea_time', request.id))),
+    [hiddenInboxKeys, seaTimeRequests],
+  );
+  const visiblePlanCoverageRequests = useMemo(
+    () =>
+      planCoverageRequests.filter((request) => !hiddenInboxKeys.has(inboxHideKey('plan_coverage', request.id))),
+    [hiddenInboxKeys, planCoverageRequests],
+  );
+  const visibleCaptaincyRequests = useMemo(
+    () =>
+      captaincyRequests.filter((request) => !hiddenInboxKeys.has(inboxHideKey('captaincy', request.id))),
+    [captaincyRequests, hiddenInboxKeys],
+  );
 
   const isVesselAccount = useMemo(() => {
     if (!userProfile) return false;
@@ -2244,9 +2275,9 @@ export default function InboxPage() {
   };
 
   const vesselIncomingCount =
-    seaTimeRequests.length +
-    planCoverageRequests.length +
-    captaincyRequests.length +
+    visibleSeaTimeRequests.length +
+    visiblePlanCoverageRequests.length +
+    visibleCaptaincyRequests.length +
     testimonials.length +
     trainingSignoffs.length;
 
@@ -2468,7 +2499,7 @@ export default function InboxPage() {
             testimonials.length > 0 || 
             approvedTestimonials.length > 0 ||
             trainingSignoffs.length > 0 ||
-            (isVesselRole && (seaTimeRequests.length > 0 || planCoverageRequests.length > 0 || captaincyRequests.length > 0)) ||
+            (isVesselRole && (visibleSeaTimeRequests.length > 0 || visiblePlanCoverageRequests.length > 0 || visibleCaptaincyRequests.length > 0)) ||
             vesselSeaTimeAccessRequests.length > 0 ||
             vesselSeaTimeOffers.length > 0
           ));
@@ -2647,7 +2678,7 @@ export default function InboxPage() {
             const userRole = userProfile?.role?.toLowerCase() || '';
             const isVesselRole = userRole === 'vessel';
             const userIsAdmin = userRole === 'admin';
-            const hasRequests = captaincyRequests.length > 0;
+            const hasRequests = visibleCaptaincyRequests.length > 0;
             const shouldShow = (userIsAdmin || isVesselRole) && hasRequests;
             
             // Removed debug log for vessel accounts
@@ -2676,14 +2707,14 @@ export default function InboxPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {captaincyRequests.length === 0 ? (
+                      {visibleCaptaincyRequests.length === 0 ? (
                         <TableRow className="border-border bg-background hover:bg-muted/40">
                           <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                             No requests found
                           </TableCell>
                         </TableRow>
                       ) : (
-                        captaincyRequests.map((request) => {
+                        visibleCaptaincyRequests.map((request) => {
                           const vesselApproved = !!request.vessel_approved_by;
                           const adminApproved = !!request.admin_approved_by;
                           const userRoleForApprove = userProfile?.role?.toLowerCase() || '';
@@ -2755,6 +2786,17 @@ export default function InboxPage() {
                                   <XCircle className="h-4 w-4 mr-2" />
                                   Reject
                                 </Button>
+                                {isVesselAccount && (
+                                  <InboxRemoveButton
+                                    kind="captaincy"
+                                    id={request.id}
+                                    accessToken={session?.access_token}
+                                    userId={user?.id}
+                                    onRemoved={() =>
+                                      setCaptaincyRequests((prev) => prev.filter((row) => row.id !== request.id))
+                                    }
+                                  />
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -2768,7 +2810,7 @@ export default function InboxPage() {
           ) : null}
 
           {/* Sea Time Requests Section (Vessel accounts only) */}
-          {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && seaTimeRequests.length > 0 && (
+          {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && visibleSeaTimeRequests.length > 0 && (
             <InboxSection
               title="Sea time requests"
               description="Review and approve requests from crew members to copy vessel sea time logs."
@@ -2786,7 +2828,7 @@ export default function InboxPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {seaTimeRequests.map((request) => (
+                      {visibleSeaTimeRequests.map((request) => (
                         <TableRow key={request.id} className="border-border bg-background hover:bg-muted/40">
                           <TableCell>
                             <div>
@@ -2852,20 +2894,29 @@ export default function InboxPage() {
                                 <CheckCircle2 className="h-4 w-4 mr-2" />
                                 Approve
                               </Button>
-                              <Button
-                                onClick={() => {
-                                  setSelectedSeaTimeRequest(request);
-                                  setAction('reject');
-                                  setIsSeaTimeDialogOpen(true);
-                                }}
-                                size="sm"
-                                variant="destructive"
-                                className="h-8 rounded-md text-xs"
-                              >
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Reject
-                              </Button>
-                            </div>
+                                <Button
+                                  onClick={() => {
+                                    setSelectedSeaTimeRequest(request);
+                                    setAction('reject');
+                                    setIsSeaTimeDialogOpen(true);
+                                  }}
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-8 rounded-md text-xs"
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Reject
+                                </Button>
+                                <InboxRemoveButton
+                                  kind="sea_time"
+                                  id={request.id}
+                                  accessToken={session?.access_token}
+                                  userId={user?.id}
+                                  onRemoved={() =>
+                                    setSeaTimeRequests((prev) => prev.filter((row) => row.id !== request.id))
+                                  }
+                                />
+                              </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -2876,7 +2927,7 @@ export default function InboxPage() {
           )}
 
           {/* Plan coverage: crew wants to fall under vessel subscription */}
-          {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && planCoverageRequests.length > 0 && (
+          {!isAdmin && userProfile?.role?.toLowerCase() === 'vessel' && visiblePlanCoverageRequests.length > 0 && (
             <InboxSection
               title="Plan coverage requests"
               description="Crew members asking to pause their personal SeaJourney plan while using your vessel subscription. Approve only people who are actually on your vessel."
@@ -2893,7 +2944,7 @@ export default function InboxPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {planCoverageRequests.map((request) => {
+                      {visiblePlanCoverageRequests.map((request) => {
                         const crew = request.crew;
                         const name =
                           [crew?.first_name, crew?.last_name].filter(Boolean).join(' ').trim() ||
@@ -2948,6 +2999,17 @@ export default function InboxPage() {
                                   <XCircle className="h-4 w-4 mr-2" />
                                   Decline
                                 </Button>
+                                <InboxRemoveButton
+                                  kind="plan_coverage"
+                                  id={request.id}
+                                  accessToken={session?.access_token}
+                                  userId={user?.id}
+                                  onRemoved={() =>
+                                    setPlanCoverageRequests((prev) =>
+                                      prev.filter((row) => row.id !== request.id),
+                                    )
+                                  }
+                                />
                               </div>
                             </TableCell>
                           </TableRow>

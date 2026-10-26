@@ -6,15 +6,16 @@ import { Smartphone, Monitor, RefreshCw, ArrowRight, CheckCircle2, Ship, Calenda
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { AppStoreIcon } from '@/components/sections/cta';
+import { CALENDAR_STATE_COLORS } from '@/lib/calendar-state-colors';
 
 type VesselState = 'underway' | 'at-anchor' | 'in-port' | 'on-leave' | 'in-yard';
 
 const vesselStates = {
-  'underway': { name: 'Underway', icon: Waves, color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.3)' },
-  'at-anchor': { name: 'At Anchor', icon: Anchor, color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.15)', borderColor: 'rgba(249, 115, 22, 0.3)' },
-  'in-port': { name: 'Moored', icon: Building, color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.3)' },
-  'on-leave': { name: 'On Leave', icon: Briefcase, color: '#6b7280', bgColor: 'rgba(107, 114, 128, 0.15)', borderColor: 'rgba(107, 114, 128, 0.3)' },
-  'in-yard': { name: 'In Yard', icon: Wrench, color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.3)' },
+  'underway': { name: 'Underway', icon: Waves, ...CALENDAR_STATE_COLORS.underway, color: CALENDAR_STATE_COLORS.underway.text },
+  'at-anchor': { name: 'At Anchor', icon: Anchor, ...CALENDAR_STATE_COLORS['at-anchor'], color: CALENDAR_STATE_COLORS['at-anchor'].text },
+  'in-port': { name: 'Moored', icon: Building, ...CALENDAR_STATE_COLORS['in-port'], color: CALENDAR_STATE_COLORS['in-port'].text },
+  'on-leave': { name: 'On Leave', icon: Briefcase, ...CALENDAR_STATE_COLORS['on-leave'], color: CALENDAR_STATE_COLORS['on-leave'].text },
+  'in-yard': { name: 'In Yard', icon: Wrench, ...CALENDAR_STATE_COLORS['in-yard'], color: CALENDAR_STATE_COLORS['in-yard'].text },
 };
 
 const Hero = () => {
@@ -162,14 +163,16 @@ const Hero = () => {
                                     : 'bg-gray-100 hover:bg-gray-200'
                                 }`}
                                 style={{
-                                  backgroundColor: isActive ? state.color : undefined,
+                                  backgroundColor: isActive ? state.fill : undefined,
+                                  color: isActive ? state.color : undefined,
+                                  boxShadow: isActive ? `inset 0 0 0 1.5px ${state.today}` : undefined,
                                 }}
                               >
                                 <Icon className={`h-3.5 w-3.5 mx-auto mb-0.5 ${
-                                  isActive ? 'text-white' : 'text-gray-600'
+                                  isActive ? '' : 'text-gray-600'
                                 }`} />
                                 <p className={`text-[9px] font-medium leading-tight ${
-                                  isActive ? 'text-white' : 'text-gray-700'
+                                  isActive ? '' : 'text-gray-700'
                                 }`}>{state.name}</p>
                               </motion.button>
                             );
@@ -221,9 +224,12 @@ const Hero = () => {
                                     className={`h-6 w-6 rounded-full flex items-center justify-center shadow-sm ${
                                       hasPurpleOutline ? 'ring-1.5 ring-purple-500 ring-offset-0' : ''
                                     }`} 
-                                    style={{ backgroundColor: '#22c55e' }}
+                                    style={{
+                                      backgroundColor: CALENDAR_STATE_COLORS['in-port'].fill,
+                                      color: CALENDAR_STATE_COLORS['in-port'].text,
+                                    }}
                                   >
-                                    <span className="text-[9px] font-bold text-white">{day}</span>
+                                    <span className="text-[9px] font-bold">{day}</span>
                                   </div>
                                 </div>
                               );
@@ -232,9 +238,13 @@ const Hero = () => {
                             <div className="aspect-square flex items-center justify-center">
                               <div 
                                 className="h-6 w-6 rounded-full flex items-center justify-center shadow-sm" 
-                                style={{ backgroundColor: vesselStates[selectedState].color }}
+                                style={{
+                                  backgroundColor: vesselStates[selectedState].fill,
+                                  color: vesselStates[selectedState].color,
+                                  boxShadow: `inset 0 0 0 1.5px ${vesselStates[selectedState].today}`,
+                                }}
                               >
-                                <span className="text-[9px] font-bold text-white">12</span>
+                                <span className="text-[9px] font-bold">12</span>
                               </div>
                             </div>
                             {/* Days 13-31 faded */}

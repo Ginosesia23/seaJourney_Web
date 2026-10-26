@@ -19,7 +19,15 @@ import { isVesselLinkedAccount } from '@/supabase/database/subscription-helpers'
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, Vessel, StateLog, DailyStatus, VesselAssignment, PassageLog } from '@/lib/types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
-import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
+import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import {
+  calendarDayCellStyle,
+  calendarStandbyIndicatorColor,
+  calendarStateFill,
+  calendarStateIconTileStyle,
+  calendarStateSolid,
+  calendarStateWash,
+} from '@/lib/calendar-state-colors';
 import {
   MonthStateSummary,
   buildMonthSummaryItems,
@@ -38,6 +46,7 @@ const vesselStates: { value: DailyStatus; label: string; color: string; icon: Re
 ];
 
 export default function CalendarPage() {
+  useCalendarColorStyle();
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedState, setSelectedState] = useState<DailyStatus | null>(null);
@@ -1694,7 +1703,10 @@ export default function CalendarPage() {
                           </div>
                         )}
                         {isCountedStandby && !hasWatch && (
-                          <div className="flex items-center gap-2 text-[#7629BB]">
+                          <div
+                            className="flex items-center gap-2"
+                            style={{ color: calendarStandbyIndicatorColor() }}
+                          >
                             <Clock className="h-3.5 w-3.5" />
                             <span>Counted as Standby</span>
                           </div>
@@ -1788,21 +1800,27 @@ export default function CalendarPage() {
                       isInRange && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && !isRangeStartOnly && "border-2 border-blue-500 border-solid",
                       // Range start/end dates when both are selected
                       (isRangeStart || isRangeEnd) && !isRangeStartOnly && !isPartOfActivePassage && !isCountedStandby && !hasWatch && !isAssignableDate && "border-2 border-blue-600 border-solid ring-2 ring-blue-500/30 ring-offset-1",
-                      isCurrentDay && !isInRange && !isAssignableDate && !isRangeStartOnly && !isInMultiSelect && "ring-2 ring-primary ring-offset-2",
+                      isCurrentDay && !stateInfo && !isInRange && !isAssignableDate && !isRangeStartOnly && !isInMultiSelect && "ring-2 ring-primary ring-offset-2",
                       // Assignable date outline (dashed border) - dates within assignment range but no state logged
                       isAssignableDate && !hasWatch && !isPartOfActivePassage && !isCountedStandby && !isInRange && !isRangeStartOnly && !isInMultiSelect && "border-2 border-dashed border-muted-foreground/40",
-                      stateInfo 
-                        ? "text-white" 
+                      stateInfo
+                        ? undefined
                         : isAssignableDate
                           ? "bg-muted/30 text-muted-foreground hover:bg-muted/50"
                           : "bg-muted/50 text-muted-foreground hover:bg-muted"
                     )}
                     style={
-                      // Primary state fill; watch/passage/standby use bottom strip
+                      // Pale day square + colored number; today uses the state outline
                       stateInfo 
                         ? { 
-                            backgroundColor: stateInfo.color,
-                            // Ensure blue border shows even when date has a state
+                            ...calendarDayCellStyle(stateInfo.value, {
+                              today:
+                                isCurrentDay &&
+                                !isInRange &&
+                                !isAssignableDate &&
+                                !isRangeStartOnly &&
+                                !isInMultiSelect,
+                            }),
                             ...(isRangeStartOnly ? { border: '2px solid hsl(217 91% 50%)', borderColor: 'hsl(217 91% 50%)' } : {})
                           } 
                         : isInRange 
@@ -1833,7 +1851,8 @@ export default function CalendarPage() {
                     )}
                     {secondaryIndicatorBar === 'standby' && (
                       <div
-                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-[#7629BB]"
+                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px]"
+                        style={{ backgroundColor: calendarStandbyIndicatorColor() }}
                         aria-hidden
                       />
                     )}
@@ -2075,9 +2094,9 @@ export default function CalendarPage() {
                 <div key={state.value} className="flex items-center gap-2">
                   <div
                     className="flex h-6 w-6 items-center justify-center rounded-[5px]"
-                    style={{ backgroundColor: state.color }}
+                    style={calendarStateIconTileStyle(state.value)}
                   >
-                    <StateIcon className="h-3.5 w-3.5 text-white" />
+                    <StateIcon className="h-3.5 w-3.5" />
                   </div>
                   <span className="text-xs font-medium">{state.label}</span>
                 </div>
@@ -2085,8 +2104,14 @@ export default function CalendarPage() {
             })}
             <div className="flex items-center gap-2">
               <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-[5px] border border-border bg-muted/40">
-                <Clock className="h-3 w-3 text-[#7629BB]" />
-                <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px] bg-[#7629BB]" />
+                <div
+                  className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px]"
+                  style={{ backgroundColor: calendarStandbyIndicatorColor() }}
+                />
+                <Clock
+                  className="relative z-[1] h-3 w-3"
+                  style={{ color: calendarStandbyIndicatorColor() }}
+                />
               </div>
               <span className="text-xs font-medium">
                 {isVesselAccount ? 'Standby (moored)' : 'Standby'}
@@ -2112,7 +2137,10 @@ export default function CalendarPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-[5px] border border-border bg-muted/40">
-                      <div className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px] bg-[#7629BB]" />
+                      <div
+                        className="absolute bottom-0 left-0 right-0 h-[20%] min-h-[2px] rounded-b-[5px]"
+                        style={{ backgroundColor: calendarStandbyIndicatorColor() }}
+                      />
                     </div>
                     <span>Counted as Standby (purple bottom bar)</span>
                   </div>
@@ -2121,8 +2149,8 @@ export default function CalendarPage() {
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
               {isVesselAccount
-                ? 'At-anchor days count as sea service and do not show standby. Qualifying moored days after a voyage show a purple standby bar. Part of active passage shows a blue bar along the bottom (~20% of the cell).'
-                : 'Dates marked as watch (officers only) show a yellow bottom bar. Part of active passage shows a blue bottom bar. Standby shows a purple bottom bar. Each bar uses about 20% of the cell height; the primary state color fills the rest.'}
+                ? 'At-anchor days count as sea service and do not show standby. Qualifying moored days after a voyage show a purple bar along the bottom (~20% of the cell). Part of active passage shows a blue bar along the bottom (~20% of the cell).'
+                : 'Dates marked as watch (officers only) show a yellow bottom bar. Part of active passage shows a blue bottom bar. Standby uses a purple bottom bar.'}
             </p>
           </div>
         </div>
@@ -2208,19 +2236,19 @@ export default function CalendarPage() {
                         : "hover:bg-muted/40"
                     )}
                     style={{
-                      backgroundColor: isSelected 
-                        ? calendarStateWash(state.value, 22) 
+                      backgroundColor: isSelected
+                        ? calendarStateFill(state.value)
                         : calendarStateWash(state.value, 12),
-                      borderColor: isSelected 
-                        ? state.color 
-                        : calendarStateWash(state.value, 52),
+                      borderColor: isSelected
+                        ? state.color
+                        : calendarStateWash(state.value, 32),
                     }}
                   >
                     <div
                       className="h-10 w-10 rounded-md flex items-center justify-center shadow-sm"
-                      style={{ backgroundColor: state.color }}
+                      style={calendarStateIconTileStyle(state.value)}
                     >
-                      <StateIcon className="h-5 w-5 text-white" />
+                      <StateIcon className="h-5 w-5" />
                     </div>
                     <span className="font-medium text-sm">{state.label}</span>
                     {isSelected && (

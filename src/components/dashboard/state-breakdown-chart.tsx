@@ -5,13 +5,14 @@ import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { Waves, Anchor, Building, Briefcase, Ship } from 'lucide-react';
+import { calendarStateSolid } from '@/lib/calendar-state-colors';
 
 const vesselStates: { value: string; label: string, color: string, icon: React.FC<any> }[] = [
-    { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))', icon: Waves },
-    { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))', icon: Anchor },
-    { value: 'in-port', label: 'Moored', color: 'hsl(var(--chart-green))', icon: Building },
-    { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))', icon: Briefcase },
-    { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))', icon: Ship },
+    { value: 'underway', label: 'Underway', color: calendarStateSolid('underway'), icon: Waves },
+    { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor'), icon: Anchor },
+    { value: 'in-port', label: 'Moored', color: calendarStateSolid('in-port'), icon: Building },
+    { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave'), icon: Briefcase },
+    { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard'), icon: Ship },
 ];
 
 interface ChartData {

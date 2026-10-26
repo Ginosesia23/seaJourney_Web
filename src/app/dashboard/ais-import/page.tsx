@@ -54,7 +54,8 @@ import {
   AisHistoryStatTiles,
 } from '@/components/dashboard/ais-history-page-ui';
 import { VesselPremiumFeatureGate } from '@/components/dashboard/vessel-premium-feature-gate';
-import { calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
+import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import { calendarStateFill, calendarStateSolid, calendarStateWash } from '@/lib/calendar-state-colors';
 import {
   AIS_HISTORY_MAX_DAYS,
   formatAisCoordinates,
@@ -139,6 +140,7 @@ export default function AISImportPage() {
   const { user } = useUser();
   const { session, supabase } = useSupabase();
   const { toast } = useToast();
+  useCalendarColorStyle();
 
   const { data: userProfileRaw, isLoading: isLoadingProfile } = useDoc<UserProfile>(
     'users',
@@ -1549,17 +1551,16 @@ function RawSampleRow({
 }
 
 function StatePill({ state, muted }: { state: DailyStatus; muted?: boolean }) {
+  useCalendarColorStyle();
   return (
     <span
       className={cn(
         'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
-        muted ? 'opacity-75' : 'text-white',
+        muted && 'opacity-75',
       )}
       style={{
-        backgroundColor: muted
-          ? calendarStateWash(state, 22)
-          : calendarStateSolid(state),
-        color: muted ? calendarStateSolid(state) : undefined,
+        backgroundColor: calendarStateFill(state),
+        color: calendarStateSolid(state),
       }}
     >
       {STATE_LABELS[state]}

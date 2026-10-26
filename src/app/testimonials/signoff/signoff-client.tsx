@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import { format, parse, eachDayOfInterval } from 'date-fns';
 import Link from 'next/link';
 import {
@@ -38,7 +39,12 @@ import {
 } from '@/components/ui/tooltip';
 import { DateComparisonView } from '@/app/dashboard/inbox/date-comparison-view';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
-import { calendarStateSolid } from '@/lib/calendar-state-colors';
+import {
+  calendarDayCellStyle,
+  calendarStandbyIndicatorColor,
+  calendarStateSolid,
+  setCalendarAppearance,
+} from '@/lib/calendar-state-colors';
 import { cn } from '@/lib/utils';
 import type { DailyStatus, StateLog } from '@/lib/types';
 import Logo from '@/components/logo';
@@ -356,7 +362,7 @@ function VesselBreakdownView({
               <span className="shrink-0 font-medium tabular-nums">{summary.passage}</span>
             </div>
             <div className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1.5">
-              <Clock className="h-3 w-3 shrink-0 text-[#7629BB]" />
+              <Clock className="h-3 w-3 shrink-0" style={{ color: calendarStandbyIndicatorColor() }} />
               <div className="min-w-0 flex-1 truncate text-muted-foreground">Standby</div>
               <span className="shrink-0 font-medium tabular-nums">{summary.standby}</span>
             </div>
@@ -557,7 +563,7 @@ function SignoffDayCell({
         </div>
       )}
       {isStandby && !isPassage && (
-        <div className="flex items-center gap-2 text-[#7629BB]">
+        <div className="flex items-center gap-2" style={{ color: calendarStandbyIndicatorColor() }}>
           <Clock className="h-3.5 w-3.5" />
           <span>Counted as Standby</span>
         </div>
@@ -572,15 +578,18 @@ function SignoffDayCell({
           <div
             className={cn(
               'relative h-full w-full overflow-hidden rounded-[6px] text-sm font-medium transition-all',
-              stateMeta
-                ? 'text-white'
-                : inRange
+              !stateMeta &&
+                (inRange
                   ? 'bg-muted/50 text-muted-foreground'
-                  : 'bg-transparent text-muted-foreground/50',
+                  : 'bg-transparent text-muted-foreground/50'),
               inRange && 'hover:scale-105 hover:shadow-md',
               !inRange && 'opacity-40',
             )}
-            style={stateMeta ? { backgroundColor: stateMeta.color } : undefined}
+            style={
+              stateMeta
+                ? calendarDayCellStyle(stateMeta.value)
+                : undefined
+            }
           >
             <div className="relative z-[1] flex h-full flex-col items-center justify-center">
               <span className="relative z-10 text-center">{format(date, 'd')}</span>
@@ -594,7 +603,8 @@ function SignoffDayCell({
             {indicator === 'standby' && (
               <div
                 aria-hidden
-                className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-[#7629BB]"
+                className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px]"
+                style={{ backgroundColor: calendarStandbyIndicatorColor() }}
               />
             )}
           </div>
@@ -611,6 +621,8 @@ export default function SignoffClient() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
   const email = searchParams.get('email');
+  const { resolvedTheme } = useTheme();
+  setCalendarAppearance(resolvedTheme === 'dark' ? 'dark' : 'light');
 
   const [testimonial, setTestimonial] = useState<TestimonialSummary | null>(null);
   const [loading, setLoading] = useState(true);

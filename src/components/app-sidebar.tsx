@@ -52,6 +52,8 @@ import {
   Wallet,
   TicketPercent,
   Target,
+  Shield,
+  Settings,
 } from "lucide-react"
 
 import {
@@ -196,6 +198,8 @@ const adminNavGroups: NavGroup[] = [
     title: "Account",
     items: [
       { href: "/dashboard/profile", label: "Account", icon: User, disabled: false },
+      { href: "/dashboard/settings", label: "Settings", icon: Settings, disabled: false },
+      { href: "/dashboard/privacy", label: "Data & privacy", icon: Shield, disabled: false },
     ],
   },
   {
@@ -267,7 +271,7 @@ const navGroups: NavGroup[] = [
       { href: "/dashboard/crew", label: "Manage crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/crew-roles", label: "Assign roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] },
       { href: "/dashboard/requests", label: "Sea-time requests", icon: ClipboardList, requiredRole: "captain", disabled: false },
-      { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'], featureFlag: 'crew_rotation' },
+      { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'], featureFlag: 'crew_rotation' },
     ]
   },
   {
@@ -277,6 +281,8 @@ const navGroups: NavGroup[] = [
       { href: "/dashboard/profile", label: "Vessel profile", icon: Ship, disabled: false, requiredRole: "vessel", hideForRoles: ['captain'] },
       { href: "/dashboard/vessel-roles", label: "Team accounts", icon: UserCog, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'], featureFlag: 'vessel_team_accounts' },
       { href: "/dashboard/settings/signature", label: "Signature", icon: PenTool, requiredRole: "captain", disabled: false, hideForRoles: ['vessel'] },
+      { href: "/dashboard/settings", label: "Settings", icon: Settings, disabled: false },
+      { href: "/dashboard/privacy", label: "Data & privacy", icon: Shield, disabled: false },
     ]
   },
   {

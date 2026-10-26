@@ -57,6 +57,10 @@ export interface UserProfile {
   personalPlanPausedTier?: string | null;
   personalPlanPausedSubscriptionId?: string | null;
   personalPlanPausedForVesselId?: string | null;
+  /** Calendar day palette: pale squares or the previous saturated fills. */
+  calendarColorStyle?: 'light' | 'dark' | null;
+  /** Inbox items this vessel account has cleared from the list. */
+  inboxHiddenItems?: string[] | null;
 }
 
 /** Roles a vessel manager (Pro/Fleet tier) can create as a linked secondary account. */

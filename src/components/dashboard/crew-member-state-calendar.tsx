@@ -31,7 +31,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { calendarStateSolid } from '@/lib/calendar-state-colors';
+import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import { calendarStandbyIndicatorColor, calendarStateSolid } from '@/lib/calendar-state-colors';
 import {
   CALENDAR_ALL_STATES,
   CALENDAR_STATE_LABELS,
@@ -228,6 +229,7 @@ export function CrewMemberStateCalendar({
   crewDisplayName,
   crewPosition,
 }: Props) {
+  useCalendarColorStyle();
   const todayIso = format(new Date(), 'yyyy-MM-dd');
   const effectiveEnd =
     rangeEnd && rangeEnd < todayIso ? rangeEnd : todayIso;
@@ -817,7 +819,10 @@ export function CrewMemberStateCalendar({
             ))}
             <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs">
               <span className="relative h-2.5 w-2.5 overflow-hidden rounded-[3px] bg-muted">
-                <span className="absolute bottom-0 left-0 right-0 h-[40%] bg-[#7629BB]" />
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-[35%]"
+                  style={{ backgroundColor: calendarStandbyIndicatorColor() }}
+                />
               </span>
               <span className="text-muted-foreground">Standby</span>
               <span className="font-semibold">{yearStats.standby}</span>

@@ -12,7 +12,8 @@
 
 import { addDays, format, parseISO, startOfDay } from 'date-fns';
 
-import { ONBOARD_TOGGLE_LEAVE_MARKER } from '@/lib/crew-rotation';
+import { manualSignOffOverrideUntil, ONBOARD_TOGGLE_LEAVE_MARKER } from '@/lib/crew-rotation';
+import { crewDailyStateOnboardIntent } from '@/lib/crew-rotation/crew-onboard-sync';
 import { sendUserNotification } from '@/lib/notifications/send-user-notification';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -66,9 +67,14 @@ export async function hasApprovedSeaTimeAccess(
 
   if (error) {
     console.warn('[onboard-leave] access lookup failed', error.message);
-    return false;
+  } else if (data) {
+    return true;
   }
-  return !!data;
+
+  const { isCrewUnderVesselSubscription } = await import(
+    '@/lib/vessel-crew-access.server'
+  );
+  return isCrewUnderVesselSubscription(crewUserId, vesselId);
 }
 
 export async function openOrExtendOnboardToggleLeave(args: {
@@ -198,21 +204,40 @@ export async function applyOnboardToggleToCrewLogs(args: {
   const today = todayIso();
 
   if (args.onboard) {
-    // Clear today and future days that we wrote with the toggle marker.
-    const { data: rows, error } = await supabaseAdmin
-      .from('daily_state_logs')
-      .select('id, date, notes')
-      .eq('user_id', args.crewUserId)
-      .eq('vessel_id', args.vesselId)
-      .gte('date', today)
-      .like('notes', `${ONBOARD_TOGGLE_LEAVE_MARKER}%`);
+    // Clear today and future days that we wrote with the toggle marker,
+    // plus today's on-leave even if the crew wrote it themselves.
+    const [{ data: rows, error }, { data: todayLeave, error: todayErr }] =
+      await Promise.all([
+        supabaseAdmin
+          .from('daily_state_logs')
+          .select('id, date, notes')
+          .eq('user_id', args.crewUserId)
+          .eq('vessel_id', args.vesselId)
+          .gte('date', today)
+          .like('notes', `${ONBOARD_TOGGLE_LEAVE_MARKER}%`),
+        supabaseAdmin
+          .from('daily_state_logs')
+          .select('id')
+          .eq('user_id', args.crewUserId)
+          .eq('vessel_id', args.vesselId)
+          .eq('date', today)
+          .eq('state', 'on-leave'),
+      ]);
 
-    if (error) {
-      console.warn('[onboard-leave] clear logs lookup failed', error.message);
+    if (error || todayErr) {
+      console.warn(
+        '[onboard-leave] clear logs lookup failed',
+        error?.message || todayErr?.message,
+      );
       return { applied: false, daysTouched: 0 };
     }
 
-    const ids = (rows ?? []).map((r) => r.id as string);
+    const ids = Array.from(
+      new Set([
+        ...(rows ?? []).map((r) => r.id as string),
+        ...(todayLeave ?? []).map((r) => r.id as string),
+      ]),
+    );
     if (ids.length === 0) {
       return { applied: true, daysTouched: 0, skipped: 'noop' };
     }
@@ -292,8 +317,10 @@ export async function ensureTodayOnLeaveForOpenToggleLeaves(
 
   let touched = 0;
   for (const leave of openLeaves) {
+    const crewUserId = leave.crew_user_id as string;
+    if (!(await hasApprovedSeaTimeAccess(crewUserId, vesselId))) continue;
     const result = await applyOnboardToggleToCrewLogs({
-      crewUserId: leave.crew_user_id as string,
+      crewUserId,
       vesselId,
       onboard: false,
       startIso: (leave.start_date as string) || today,
@@ -304,10 +331,102 @@ export async function ensureTodayOnLeaveForOpenToggleLeaves(
   return touched;
 }
 
+/**
+ * Crew logged their own daily state. Mirror that onto the vessel
+ * Onboard Tracker: on-leave → off-board; returning from toggle leave → onboard.
+ */
+export async function syncOnboardFromCrewDailyState(args: {
+  crewUserId: string;
+  vesselId: string;
+  dateIso: string;
+  state: string;
+}): Promise<{
+  synced: boolean;
+  onboard?: boolean;
+  intent: ReturnType<typeof crewDailyStateOnboardIntent>;
+  reason?: string;
+}> {
+  const { data: profile } = await supabaseAdmin
+    .from('users')
+    .select('role')
+    .eq('id', args.crewUserId)
+    .maybeSingle();
+
+  const hasOpenToggleLeave = await hasOpenOnboardToggleLeave(
+    args.crewUserId,
+    args.vesselId,
+    args.dateIso,
+  );
+  const intent = crewDailyStateOnboardIntent({
+    todayIso: todayIso(),
+    dateIso: args.dateIso,
+    state: args.state,
+    hasOpenToggleLeave,
+    isVesselAccount: String(profile?.role || '').toLowerCase() === 'vessel',
+  });
+
+  if (intent === 'none') {
+    return { synced: false, intent, reason: 'noop' };
+  }
+
+  const { data: assignment } = await supabaseAdmin
+    .from('vessel_assignments')
+    .select('id, onboard')
+    .eq('user_id', args.crewUserId)
+    .eq('vessel_id', args.vesselId)
+    .is('end_date', null)
+    .maybeSingle();
+
+  if (!assignment) {
+    return { synced: false, intent, reason: 'no_assignment' };
+  }
+
+  const { data: vessel } = await supabaseAdmin
+    .from('vessels')
+    .select('vessel_manager_id')
+    .eq('id', args.vesselId)
+    .maybeSingle();
+
+  const onboard = intent === 'mark_on';
+  const { error: updateErr } = await supabaseAdmin
+    .from('vessel_assignments')
+    .update({
+      onboard,
+      onboard_override_until: onboard
+        ? null
+        : manualSignOffOverrideUntil().toISOString(),
+    })
+    .eq('id', assignment.id);
+
+  if (updateErr) {
+    console.warn('[onboard-leave] crew→vessel assignment update failed', updateErr.message);
+    return { synced: false, intent, reason: 'assignment_update_failed' };
+  }
+
+  if (onboard) {
+    await closeOnboardToggleLeave({
+      crewUserId: args.crewUserId,
+      vesselId: args.vesselId,
+      asOfIso: args.dateIso,
+    });
+  } else {
+    await openOrExtendOnboardToggleLeave({
+      crewUserId: args.crewUserId,
+      vesselId: args.vesselId,
+      vesselUserId: (vessel?.vessel_manager_id as string) || args.crewUserId,
+      leaveEndIso: format(manualSignOffOverrideUntil(), 'yyyy-MM-dd'),
+      startIso: args.dateIso,
+    });
+  }
+
+  return { synced: true, intent, onboard };
+}
+
 export async function notifyCrewOnboardChange(args: {
   crewUserId: string;
   vesselId: string;
   onboard: boolean;
+  crewLogsSynced?: boolean;
 }): Promise<void> {
   const { data: vessel } = await supabaseAdmin
     .from('vessels')
@@ -318,8 +437,12 @@ export async function notifyCrewOnboardChange(args: {
 
   const title = args.onboard ? 'Back on board' : 'You are now on leave';
   const body = args.onboard
-    ? `${vesselName} marked you as back on board. Your leave period has been closed.`
-    : `${vesselName} marked you as off board. Your sea-time record is now counting this time as on leave.`;
+    ? args.crewLogsSynced
+      ? `${vesselName} marked you as back on board. Your leave period has been closed.`
+      : `${vesselName} marked you as back on board.`
+    : args.crewLogsSynced
+      ? `${vesselName} marked you as off board. Your sea-time record is now counting this time as on leave.`
+      : `${vesselName} marked you as off board.`;
 
   await sendUserNotification({
     userId: args.crewUserId,

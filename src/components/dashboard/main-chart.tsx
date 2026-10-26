@@ -1,6 +1,7 @@
 'use client';
 
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { calendarStateSolid } from '@/lib/calendar-state-colors';
 
 const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -34,11 +35,11 @@ interface MainChartProps {
 }
 
 const dataKeys = [
-    { key: "underway", name: "Underway", color: "hsl(var(--chart-blue))" },
-    { key: "inPort", name: "Moored", color: "hsl(var(--chart-green))" },
-    { key: "atAnchor", name: "At Anchor", color: "hsl(var(--chart-orange))" },
-    { key: "onLeave", name: "On Leave", color: "hsl(var(--chart-gray))" },
-    { key: "inYard", name: "In Yard", color: "hsl(var(--chart-red))" }
+    { key: "underway", name: "Underway", color: calendarStateSolid('underway') },
+    { key: "inPort", name: "Moored", color: calendarStateSolid('in-port') },
+    { key: "atAnchor", name: "At Anchor", color: calendarStateSolid('at-anchor') },
+    { key: "onLeave", name: "On Leave", color: calendarStateSolid('on-leave') },
+    { key: "inYard", name: "In Yard", color: calendarStateSolid('in-yard') }
 ];
 
 export default function MainChart({ data }: MainChartProps) {

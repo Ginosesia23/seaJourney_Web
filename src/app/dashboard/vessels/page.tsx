@@ -23,6 +23,7 @@ import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import type { Vessel, StateLog, UserProfile, SeaServiceRecord, DailyStatus, VesselAssignment } from '@/lib/types';
+import { calendarStateSolid } from '@/lib/calendar-state-colors';
 import { hasActiveSubscription } from '@/supabase/database/subscription-helpers';
 import { isCrewLimitedNavigationRestricted } from '@/lib/crew-vessel-feature-boost';
 import { useCrewVesselFeatureBoost } from '@/contexts/crew-vessel-feature-boost-context';
@@ -94,11 +95,11 @@ const pastVesselSchema = z.object({
 type PastVesselFormValues = z.infer<typeof pastVesselSchema>;
 
 const vesselStates: { value: DailyStatus; label: string; color: string }[] = [
-  { value: 'underway', label: 'Underway', color: 'hsl(var(--chart-blue))' },
-  { value: 'at-anchor', label: 'At Anchor', color: 'hsl(var(--chart-orange))' },
-  { value: 'in-port', label: 'Moored', color: 'hsl(var(--chart-green))' },
-  { value: 'on-leave', label: 'On Leave', color: 'hsl(var(--chart-gray))' },
-  { value: 'in-yard', label: 'In Yard', color: 'hsl(var(--chart-red))' },
+  { value: 'underway', label: 'Underway', color: calendarStateSolid('underway') },
+  { value: 'at-anchor', label: 'At Anchor', color: calendarStateSolid('at-anchor') },
+  { value: 'in-port', label: 'Moored', color: calendarStateSolid('in-port') },
+  { value: 'on-leave', label: 'On Leave', color: calendarStateSolid('on-leave') },
+  { value: 'in-yard', label: 'In Yard', color: calendarStateSolid('in-yard') },
 ];
 
 export default function VesselsPage() {
