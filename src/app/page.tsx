@@ -795,6 +795,7 @@ export default function Home() {
           <CertificateTracking />
           <ApplyProgress />
           <WatchComingSoon />
+          <OowTrainingComingSoon />
           {/* Not ready for landing yet — keep components below for later
           <WatchRotationSchedule />
           <CrewLeavePlanner />
@@ -3538,6 +3539,87 @@ function WatchComingSoon() {
               </span>
             </div>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OOW training app — coming soon
+// ---------------------------------------------------------------------------
+
+function OowTrainingComingSoon() {
+  const points: Array<{ icon: IconType; label: string; desc: string }> = [
+    { icon: ClipboardCheck, label: 'Training record tasks', desc: 'Work through OOW tasks in order' },
+    { icon: Upload, label: 'Evidence on the go', desc: 'Attach photos and notes as you go' },
+    { icon: FileCheck, label: 'Captain sign-off', desc: 'Send completed tasks for approval' },
+    { icon: Compass, label: 'Tied to sea time', desc: 'Uses the watches and days you already log' },
+  ];
+
+  return (
+    <section
+      id="oow-training"
+      className="wk-section-alt py-16 sm:py-20"
+    >
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div
+          className="mx-auto grid max-w-5xl items-center gap-8 rounded-3xl p-8 sm:p-10 lg:grid-cols-[1.15fr_1fr] lg:gap-12"
+          style={{
+            backgroundColor: 'var(--wk-card)',
+            border: '1px solid var(--wk-line)',
+            boxShadow: 'var(--wk-shadow-sm)',
+          }}
+        >
+          <div>
+            <Eyebrow icon={BookOpen} accent>
+              Coming soon
+            </Eyebrow>
+            <h2
+              className="font-headline mt-5 text-2xl font-bold tracking-tight sm:text-3xl"
+              style={{ color: 'var(--wk-text)' }}
+            >
+              A new{' '}
+              <span className="wk-gradient-text wk-gradient-text--sky">OOW training app</span>
+            </h2>
+            <p className="mt-3 max-w-xl text-base leading-relaxed sm:text-lg" style={{ color: 'var(--wk-text-soft)' }}>
+              A dedicated Officer of the Watch companion for training record
+              tasks, evidence, and captain sign-off — connected to the sea time
+              you already keep in SeaJourney.
+            </p>
+            <p className="mt-4 text-xs" style={{ color: 'var(--wk-text-muted)' }}>
+              Launching soon for SeaJourney crew accounts. No extra signup needed.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {points.map((p) => (
+              <div
+                key={p.label}
+                className="rounded-xl p-4"
+                style={{
+                  backgroundColor: 'var(--wk-bg-subtle)',
+                  border: '1px solid var(--wk-line)',
+                }}
+              >
+                <span
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg"
+                  style={{
+                    backgroundColor: 'var(--wk-accent-soft)',
+                    color: 'var(--wk-accent)',
+                  }}
+                >
+                  <p.icon className="h-4 w-4" />
+                </span>
+                <p className="mt-3 text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+                  {p.label}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
+                  {p.desc}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

@@ -61,6 +61,8 @@ export interface UserProfile {
   calendarColorStyle?: 'light' | 'dark' | null;
   /** Inbox items this vessel account has cleared from the list. */
   inboxHiddenItems?: string[] | null;
+  /** Highest notified logbook milestones, e.g. { sea_days: 100, distance_nm: 1000 }. */
+  logMilestones?: Record<string, number> | null;
 }
 
 /** Roles a vessel manager (Pro/Fleet tier) can create as a linked secondary account. */

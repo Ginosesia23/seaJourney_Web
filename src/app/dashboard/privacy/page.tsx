@@ -102,11 +102,23 @@ export default function DashboardPrivacyPage() {
             </p>
           </div>
           <div className="rounded-lg border p-4">
+            <h3 className="font-semibold">Mobile location</h3>
+            <p className="mt-1 text-muted-foreground">
+              If you grant location permission on the iOS or Android app, we
+              store precise GPS coordinates, timestamps, and the passage
+              tracks we build from them. Tracking can continue in the
+              background while a GPS passage is running so the log is not cut
+              short when the phone is locked. You can turn location off in
+              device settings. We do not use it for advertising.
+            </p>
+          </div>
+          <div className="rounded-lg border p-4">
             <h3 className="font-semibold">Vessel &amp; AIS</h3>
             <p className="mt-1 text-muted-foreground">
               Vessel identity, stamp, and crew lists for vessel accounts. When
               AIS tracking is switched on, we store position and status updates
-              so the daily log can stay complete.
+              so the daily log can stay complete. That is the vessel&apos;s
+              public AIS broadcast, not your phone&apos;s GPS.
             </p>
           </div>
           <div className="rounded-lg border p-4">
@@ -138,6 +150,7 @@ export default function DashboardPrivacyPage() {
             <li>Record sea time and apply the yacht or commercial calculation rules</li>
             <li>Generate and store career documents you request</li>
             <li>Send Inbox items you start — sign-offs, sea-time offers, coverage requests</li>
+            <li>Record GPS passage tracks on the mobile app when you allow location</li>
             <li>Fill vessel logs from AIS when you have tracking enabled</li>
             <li>Process subscriptions and send service email</li>
             <li>Keep the platform secure and meet legal duties</li>

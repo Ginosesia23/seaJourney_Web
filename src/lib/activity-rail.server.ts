@@ -12,6 +12,18 @@ import {
   type ActivityRailItem,
   type ActivityRailPayload,
 } from '@/lib/activity-rail';
+import {
+  parseLogMilestoneProgress,
+  pendingLogMilestones,
+  seaDayKeysForPassage,
+  type LogMilestoneProgress,
+} from '@/lib/log-milestones';
+import {
+  filterPassagesForCrewAssignments,
+  filterPassagesOutsideLeave,
+  passageDistanceNm,
+} from '@/lib/passages/filter-logbook-passages';
+import { loadCrewLeavePeriodsByVessel } from '@/lib/passages-map/load-crew-leave-periods';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { listPendingCoverageForManager } from '@/lib/vessel-plan-coverage';
 
@@ -904,6 +916,149 @@ async function loadAdminItems(): Promise<ActivityRailItem[]> {
   return items;
 }
 
+function isMissingLogMilestonesColumn(error: { message?: string } | null | undefined): boolean {
+  return String(error?.message || '').includes('log_milestones');
+}
+
+async function loadLogMilestoneProgress(userId: string): Promise<LogMilestoneProgress> {
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('log_milestones')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) {
+    if (!isMissingLogMilestonesColumn(error)) {
+      console.error('[activity-rail] log_milestones', error);
+    }
+    return {};
+  }
+  return parseLogMilestoneProgress(data?.log_milestones);
+}
+
+const PASSAGE_PAGE_SIZE = 1000;
+
+type MilestonePassageRow = {
+  vessel_id: string;
+  start_time: string;
+  end_time: string;
+  distance_nm: number | null;
+  source: string | null;
+  ais_fingerprint: string | null;
+  track_data: unknown;
+};
+
+async function loadCrewPassageRowsForMilestones(
+  crewId: string,
+): Promise<MilestonePassageRow[]> {
+  const select =
+    'vessel_id, start_time, end_time, distance_nm, source, ais_fingerprint, track_data';
+  const rows: MilestonePassageRow[] = [];
+  let from = 0;
+  let skipDismissedFilter = false;
+
+  for (;;) {
+    let query = supabaseAdmin
+      .from('passage_logs')
+      .select(select)
+      .eq('crew_id', crewId)
+      .order('start_time', { ascending: true })
+      .range(from, from + PASSAGE_PAGE_SIZE - 1);
+    if (!skipDismissedFilter) query = query.is('ais_dismissed_at', null);
+
+    const { data, error } = await query;
+    if (error && !skipDismissedFilter && String(error.message || '').includes('ais_dismissed_at')) {
+      skipDismissedFilter = true;
+      from = 0;
+      rows.length = 0;
+      continue;
+    }
+    if (error) throw error;
+
+    const page = (data || []) as MilestonePassageRow[];
+    rows.push(...page);
+    if (page.length < PASSAGE_PAGE_SIZE) break;
+    from += PASSAGE_PAGE_SIZE;
+  }
+
+  return rows;
+}
+
+async function loadLogMilestoneItems(actor: ActorRow): Promise<ActivityRailItem[]> {
+  const role = String(actor.role || '').toLowerCase();
+  if (role !== 'crew' && role !== 'captain') return [];
+
+  const progress = await loadLogMilestoneProgress(actor.id);
+
+  const [{ data: assignmentRows, error: assignmentError }, rawPassages] =
+    await Promise.all([
+      supabaseAdmin
+        .from('vessel_assignments')
+        .select('vessel_id, start_date, end_date')
+        .eq('user_id', actor.id),
+      loadCrewPassageRowsForMilestones(actor.id),
+    ]);
+  if (assignmentError) throw assignmentError;
+
+  const assignments = (assignmentRows || []).map((row) => ({
+    vesselId: String((row as { vessel_id?: string }).vessel_id || ''),
+    startDate: String((row as { start_date?: string }).start_date || '').slice(0, 10),
+    endDate: (row as { end_date?: string | null }).end_date
+      ? String((row as { end_date?: string | null }).end_date).slice(0, 10)
+      : null,
+  })).filter((row) => row.vesselId && row.startDate);
+
+  let passages = filterPassagesForCrewAssignments(rawPassages, assignments);
+  const vesselIds = Array.from(
+    new Set([
+      ...assignments.map((assignment) => assignment.vesselId),
+      ...passages.map((passage) => passage.vessel_id),
+    ]),
+  );
+  const leaveByVessel = await loadCrewLeavePeriodsByVessel(actor.id, vesselIds);
+  passages = filterPassagesOutsideLeave(passages, leaveByVessel);
+
+  const { data: underwayRows, error: underwayError } = await supabaseAdmin
+    .from('daily_state_logs')
+    .select('date')
+    .eq('user_id', actor.id)
+    .eq('state', 'underway');
+  if (underwayError) throw underwayError;
+
+  const seaDays = new Set<string>();
+  for (const row of underwayRows || []) {
+    const date = String((row as { date?: string }).date || '').slice(0, 10);
+    if (date) seaDays.add(date);
+  }
+
+  let distanceNm = 0;
+  for (const row of passages) {
+    distanceNm += passageDistanceNm(row);
+    if (row.start_time && row.end_time) {
+      for (const day of seaDayKeysForPassage(row.start_time, row.end_time)) {
+        seaDays.add(day);
+      }
+    }
+  }
+
+  return pendingLogMilestones(
+    {
+      sea_days: seaDays.size,
+      distance_nm: distanceNm,
+      passages: passages.length,
+    },
+    progress,
+  ).map((milestone) => ({
+    id: milestone.id,
+    kind: 'log_milestone' as const,
+    category: 'milestone' as const,
+    severity: 'success' as const,
+    title: milestone.title,
+    description: milestone.description,
+    href: milestone.href,
+    meta: `${milestone.metric}:${milestone.threshold}`,
+  }));
+}
+
 export async function buildActivityRail(userId: string): Promise<ActivityRailPayload> {
   const { data: actorRow } = await supabaseAdmin
     .from('users')
@@ -966,6 +1121,7 @@ export async function buildActivityRail(userId: string): Promise<ActivityRailPay
   }
 
   items.push(...(await settled(loadLogCompletenessItems(actor), [])));
+  items.push(...(await settled(loadLogMilestoneItems(actor), [])));
 
   if (role === 'admin') {
     items.push(...(await settled(loadAdminItems(), [])));

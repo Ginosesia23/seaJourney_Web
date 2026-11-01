@@ -1079,15 +1079,28 @@ function transformPassageLog(dbLog: any): PassageLog {
 /**
  * Get all passage logs for a user
  */
+function isMissingAisDismissedColumn(error: { message?: string } | null | undefined): boolean {
+  return String(error?.message || '').includes('ais_dismissed_at');
+}
+
 export async function getPassageLogs(
   supabase: SupabaseClient,
   userId: string
 ): Promise<PassageLog[]> {
-  const { data, error } = await supabase
+  const visible = await supabase
     .from('passage_logs')
     .select('*')
     .eq('crew_id', userId)
+    .is('ais_dismissed_at', null)
     .order('start_time', { ascending: false });
+
+  const { data, error } = isMissingAisDismissedColumn(visible.error)
+    ? await supabase
+        .from('passage_logs')
+        .select('*')
+        .eq('crew_id', userId)
+        .order('start_time', { ascending: false })
+    : visible;
 
   if (error) throw error;
 
@@ -1101,11 +1114,20 @@ export async function getPassageLogsByVessel(
   supabase: SupabaseClient,
   vesselId: string
 ): Promise<PassageLog[]> {
-  const { data, error } = await supabase
+  const visible = await supabase
     .from('passage_logs')
     .select('*')
     .eq('vessel_id', vesselId)
+    .is('ais_dismissed_at', null)
     .order('start_time', { ascending: false });
+
+  const { data, error } = isMissingAisDismissedColumn(visible.error)
+    ? await supabase
+        .from('passage_logs')
+        .select('*')
+        .eq('vessel_id', vesselId)
+        .order('start_time', { ascending: false })
+    : visible;
 
   if (error) throw error;
 
@@ -1202,6 +1224,7 @@ export async function createPassageLog(
 
   if (error) throw error;
 
+  requestActivityRailRefresh();
   return transformPassageLog(data);
 }
 
@@ -1276,6 +1299,7 @@ export async function updatePassageLog(
 
   if (error) throw error;
 
+  requestActivityRailRefresh();
   return transformPassageLog(data);
 }
 
@@ -1286,12 +1310,37 @@ export async function deletePassageLog(
   supabase: SupabaseClient,
   passageId: string
 ): Promise<void> {
+  const { data: existing, error: loadError } = await supabase
+    .from('passage_logs')
+    .select('id, ais_fingerprint, source')
+    .eq('id', passageId)
+    .maybeSingle();
+  if (loadError) throw loadError;
+
+  const isAisVoyage = Boolean(
+    existing?.ais_fingerprint ||
+      String(existing?.source || '').toLowerCase().startsWith('ais'),
+  );
+
+  if (isAisVoyage) {
+    const { error: hideError } = await supabase
+      .from('passage_logs')
+      .update({ ais_dismissed_at: new Date().toISOString() })
+      .eq('id', passageId);
+    if (!hideError) {
+      requestActivityRailRefresh();
+      return;
+    }
+    if (!isMissingAisDismissedColumn(hideError)) throw hideError;
+  }
+
   const { error } = await supabase
     .from('passage_logs')
     .delete()
     .eq('id', passageId);
 
   if (error) throw error;
+  requestActivityRailRefresh();
 }
 
 /**

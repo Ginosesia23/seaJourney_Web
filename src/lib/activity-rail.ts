@@ -1,6 +1,11 @@
-export type ActivityRailSeverity = 'critical' | 'warning' | 'info';
+export type ActivityRailSeverity = 'critical' | 'warning' | 'info' | 'success';
 
-export type ActivityRailCategory = 'overdue' | 'upcoming' | 'missing' | 'issue';
+export type ActivityRailCategory =
+  | 'overdue'
+  | 'upcoming'
+  | 'missing'
+  | 'issue'
+  | 'milestone';
 
 export type ActivityRailKind =
   | 'certificate_expired'
@@ -25,7 +30,8 @@ export type ActivityRailKind =
   | 'open_ais_report'
   | 'open_feedback'
   | 'log_today_missing'
-  | 'log_days_missing';
+  | 'log_days_missing'
+  | 'log_milestone';
 
 export const ACTIVITY_RAIL_LOG_LOOKBACK_DAYS = 90;
 export const ACTIVITY_RAIL_INBOX_HREF = '/dashboard/inbox?view=incoming';
@@ -120,6 +126,7 @@ export interface ActivityRailCounts {
   upcoming: number;
   missing: number;
   issues: number;
+  milestones: number;
   total: number;
 }
 
@@ -136,10 +143,18 @@ export const ACTIVITY_RAIL_CATEGORIES: {
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'missing', label: 'Missing details' },
   { id: 'issue', label: 'Issues' },
+  { id: 'milestone', label: 'Milestones' },
 ];
 
 export function emptyActivityRailCounts(): ActivityRailCounts {
-  return { overdue: 0, upcoming: 0, missing: 0, issues: 0, total: 0 };
+  return {
+    overdue: 0,
+    upcoming: 0,
+    missing: 0,
+    issues: 0,
+    milestones: 0,
+    total: 0,
+  };
 }
 
 export function countActivityRailItems(items: ActivityRailItem[]): ActivityRailCounts {
@@ -148,6 +163,7 @@ export function countActivityRailItems(items: ActivityRailItem[]): ActivityRailC
     if (item.category === 'overdue') counts.overdue += 1;
     else if (item.category === 'upcoming') counts.upcoming += 1;
     else if (item.category === 'missing') counts.missing += 1;
+    else if (item.category === 'milestone') counts.milestones += 1;
     else counts.issues += 1;
   }
   counts.total = items.length;
@@ -178,6 +194,7 @@ const SEVERITY_RANK: Record<ActivityRailSeverity, number> = {
   critical: 0,
   warning: 1,
   info: 2,
+  success: 3,
 };
 
 const CATEGORY_RANK: Record<ActivityRailCategory, number> = {
@@ -185,6 +202,7 @@ const CATEGORY_RANK: Record<ActivityRailCategory, number> = {
   upcoming: 1,
   issue: 2,
   missing: 3,
+  milestone: 4,
 };
 
 export function sortActivityRailItems(items: ActivityRailItem[]): ActivityRailItem[] {

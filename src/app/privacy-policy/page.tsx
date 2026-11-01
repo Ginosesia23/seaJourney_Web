@@ -1,6 +1,6 @@
 'use client';
 
-import { Shield, Lock, Database, Mail, Globe, FileText, CheckCircle2 } from 'lucide-react';
+import { Shield, Lock, Database, Mail, Globe, FileText, CheckCircle2, MapPin } from 'lucide-react';
 import {
   WkPageShell,
   WkPageHero,
@@ -72,6 +72,13 @@ export default function PrivacyPolicyPage() {
                 <li>Browser information</li>
                 <li>Login timestamps</li>
               </ul>
+
+              <h3>Location Data (mobile app)</h3>
+              <ul>
+                <li>Precise GPS coordinates from your device, only if you grant location permission</li>
+                <li>Passage tracks, distances, and start / end positions derived from those coordinates</li>
+                <li>This is separate from a vessel&apos;s public AIS position, which we receive only when AIS tracking is enabled</li>
+              </ul>
             </WkSectionCard>
 
             <WkSectionCard
@@ -82,6 +89,7 @@ export default function PrivacyPolicyPage() {
               <ul>
                 <li>Create and manage user accounts</li>
                 <li>Track sea service and vessel assignments</li>
+                <li>Record GPS passage tracks and distances on the mobile app, when you allow location</li>
                 <li>Generate professional testimonials</li>
                 <li>Communicate with users</li>
                 <li>Process subscriptions</li>
@@ -130,9 +138,76 @@ export default function PrivacyPolicyPage() {
               <p>Each provider complies with GDPR standards.</p>
             </WkSectionCard>
 
+            <div id="location">
+            <WkSectionCard
+              icon={<MapPin className="h-5 w-5" />}
+              title="6. Location tracking on the mobile app"
+            >
+              <p>
+                The SeaJourney iOS and Android apps may use your device&apos;s
+                location. We only collect it if you grant permission. Manual
+                sea-time logging, documents, and your account still work if you
+                refuse or later turn location off.
+              </p>
+
+              <h3>What we collect</h3>
+              <p>
+                When location is on, we collect precise GPS coordinates and
+                timestamps, and we derive speed, course, distance, and a
+                passage track from them.
+              </p>
+              <p>
+                If you start GPS passage tracking and leave it running, the
+                app may keep collecting location while it is in the background
+                or the phone is locked. That is so a passage is not cut short
+                when you switch apps or the screen sleeps.
+              </p>
+
+              <h3>Why we use it</h3>
+              <ul>
+                <li>Record GPS passage tracks and sea miles for your log</li>
+                <li>Set start and end positions for passages</li>
+                <li>Keep your sea-time record accurate while you are underway</li>
+              </ul>
+              <p>
+                We do not use device location for advertising or marketing,
+                and we do not sell it.
+              </p>
+
+              <h3>Vessel AIS is different</h3>
+              <p>
+                If a linked vessel has AIS tracking enabled, we also receive
+                that vessel&apos;s public AIS position from our AIS provider.
+                That is the vessel&apos;s broadcast, not your phone&apos;s GPS.
+                The mobile app may show the live vessel position so you can
+                see where the boat is.
+              </p>
+
+              <h3>Who can see it</h3>
+              <p>
+                Location and tracks sit in your sea-service records. They are
+                visible to you, and to a vessel or captain only if you have
+                already granted them access to those records. Hosting and
+                database providers store what they need to run the feature.
+              </p>
+
+              <h3>How to stop it</h3>
+              <p>
+                Turn off location for SeaJourney in iOS Settings or Android
+                Settings, or stop an active GPS passage in the app. We keep
+                tracks already saved as part of your log unless you delete
+                those records or ask us to erase your data.
+              </p>
+              <p>
+                The legal bases are your consent (the permission you grant)
+                and contractual necessity (providing GPS passage tracking).
+              </p>
+            </WkSectionCard>
+            </div>
+
             <WkSectionCard
               icon={<Shield className="h-5 w-5" />}
-              title="6. Your Rights (GDPR)"
+              title="7. Your Rights (GDPR)"
             >
               <p>You have the right to:</p>
               <ul>
@@ -150,21 +225,21 @@ export default function PrivacyPolicyPage() {
             </WkSectionCard>
 
             <div className="grid gap-6 md:grid-cols-3">
-              <WkSectionCard compact title="7. Data Retention">
+              <WkSectionCard compact title="8. Data Retention">
                 <p>
                   We keep your data only as long as necessary to provide the
                   service or meet legal obligations.
                 </p>
               </WkSectionCard>
 
-              <WkSectionCard compact title="8. International Transfers">
+              <WkSectionCard compact title="9. International Transfers">
                 <p>
                   Some data may be processed outside the UK / EU, but always
                   with GDPR-compliant safeguards.
                 </p>
               </WkSectionCard>
 
-              <WkSectionCard compact title="9. Changes to This Policy">
+              <WkSectionCard compact title="10. Changes to This Policy">
                 <p>
                   We may update this policy. Users will be notified of
                   significant changes.
@@ -174,7 +249,7 @@ export default function PrivacyPolicyPage() {
 
             <WkSectionCard
               icon={<Mail className="h-5 w-5" />}
-              title="10. Contact"
+              title="11. Contact"
             >
               <p><strong>SeaJourney</strong></p>
               <p>

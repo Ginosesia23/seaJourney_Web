@@ -10,6 +10,7 @@ import {
   type ActivityRailItem,
   type ActivityRailPayload,
 } from '@/lib/activity-rail';
+import { toast } from '@/hooks/use-toast';
 import { useSupabase } from '@/supabase';
 
 const COOKIE_NAME = 'activity_rail_state';
@@ -36,6 +37,7 @@ const RAIL_REALTIME_TABLES = [
   'trb_batch_signoff_requests',
   'ais_state_reports',
   'feedback',
+  'passage_logs',
 ] as const;
 
 type ActivityRailContextValue = {
@@ -49,6 +51,7 @@ type ActivityRailContextValue = {
   counts: ActivityRailCounts;
   isLoading: boolean;
   refresh: (opts?: { silent?: boolean }) => void;
+  dismissMilestone: (item: ActivityRailItem) => void;
 };
 
 const ActivityRailContext = React.createContext<ActivityRailContextValue | null>(
@@ -92,6 +95,8 @@ export function ActivityRailProvider({
   tokenRef.current = session?.access_token;
   const abortRef = React.useRef<AbortController | null>(null);
   const debounceRef = React.useRef<number | null>(null);
+  const seenMilestoneIdsRef = React.useRef<Set<string>>(new Set());
+  const milestonesHydratedRef = React.useRef(false);
 
   React.useEffect(() => {
     setOpenState(readStoredOpen());
@@ -135,7 +140,25 @@ export function ActivityRailProvider({
         });
         if (!res.ok) throw new Error('Failed to load activity rail');
         const json = (await res.json()) as ActivityRailPayload;
-        setItems(Array.isArray(json.items) ? json.items : []);
+        const nextItems = Array.isArray(json.items) ? json.items : [];
+        const newMilestones = nextItems.filter(
+          (item) =>
+            item.kind === 'log_milestone' &&
+            !seenMilestoneIdsRef.current.has(item.id),
+        );
+        if (milestonesHydratedRef.current) {
+          for (const milestone of newMilestones) {
+            toast({
+              title: milestone.title,
+              description: milestone.description,
+            });
+          }
+        }
+        milestonesHydratedRef.current = true;
+        for (const milestone of newMilestones) {
+          seenMilestoneIdsRef.current.add(milestone.id);
+        }
+        setItems(nextItems);
         setCounts(json.counts || emptyActivityRailCounts());
       } catch (error) {
         if ((error as { name?: string })?.name === 'AbortError') return;
@@ -157,7 +180,61 @@ export function ActivityRailProvider({
     }, DEBOUNCE_MS);
   }, [refresh]);
 
+  const dismissMilestone = React.useCallback(
+    (item: ActivityRailItem) => {
+      const [metric, thresholdRaw] = String(item.meta || '').split(':');
+      const threshold = Number(thresholdRaw);
+      if (
+        (metric !== 'sea_days' &&
+          metric !== 'distance_nm' &&
+          metric !== 'passages') ||
+        !Number.isFinite(threshold)
+      ) {
+        return;
+      }
+      seenMilestoneIdsRef.current.add(item.id);
+      setItems((current) => current.filter((row) => row.id !== item.id));
+      setCounts((current) => {
+        const milestones = Math.max(0, current.milestones - 1);
+        const total = Math.max(0, current.total - 1);
+        return { ...current, milestones, total };
+      });
+      const token = tokenRef.current;
+      if (!token) return;
+      void (async () => {
+        try {
+          const res = await fetch('/api/activity-rail/milestones', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ metric, threshold }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            toast({
+              title: 'Could not dismiss milestone',
+              description:
+                typeof json.error === 'string'
+                  ? json.error
+                  : 'Please try again.',
+              variant: 'destructive',
+            });
+            refresh({ silent: true });
+          }
+        } catch (error) {
+          console.error('[activity-rail] dismiss milestone', error);
+          refresh({ silent: true });
+        }
+      })();
+    },
+    [refresh],
+  );
+
   React.useEffect(() => {
+    seenMilestoneIdsRef.current = new Set();
+    milestonesHydratedRef.current = false;
     refresh();
     return () => {
       abortRef.current?.abort();
@@ -221,6 +298,7 @@ export function ActivityRailProvider({
       counts,
       isLoading,
       refresh,
+      dismissMilestone,
     }),
     [
       hydrated,
@@ -233,6 +311,7 @@ export function ActivityRailProvider({
       counts,
       isLoading,
       refresh,
+      dismissMilestone,
     ],
   );
 

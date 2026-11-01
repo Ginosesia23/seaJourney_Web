@@ -22,7 +22,8 @@ BEGIN
     'trb_signoff_requests',
     'trb_batch_signoff_requests',
     'ais_state_reports',
-    'feedback'
+    'feedback',
+    'passage_logs'
   ]
   LOOP
     IF EXISTS (
