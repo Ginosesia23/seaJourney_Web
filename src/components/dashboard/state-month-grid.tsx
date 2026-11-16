@@ -20,6 +20,7 @@ import {
   buildMonthSummaryItems,
 } from '@/components/dashboard/month-state-summary';
 import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import { CALENDAR_DOW_LABELS, calendarChrome } from '@/lib/calendar-chrome';
 import { calendarDayCellStyle, calendarStandbyIndicatorColor } from '@/lib/calendar-state-colors';
 import type { DailyStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -144,34 +145,27 @@ export function StateMonthGrid({
   return (
     <Card
       className={cn(
-        'rounded-xl border bg-card/50',
-        compact && 'rounded-lg shadow-none',
+        compact ? calendarChrome.monthCardCompact : calendarChrome.monthCard,
         className,
       )}
     >
-      <CardHeader className={cn(compact ? 'px-3 py-2 pb-1' : 'pb-1')}>
+      <CardHeader className={cn(compact ? calendarChrome.monthHeaderCompact : 'px-4 pb-1 pt-3')}>
         <CardTitle
           className={cn(
-            'font-semibold',
-            compact ? 'text-xs tracking-tight' : 'text-sm',
+            compact ? calendarChrome.monthTitleCompact : calendarChrome.monthTitle,
           )}
         >
           {format(monthStart, compact ? 'MMM yyyy' : 'MMMM yyyy')}
         </CardTitle>
       </CardHeader>
-      <CardContent className={cn(compact ? 'px-3 pb-2.5 pt-0' : 'pb-3')}>
-        <div
-          className={cn(
-            'grid grid-cols-7 gap-0.5 text-center font-medium uppercase tracking-wider text-muted-foreground',
-            compact ? 'text-[9px]' : 'text-[9px]',
-          )}
-        >
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-            <div key={d}>{d.charAt(0)}</div>
+      <CardContent className={cn(compact ? 'px-3 pb-2.5 pt-0' : 'px-4 pb-3 pt-0')}>
+        <div className={compact ? calendarChrome.dowRowCompact : calendarChrome.dowRow}>
+          {CALENDAR_DOW_LABELS.map((d, i) => (
+            <div key={`${d}-${i}`}>{d}</div>
           ))}
         </div>
         <TooltipProvider delayDuration={200}>
-          <div className="mt-1 grid grid-cols-7 gap-0.5">
+          <div className={cn('mt-1.5', compact ? calendarChrome.dayGridCompact : calendarChrome.dayGrid)}>
             {Array.from({ length: padBefore }).map((_, i) => (
               <div key={`pad-${i}`} className="aspect-square" />
             ))}
@@ -193,14 +187,15 @@ export function StateMonthGrid({
                 titleParts.push(p.routeLabel);
               }
 
-              // Match main Calendar page: rounded-[6px] fill + optional bottom strip.
+              // Match landing / main Calendar: rounded-lg fill + optional bottom strip.
               const cell = (
-                <div className="aspect-square overflow-hidden rounded-[6px]">
+                <div className={calendarChrome.dayCell}>
                   <div
                     className={cn(
-                      'relative flex h-full w-full items-center justify-center font-medium',
+                      'relative flex h-full w-full items-center justify-center font-semibold',
+                      calendarChrome.daySurface,
                       secondary && 'overflow-hidden',
-                      compact ? 'text-[10px] leading-none' : 'text-[10px]',
+                      compact ? 'text-[10px] leading-none' : 'text-[11px]',
                       !state && 'border bg-card text-muted-foreground/50',
                       accent === 'conflict' &&
                         (compact
@@ -221,13 +216,13 @@ export function StateMonthGrid({
                     <span className="relative z-[1]">{d.getDate()}</span>
                     {secondary === 'passage' && (
                       <div
-                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-blue-600"
+                        className={cn(calendarChrome.dayStrip, 'bg-blue-600')}
                         aria-hidden
                       />
                     )}
                     {secondary === 'standby' && (
                       <div
-                        className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px]"
+                        className={calendarChrome.dayStrip}
                         style={{ backgroundColor: calendarStandbyIndicatorColor() }}
                         aria-hidden
                       />

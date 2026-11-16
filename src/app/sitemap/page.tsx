@@ -48,6 +48,7 @@ const SITEMAP_SECTIONS: SitemapSection[] = [
     links: [
       { href: '/', label: 'Home', description: 'Main landing page' },
       { href: '/how-to-use', label: 'How it works', description: 'Guide to using SeaJourney' },
+      { href: '/features', label: 'All features', description: 'Full catalog of crew and vessel features' },
       { href: '/voyage-map', label: 'Voyage map', description: 'Sample AIS passage tracks on a world map' },
       { href: '/for-vessels', label: 'For vessels', description: 'Vessel features, AIS, and crew management' },
       { href: '/offers', label: 'Plans & pricing', description: 'Crew and vessel subscription plans' },

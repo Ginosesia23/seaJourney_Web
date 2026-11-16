@@ -5,6 +5,7 @@ const Logo = ({ className }: { className?: string }) => {
   return (
     <Link
       href="/"
+      aria-label="SeaJourney home"
       className={cn(
         'flex items-center gap-2 text-white transition-opacity hover:opacity-80',
         className

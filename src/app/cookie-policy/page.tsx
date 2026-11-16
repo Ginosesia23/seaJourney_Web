@@ -1,105 +1,133 @@
 'use client';
 
-import { Cookie, Info, Settings, Shield, Globe, Mail } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
+import { WkPageShell } from '@/components/wk/wk-page-shell';
 import {
-  WkPageShell,
-  WkPageHero,
-  WkSectionCard,
-} from '@/components/wk/wk-page-shell';
+  LegalContact,
+  LegalPageFrame,
+  LegalPageHeader,
+  LegalSection,
+  LegalToc,
+} from '@/components/wk/legal-page';
+
+const SECTIONS = [
+  { id: 'what', label: 'What cookies are' },
+  { id: 'types', label: 'Types we use' },
+  { id: 'managing', label: 'Managing cookies' },
+  { id: 'third-parties', label: 'Third parties' },
+  { id: 'changes', label: 'Changes' },
+  { id: 'contact', label: 'Contact' },
+] as const;
+
+const TYPES = [
+  {
+    title: 'Essential',
+    body: 'Required for login, security, and core site functions. The site cannot work properly without these.',
+  },
+  {
+    title: 'Analytics',
+    body: 'Help us understand how people use SeaJourney so we can improve the product.',
+  },
+  {
+    title: 'Preference',
+    body: 'Remember settings such as theme and other choices you make on the site.',
+  },
+] as const;
 
 export default function CookiePolicyPage() {
-  const currentDate = new Date().toLocaleDateString('en-GB', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-
   return (
     <WkPageShell>
-      <WkPageHero
-        eyebrow="SeaJourney"
-        icon={<Cookie className="h-7 w-7" />}
-        title="Cookie Policy"
-        description="SeaJourney uses cookies to improve your experience."
-        meta={`Last updated · ${currentDate}`}
-      />
+      <LegalPageFrame
+        header={
+          <LegalPageHeader
+            current="cookies"
+            title="Cookie Policy"
+            description="How SeaJourney uses cookies and similar technologies on the website and in the app."
+          />
+        }
+        toc={<LegalToc sections={SECTIONS} />}
+      >
+        <LegalSection id="what" kicker="01" title="What are cookies?">
+          <p>
+            Cookies are small files stored on your device that help websites
+            function properly. SeaJourney uses them to keep you signed in, remember
+            preferences, and understand how the product is used.
+          </p>
+        </LegalSection>
 
-      <section className="pb-24">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-4xl space-y-6">
-            <WkSectionCard
-              icon={<Info className="h-5 w-5" />}
-              title="1. What Are Cookies?"
-            >
-              <p>
-                Cookies are small files stored on your device that help websites
-                function properly.
-              </p>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<Cookie className="h-5 w-5" />}
-              title="2. Types of Cookies We Use"
-            >
-              <h3>Essential Cookies</h3>
-              <p>Required for login, security, and functionality.</p>
-
-              <h3>Analytics Cookies</h3>
-              <p>Help us understand how users use the platform.</p>
-
-              <h3>Preference Cookies</h3>
-              <p>Save your settings and preferences.</p>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<Settings className="h-5 w-5" />}
-              title="3. Managing Cookies"
-            >
-              <p>You can:</p>
-              <ul>
-                <li>Disable cookies in your browser</li>
-                <li>Clear stored cookies</li>
-                <li>Adjust preferences</li>
-              </ul>
-              <div className="wk-callout" data-tone="warn">
-                Some features may not work without cookies.
-              </div>
-            </WkSectionCard>
-
-            <div className="grid gap-6 md:grid-cols-2">
-              <WkSectionCard
-                compact
-                icon={<Globe className="h-5 w-5" />}
-                title="4. Third-Party Cookies"
+        <LegalSection id="types" kicker="02" title="Types of cookies we use">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {TYPES.map((type) => (
+              <div
+                key={type.title}
+                className="rounded-2xl p-4"
+                style={{
+                  backgroundColor: 'var(--wk-bg-subtle)',
+                  border: '1px solid var(--wk-line)',
+                }}
               >
-                <p>
-                  Services like Stripe or analytics tools may place cookies.
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--wk-text)' }}>
+                  {type.title}
+                </h3>
+                <p className="mt-1.5 text-sm" style={{ color: 'var(--wk-text-soft)' }}>
+                  {type.body}
                 </p>
-              </WkSectionCard>
-
-              <WkSectionCard
-                compact
-                icon={<Shield className="h-5 w-5" />}
-                title="5. Changes"
-              >
-                <p>We may update this policy when needed.</p>
-              </WkSectionCard>
-            </div>
-
-            <WkSectionCard
-              icon={<Mail className="h-5 w-5" />}
-              title="6. Contact"
-            >
-              <p>
-                Email:{' '}
-                <a href="mailto:team@seajourney.co.uk">
-                  team@seajourney.co.uk
-                </a>
-              </p>
-            </WkSectionCard>
+              </div>
+            ))}
           </div>
+        </LegalSection>
+
+        <LegalSection id="managing" kicker="03" title="Managing cookies">
+          <p>You can control cookies from your browser:</p>
+          <ul className="grid gap-2 sm:grid-cols-3">
+            {['Disable cookies in your browser', 'Clear stored cookies', 'Adjust site preferences'].map(
+              (item) => (
+                <li
+                  key={item}
+                  className="flex items-start gap-3 rounded-xl px-3 py-2.5"
+                  style={{
+                    backgroundColor: 'var(--wk-bg-subtle)',
+                    border: '1px solid var(--wk-line)',
+                    color: 'var(--wk-text)',
+                  }}
+                >
+                  <CheckCircle2
+                    className="mt-0.5 h-4 w-4 flex-none"
+                    style={{ color: 'var(--wk-accent)' }}
+                  />
+                  <span className="text-sm">{item}</span>
+                </li>
+              ),
+            )}
+          </ul>
+          <div className="wk-callout" data-tone="warn">
+            Some features may not work without cookies — especially sign-in and
+            saved preferences.
+          </div>
+        </LegalSection>
+
+        <div className="grid gap-8 lg:grid-cols-2">
+          <LegalSection id="third-parties" kicker="04" title="Third-party cookies">
+            <p>
+              Services we use, such as Stripe for payments and analytics tools,
+              may place their own cookies. Those providers only receive what they
+              need to run that function.
+            </p>
+          </LegalSection>
+          <LegalSection id="changes" kicker="05" title="Changes">
+            <p>
+              We may update this policy when we add or change tools. Significant
+              changes will be noted on this page.
+            </p>
+          </LegalSection>
         </div>
-      </section>
+
+        <LegalContact
+          kicker="06 · Contact"
+          title="Questions about cookies"
+          body="SeaJourney · Email us if you want to know how cookies are used on your account."
+        />
+      </LegalPageFrame>
     </WkPageShell>
   );
 }

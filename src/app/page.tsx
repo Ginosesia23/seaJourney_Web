@@ -5,13 +5,14 @@
  *
  * Yacht Watchkeeper-inspired visual language — deep-navy canvas by default,
  * soft-neutral canvas in light mode, sky-blue accents, partial-coloured
- * headlines, numbered gradient cards, compact feature grids, and a single
- * accent line running through every CTA. Defaults to dark; visitors can
- * switch to light via the theme button (choice stored in localStorage).
+ * headlines, and a single accent line through CTAs. Lead message: track sea
+ * service easily. Defaults to dark; visitors can switch to light via the
+ * theme button (choice stored in localStorage).
  */
 
 import Link from 'next/link';
 import { AuthRecoveryHandler } from '@/components/auth-recovery-handler';
+import { HeroSeaServiceCalendar } from '@/components/landing/hero-sea-service-calendar';
 import { PassageTracksMapBackdrop } from '@/components/landing/passage-tracks-map-backdrop';
 import { useEffect, useState, useCallback, type ComponentType, type SVGProps } from 'react';
 import { motion } from 'framer-motion';
@@ -283,42 +284,15 @@ const themeCss = `
 
 /* --- Buttons ----------------------------------------------------------- */
 
-/* Sheen that sweeps across the primary CTA on hover */
-.wk-btn-sheen {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
-              box-shadow 0.25s ease, filter 0.25s ease;
+/* Outline primary CTA — color via --wk-cta-color / --wk-cta-soft */
+.wk-btn-outline {
+  transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease,
+    color 0.2s ease, box-shadow 0.2s ease;
 }
-.wk-btn-sheen::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translateX(-120%) skewX(-20deg);
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.28) 45%,
-    rgba(255, 255, 255, 0.42) 50%,
-    rgba(255, 255, 255, 0.28) 55%,
-    transparent 100%
-  );
-  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
-  pointer-events: none;
-  z-index: 1;
-}
-.wk-btn-sheen:hover {
+.wk-btn-outline:hover {
   transform: translateY(-1px);
-  filter: saturate(1.08);
-  box-shadow: var(--wk-glow), 0 8px 20px -8px rgba(14, 165, 233, 0.45);
-}
-.wk-btn-sheen:hover::after {
-  transform: translateX(140%) skewX(-20deg);
-}
-.wk-btn-sheen > * {
-  position: relative;
-  z-index: 2;
+  background-color: var(--wk-cta-soft) !important;
+  box-shadow: 0 8px 20px -12px color-mix(in srgb, var(--wk-cta-color) 55%, transparent);
 }
 
 .wk-btn-ghost {
@@ -787,25 +761,11 @@ export default function Home() {
         <AuthRecoveryHandler />
         <WkHeader mode={mode} setMode={setMode} />
         <main>
-          <CrewBenefitsHero />
+          <SeaServiceHero />
+          <HowSeaServiceWorks />
           <PlatformShowcase />
-          <VisaTracker />
-          <AIDocumentScanner />
-          <OfficialForms />
-          <CertificateTracking />
-          <ApplyProgress />
-          <WatchComingSoon />
-          <OowTrainingComingSoon />
-          {/* Not ready for landing yet — keep components below for later
-          <WatchRotationSchedule />
-          <CrewLeavePlanner />
-          */}
-          <LiveAISMobile />
-          <PassageTracksShowcase />
-          <AISImport />
-          <VerificationPortal />
+          <AllFeaturesTeaser />
           <Membership />
-          <AndroidBeta />
           <FinalCTA />
         </main>
         <WkFooter />
@@ -827,11 +787,10 @@ function WkHeader({
 }) {
   const [open, setOpen] = useState(false);
   const links = [
-    { label: 'Benefits', href: '#benefits' },
-    { label: 'Vessels', href: '/for-vessels' },
+    { label: 'How it works', href: '#how-it-works' },
     { label: 'Platform', href: '#platform' },
-    { label: 'Features', href: '#features' },
-    { label: 'Apply', href: '#apply' },
+    { label: 'Features', href: '/features' },
+    { label: 'Vessels', href: '/for-vessels' },
     { label: 'Membership', href: '#membership' },
   ];
   return (
@@ -875,7 +834,7 @@ function WkHeader({
       {open && (
         <div className="md:hidden" style={{ borderTop: '1px solid var(--wk-line)' }}>
           <div className="container mx-auto flex flex-col gap-1 px-4 py-3">
-            {[...links, { label: 'Live site', href: '/' }].map((l) => (
+            {links.map((l) => (
               <a
                 key={l.href}
                 href={l.href}
@@ -894,174 +853,175 @@ function WkHeader({
 }
 
 // ---------------------------------------------------------------------------
-// Section 1: Crew Benefits Hero
-//   (Original content: "Built for Crew Members" → "Everything You Need to
-//    Build Your Maritime Career" — tagline, CTAs, 6 benefit cards, checklist)
+// Section 1: Sea service hero — brand + one clear promise
 // ---------------------------------------------------------------------------
 
-const crewBenefits: Array<{ icon: IconType; title: string; desc: string; accent: string }> = [
-  { icon: Clock,        title: 'Accurate Sea Time Tracking',      desc: 'Never lose track of your sea service. Log unlimited vessel states with precision and build a complete record of your maritime experience.', accent: '#0ea5e9' },
-  { icon: FileCheck,    title: 'Digital Captain Testimonials',    desc: 'Request and receive digital testimonials directly from captains. Get instant sign-offs without paperwork delays.',                       accent: '#10b981' },
-  { icon: TrendingUp,   title: 'Career Advancement Made Easy',    desc: 'Export professional PDFs and multi-format documents (Excel, CSV) to submit with job applications and certification requests.',       accent: '#8b5cf6' },
-  { icon: Shield,       title: 'MCA Compliant Calculations',      desc: 'Automatic sea time calculations that meet MCA requirements. Know exactly where you stand on your certification journey.',              accent: '#d97706' },
-  { icon: Calendar,     title: 'Visual Career Timeline',          desc: 'See your entire service history at a glance with our year calendar view. Track your progress across multiple vessels.',                accent: '#06b6d4' },
-  { icon: Globe,        title: 'Work Anywhere, Track Everything', desc: 'Log sea time on your phone, manage everything on the web. Your data syncs seamlessly across all devices.',                              accent: '#6366f1' },
-];
-
-const whyChoose = [
-  'Unlimited vessel tracking — no restrictions',
-  'MCA compliant sea time calculations',
-  'Instant digital captain testimonials',
-  'Professional PDF exports for applications',
-  'Multi-format exports (Excel, CSV)',
-  'Visual calendar view of your career',
-  'Mobile app for logging on the go',
-  'Complete service history tracking',
-  'Certificate tracking and expiration alerts',
-  'Official MCA application form generation',
-];
-
-function CrewBenefitsHero() {
+function SeaServiceHero() {
   return (
-    <section id="benefits" className="relative overflow-hidden" style={{ backgroundColor: 'var(--wk-bg)' }}>
-      <HeroBackdrop />
+    <section
+      id="top"
+      className="relative overflow-hidden"
+      style={{ backgroundColor: 'var(--wk-bg)' }}
+    >
+      {/* Faint year of logged sea-service days as the hero atmosphere */}
+      <HeroSeaServiceCalendar />
+      <div className="pointer-events-none absolute inset-0 z-[1]">
+        <div
+          className="wk-floaty absolute -left-40 top-16 h-[380px] w-[380px] rounded-full blur-3xl"
+          style={{ backgroundColor: 'var(--wk-accent-soft)', opacity: 0.16 }}
+        />
+        <div
+          className="wk-floaty-delay absolute -right-28 top-28 h-[420px] w-[420px] rounded-full blur-3xl"
+          style={{ backgroundColor: 'var(--wk-accent-2-soft)', opacity: 0.12 }}
+        />
+        <div className="wk-noise absolute inset-0 opacity-20" />
+      </div>
 
-      <div className="container relative z-10 mx-auto px-4 py-24 sm:px-6 sm:py-32 lg:px-8">
-        <div className="mx-auto max-w-4xl text-center">
-          <Eyebrow icon={Users} accent>Built for Crew Members</Eyebrow>
-
-          <h1
-            className="font-headline mt-6 text-5xl font-bold leading-[1.02] tracking-tight sm:text-6xl lg:text-7xl"
+      <div className="container relative z-10 mx-auto flex min-h-[min(92vh,900px)] flex-col px-4 pb-36 pt-24 sm:px-6 sm:pb-44 sm:pt-28 lg:px-8">
+        <div className="mx-auto mt-[min(8vh,72px)] max-w-3xl text-center">
+          <motion.p
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45 }}
+            className="font-headline text-2xl font-bold tracking-tight sm:text-3xl"
             style={{ color: 'var(--wk-text)' }}
           >
-            Everything You Need to Build Your{' '}
-            <span className="wk-gradient-text wk-underline-sweep">Maritime Career</span>
-          </h1>
+            SeaJourney
+          </motion.p>
 
-          <p
-            className="mx-auto mt-6 max-w-3xl text-lg leading-relaxed sm:text-xl"
+          <motion.h1
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.08 }}
+            className="font-headline mt-5 text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            Track your sea service{' '}
+            <span className="wk-gradient-text wk-underline-sweep">easily</span>
+          </motion.h1>
+
+          <motion.p
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.16 }}
+            className="mx-auto mt-6 max-w-xl text-lg leading-relaxed sm:text-xl"
             style={{ color: 'var(--wk-text-soft)' }}
           >
-            Track sea time, get captain-signed testimonials, and verify your
-            career credentials instantly — worldwide.
+            Log days at sea, get captain sign-offs, and keep a clear record ready
+            when you need it.
+          </motion.p>
+
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.24 }}
+            className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
+          >
+            <PrimaryCta href="/signup">Start free</PrimaryCta>
+            <SecondaryCta href="#how-it-works">See how it works</SecondaryCta>
+          </motion.div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section 1b: Three steps — how sea service tracking works
+// ---------------------------------------------------------------------------
+
+const howItWorksSteps: Array<{
+  step: string;
+  icon: IconType;
+  title: string;
+  desc: string;
+  accent: string;
+}> = [
+  {
+    step: '01',
+    icon: Calendar,
+    title: 'Log your days',
+    desc: 'Record underway, at anchor, in port, and leave as you go — on phone or web.',
+    accent: '#0ea5e9',
+  },
+  {
+    step: '02',
+    icon: FileCheck,
+    title: 'Get sign-off',
+    desc: 'Request digital captain testimonials from the same sea-time record.',
+    accent: '#14b8a6',
+  },
+  {
+    step: '03',
+    icon: ShieldCheck,
+    title: 'Prove your service',
+    desc: 'Export verified documents when applications and audits ask for evidence.',
+    accent: '#8b5cf6',
+  },
+];
+
+function HowSeaServiceWorks() {
+  return (
+    <section id="how-it-works" className="wk-section-alt py-20 sm:py-28">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-2xl text-center">
+          <Eyebrow icon={Clock} accent>
+            Sea service tracking
+          </Eyebrow>
+          <h2
+            className="font-headline mt-4 text-3xl font-bold tracking-tight sm:text-4xl"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            Simple from log to proof
+          </h2>
+          <p className="mx-auto mt-4 max-w-xl text-base sm:text-lg" style={{ color: 'var(--wk-text-soft)' }}>
+            One place for the days that count — without rebuilding spreadsheets
+            every time you change vessels.
           </p>
-
-          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <PrimaryCta href="/signup">Start Your Journey</PrimaryCta>
-            <SecondaryCta href="#benefits-grid">Explore Features</SecondaryCta>
-          </div>
-
-          <div className="mx-auto mt-10 flex max-w-2xl flex-wrap items-center justify-center gap-2 sm:gap-3">
-            {[
-              { icon: Clock,       label: 'MCA compliant',  color: 'var(--wk-good)',     soft: 'var(--wk-good-soft)' },
-              { icon: ShieldCheck, label: 'STCW',           color: 'var(--wk-accent)',   soft: 'var(--wk-accent-soft)' },
-              { icon: FileCheck,   label: 'AMSA',           color: 'var(--wk-accent-2)', soft: 'var(--wk-accent-2-soft)' },
-              { icon: Anchor,      label: 'USCG',           color: 'var(--wk-accent-3)', soft: 'var(--wk-accent-3-soft)' },
-              { icon: Globe,       label: 'Schengen 90/180', color: 'var(--wk-warm)',    soft: 'var(--wk-warm-soft)' },
-            ].map((t) => (
-              <span
-                key={t.label}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
-                style={{
-                  backgroundColor: t.soft as string,
-                  color: t.color as string,
-                  border: `1px solid color-mix(in srgb, ${t.color} 25%, transparent)`,
-                }}
-              >
-                <t.icon className="h-3.5 w-3.5" />
-                {t.label}
-              </span>
-            ))}
-          </div>
         </div>
 
-        <div
-          id="benefits-grid"
-          className="mx-auto mt-20 grid max-w-6xl gap-5 md:grid-cols-2 lg:grid-cols-3"
-        >
-          {crewBenefits.map((b, i) => (
+        <div className="mx-auto mt-14 grid max-w-5xl gap-8 md:grid-cols-3 md:gap-6">
+          {howItWorksSteps.map((item, i) => (
             <motion.div
-              key={b.title}
+              key={item.step}
               initial={{ opacity: 0, y: 18 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.4, delay: (i % 3) * 0.06 }}
-              onMouseMove={(e) => {
-                const t = e.currentTarget as HTMLElement;
-                const r = t.getBoundingClientRect();
-                t.style.setProperty('--wk-mx', `${e.clientX - r.left}px`);
-                t.style.setProperty('--wk-my', `${e.clientY - r.top}px`);
-              }}
-              className="wk-card-hover wk-card-accent-top rounded-2xl p-6"
-              style={{
-                backgroundColor: 'var(--wk-card)',
-                border: '1px solid var(--wk-line)',
-                ['--wk-card-accent' as string]: b.accent,
-                ['--wk-card-glow' as string]: b.accent,
-              } as React.CSSProperties}
+              transition={{ duration: 0.4, delay: i * 0.08 }}
+              className="text-center md:text-left"
             >
-              <div
-                className="inline-flex h-11 w-11 items-center justify-center rounded-xl"
-                style={{
-                  backgroundColor: 'color-mix(in srgb, ' + b.accent + ' 14%, transparent)',
-                  color: b.accent,
-                }}
-              >
-                <b.icon className="h-5 w-5" />
+              <div className="inline-flex items-center gap-3">
+                <span
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl"
+                  style={{
+                    backgroundColor: `color-mix(in srgb, ${item.accent} 14%, transparent)`,
+                    color: item.accent,
+                  }}
+                >
+                  <item.icon className="h-5 w-5" />
+                </span>
+                <span
+                  className="font-mono text-xs font-semibold tracking-widest"
+                  style={{ color: 'var(--wk-text-muted)' }}
+                >
+                  {item.step}
+                </span>
               </div>
-              <h3 className="mt-5 text-lg font-semibold" style={{ color: 'var(--wk-text)' }}>
-                {b.title}
+              <h3
+                className="mt-5 text-lg font-semibold"
+                style={{ color: 'var(--wk-text)' }}
+              >
+                {item.title}
               </h3>
-              <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--wk-text-soft)' }}>
-                {b.desc}
+              <p
+                className="mt-2 text-sm leading-relaxed"
+                style={{ color: 'var(--wk-text-soft)' }}
+              >
+                {item.desc}
               </p>
             </motion.div>
           ))}
         </div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-40px' }}
-          transition={{ duration: 0.45 }}
-          className="wk-ring-glow mx-auto mt-12 max-w-6xl rounded-2xl p-8 sm:p-12"
-          style={{
-            backgroundColor: 'var(--wk-card)',
-            border: '1px solid transparent',
-            boxShadow: 'var(--wk-shadow-md)',
-          }}
-        >
-          <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-center">
-            <span
-              className="inline-flex h-11 w-11 items-center justify-center rounded-xl"
-              style={{ backgroundColor: 'var(--wk-accent-soft)', color: 'var(--wk-accent)' }}
-            >
-              <Zap className="h-5 w-5" />
-            </span>
-            <h3
-              className="font-headline text-2xl font-bold sm:text-3xl"
-              style={{ color: 'var(--wk-text)' }}
-            >
-              Why Crew Members Choose SeaJourney
-            </h3>
-          </div>
-
-          <div className="mt-8 grid gap-3 md:grid-cols-2">
-            {whyChoose.map((f) => (
-              <div key={f} className="flex items-start gap-3">
-                <span
-                  className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full"
-                  style={{ backgroundColor: 'var(--wk-good-soft)', color: 'var(--wk-good)' }}
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                </span>
-                <span className="text-sm" style={{ color: 'var(--wk-text)' }}>
-                  {f}
-                </span>
-              </div>
-            ))}
-          </div>
-        </motion.div>
       </div>
     </section>
   );
@@ -1121,10 +1081,8 @@ function PlatformShowcase() {
             <span className="wk-gradient-text wk-gradient-text--violet">Manage on Web.</span>
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-lg" style={{ color: 'var(--wk-text-soft)' }}>
-            Use our iOS app to quickly log your sea time anywhere, anytime.
-            Then access powerful features like digital testimonials,
-            professional exports, and complete career management on the web
-            portal.
+            Log sea time on iPhone, then manage sign-offs, exports, and your full
+            record on the web — same data, both places.
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -1190,6 +1148,128 @@ function PlatformShowcase() {
         >
           <ArrowRight className="h-4 w-4" />
           Log on mobile, manage on web. Your data syncs seamlessly.
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: All features teaser → /features
+// ---------------------------------------------------------------------------
+
+const featureTeaserLinks: Array<{
+  icon: IconType;
+  title: string;
+  desc: string;
+  href: string;
+  accent: string;
+}> = [
+  {
+    icon: Calendar,
+    title: 'Sea service',
+    desc: 'Daily logs, calendars, and MCA-ready totals.',
+    href: '/features#sea-service',
+    accent: '#0ea5e9',
+  },
+  {
+    icon: FileText,
+    title: 'Documents',
+    desc: 'Testimonials, MCA forms, certificates, and AI scan.',
+    href: '/features#documents',
+    accent: '#8b5cf6',
+  },
+  {
+    icon: Radar,
+    title: 'AIS & passages',
+    desc: 'History import, live tracks, and passage logbook.',
+    href: '/features#ais',
+    accent: '#14b8a6',
+  },
+  {
+    icon: Users,
+    title: 'Ops & crew',
+    desc: 'Watches, leave, visas, and linked vessel roles.',
+    href: '/features#operations',
+    accent: '#f59e0b',
+  },
+];
+
+function AllFeaturesTeaser() {
+  return (
+    <section id="features-overview" className="py-24 sm:py-32">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-3xl text-center">
+          <Eyebrow icon={LayoutGrid} accent>
+            Full product
+          </Eyebrow>
+          <h2
+            className="font-headline mt-4 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl"
+            style={{ color: 'var(--wk-text)' }}
+          >
+            Explore{' '}
+            <span className="wk-gradient-text">all features</span>
+          </h2>
+          <p
+            className="mx-auto mt-5 max-w-2xl text-lg"
+            style={{ color: 'var(--wk-text-soft)' }}
+          >
+            From sea service calendars to AIS passages, digital sign-offs, and
+            vessel operations — see everything SeaJourney offers in one place.
+          </p>
+        </div>
+
+        <div className="mx-auto mt-14 grid max-w-5xl gap-4 sm:grid-cols-2">
+          {featureTeaserLinks.map((item, i) => (
+            <motion.div
+              key={item.title}
+              initial={{ opacity: 0, y: 14 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.35, delay: i * 0.05 }}
+            >
+              <Link
+                href={item.href}
+                className="group flex h-full items-start gap-4 rounded-2xl p-5 transition-opacity hover:opacity-95"
+                style={{
+                  backgroundColor: 'var(--wk-card)',
+                  border: '1px solid var(--wk-line)',
+                }}
+              >
+                <span
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                  style={{
+                    backgroundColor: `color-mix(in srgb, ${item.accent} 14%, transparent)`,
+                    color: item.accent,
+                  }}
+                >
+                  <item.icon className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span
+                    className="flex items-center gap-2 text-base font-semibold"
+                    style={{ color: 'var(--wk-text)' }}
+                  >
+                    {item.title}
+                    <ArrowRight
+                      className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100"
+                      style={{ color: 'var(--wk-accent)' }}
+                    />
+                  </span>
+                  <span
+                    className="mt-1 block text-sm leading-relaxed"
+                    style={{ color: 'var(--wk-text-soft)' }}
+                  >
+                    {item.desc}
+                  </span>
+                </span>
+              </Link>
+            </motion.div>
+          ))}
+        </div>
+
+        <div className="mt-10 flex justify-center">
+          <PrimaryCta href="/features">View all features</PrimaryCta>
         </div>
       </div>
     </section>
@@ -6231,15 +6311,17 @@ function Membership() {
               <div className="mt-auto pt-6">
                 <Link
                   href={membershipSignupHref(tab, p.name)}
-                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold"
-                  style={{
-                    background: p.highlight
-                      ? 'linear-gradient(135deg, var(--wk-accent) 0%, var(--wk-accent-strong) 100%)'
-                      : 'var(--wk-bg-subtle)',
-                    color: p.highlight ? '#fff' : 'var(--wk-text)',
-                    border: p.highlight ? 'none' : '1px solid var(--wk-line)',
-                    boxShadow: p.highlight ? 'var(--wk-glow)' : 'none',
-                  }}
+                  className="wk-btn-outline inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border-2 bg-transparent text-sm font-semibold"
+                  style={
+                    {
+                      color: p.highlight ? p.accent : 'var(--wk-text)',
+                      borderColor: p.highlight ? p.accent : 'var(--wk-line-strong)',
+                      ['--wk-cta-color' as string]: p.highlight ? p.accent : 'var(--wk-accent)',
+                      ['--wk-cta-soft' as string]: p.highlight
+                        ? `color-mix(in srgb, ${p.accent} 14%, transparent)`
+                        : 'var(--wk-accent-soft)',
+                    } as React.CSSProperties
+                  }
                 >
                   Get Started
                   <ArrowRight className="h-4 w-4" />
@@ -6342,24 +6424,23 @@ function FinalCTA() {
             className="font-headline mt-6 text-3xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl"
             style={{ color: 'var(--wk-text)' }}
           >
-            Ready to take your career{' '}
-            <span className="wk-gradient-text wk-underline-sweep">to the next rank</span>?
+            Start tracking sea service{' '}
+            <span className="wk-gradient-text wk-underline-sweep">today</span>
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-lg" style={{ color: 'var(--wk-text-soft)' }}>
-            Stop wasting weekends on paperwork. Let SeaJourney handle the
-            logging, the forms, and the certification math — while you focus on
-            running the boat.
+            Log your days, collect sign-offs, and keep proof ready — without the
+            spreadsheet scramble.
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <PrimaryCta href="/signup">Start Free Trial</PrimaryCta>
+            <PrimaryCta href="/signup">Start free</PrimaryCta>
             <SecondaryCta href="/request-demo">
-              Book a Demo
+              Book a demo
             </SecondaryCta>
           </div>
 
           <p className="mt-5 text-xs" style={{ color: 'var(--wk-text-muted)' }}>
-            No card required · Works on every vessel · iOS + web portal
+            Free to start · iOS + web · Built for yacht crew
           </p>
         </div>
       </div>
@@ -6395,6 +6476,7 @@ function WkFooter() {
               title="Product"
               links={[
                 { href: '/how-to-use', label: 'How it works' },
+                { href: '/features', label: 'All features' },
                 { href: '/voyage-map', label: 'Voyage map' },
                 { href: '/for-vessels', label: 'For vessels' },
                 { href: '/roadmap', label: 'Roadmap' },
@@ -6469,34 +6551,34 @@ function FooterCol({
 
 type CtaTone = 'default' | 'violet' | 'emerald' | 'amber' | 'rose' | 'sky' | 'sunrise';
 
-const ctaToneStyles: Record<CtaTone, { gradient: string; glow: string }> = {
+const ctaToneStyles: Record<CtaTone, { color: string; soft: string }> = {
   default: {
-    gradient: 'linear-gradient(135deg, var(--wk-accent) 0%, var(--wk-accent-2) 100%)',
-    glow: 'var(--wk-glow)',
+    color: 'var(--wk-accent)',
+    soft: 'var(--wk-accent-soft)',
   },
   violet: {
-    gradient: 'linear-gradient(135deg, #a78bfa 0%, #6366f1 100%)',
-    glow: '0 14px 28px -10px rgba(139, 92, 246, 0.55)',
+    color: '#8b5cf6',
+    soft: 'rgba(139, 92, 246, 0.14)',
   },
   emerald: {
-    gradient: 'linear-gradient(135deg, #34d399 0%, #14b8a6 100%)',
-    glow: '0 14px 28px -10px rgba(16, 185, 129, 0.55)',
+    color: '#10b981',
+    soft: 'rgba(16, 185, 129, 0.14)',
   },
   amber: {
-    gradient: 'linear-gradient(135deg, #fbbf24 0%, #f97316 100%)',
-    glow: '0 14px 28px -10px rgba(245, 158, 11, 0.55)',
+    color: '#f59e0b',
+    soft: 'rgba(245, 158, 11, 0.14)',
   },
   rose: {
-    gradient: 'linear-gradient(135deg, #fb7185 0%, #ec4899 100%)',
-    glow: '0 14px 28px -10px rgba(236, 72, 153, 0.55)',
+    color: '#f43f5e',
+    soft: 'rgba(244, 63, 94, 0.14)',
   },
   sky: {
-    gradient: 'linear-gradient(135deg, #38bdf8 0%, #6366f1 100%)',
-    glow: '0 14px 28px -10px rgba(56, 189, 248, 0.55)',
+    color: '#0ea5e9',
+    soft: 'rgba(14, 165, 233, 0.14)',
   },
   sunrise: {
-    gradient: 'linear-gradient(135deg, #f59e0b 0%, #f43f5e 100%)',
-    glow: '0 14px 28px -10px rgba(244, 63, 94, 0.55)',
+    color: '#f97316',
+    soft: 'rgba(249, 115, 22, 0.14)',
   },
 };
 
@@ -6517,11 +6599,15 @@ function PrimaryCta({
       href={href}
       target={external ? '_blank' : undefined}
       rel={external ? 'noopener noreferrer' : undefined}
-      className="wk-btn-sheen inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-xl px-6 text-base font-semibold leading-none text-white"
-      style={{
-        background: t.gradient,
-        boxShadow: t.glow,
-      }}
+      className="wk-btn-outline inline-flex h-12 items-center gap-2 whitespace-nowrap rounded-xl border-2 bg-transparent px-6 text-base font-semibold leading-none"
+      style={
+        {
+          color: t.color,
+          borderColor: t.color,
+          ['--wk-cta-color' as string]: t.color,
+          ['--wk-cta-soft' as string]: t.soft,
+        } as React.CSSProperties
+      }
     >
       <span className="inline-flex items-center gap-2 leading-none">{children}</span>
       <ArrowRight className="h-4 w-4 shrink-0" />

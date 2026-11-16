@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/tooltip';
 import { DateComparisonView } from '@/app/dashboard/inbox/date-comparison-view';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
+import { CALENDAR_DOW_LABELS, calendarChrome } from '@/lib/calendar-chrome';
 import {
   calendarDayCellStyle,
   calendarStandbyIndicatorColor,
@@ -461,20 +462,20 @@ function SignoffMonthCalendar({
   }
 
   return (
-    <Card className="rounded-xl border">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg font-semibold">{format(month, 'MMMM yyyy')}</CardTitle>
+    <Card className={calendarChrome.monthCard}>
+      <CardHeader className={calendarChrome.monthHeader}>
+        <CardTitle className={calendarChrome.monthTitle}>{format(month, 'MMMM yyyy')}</CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-col pb-6">
+      <CardContent className="flex flex-col px-4 pb-6 pt-3">
         <div className="flex-1 space-y-1">
-          <div className="mb-2 grid grid-cols-7 gap-1">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-              <div key={d} className="py-1 text-center text-xs font-medium text-muted-foreground">
+          <div className={cn(calendarChrome.dowRow, 'mb-2')}>
+            {CALENDAR_DOW_LABELS.map((d, i) => (
+              <div key={`${d}-${i}`} className="py-0.5">
                 {d}
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-1">
+          <div className={calendarChrome.dayGrid}>
             {cells.map((cell) => {
               if (cell.kind === 'blank') {
                 return <div key={cell.key} className="aspect-square" />;
@@ -574,10 +575,11 @@ function SignoffDayCell({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="aspect-square overflow-hidden rounded-[6px]">
+        <div className={calendarChrome.dayCell}>
           <div
             className={cn(
-              'relative h-full w-full overflow-hidden rounded-[6px] text-sm font-medium transition-all',
+              'relative h-full w-full overflow-hidden text-sm font-semibold transition-all',
+              calendarChrome.daySurface,
               !stateMeta &&
                 (inRange
                   ? 'bg-muted/50 text-muted-foreground'
@@ -597,13 +599,13 @@ function SignoffDayCell({
             {indicator === 'passage' && (
               <div
                 aria-hidden
-                className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-blue-600"
+                className={cn(calendarChrome.dayStrip, 'bg-blue-600')}
               />
             )}
             {indicator === 'standby' && (
               <div
                 aria-hidden
-                className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px]"
+                className={calendarChrome.dayStrip}
                 style={{ backgroundColor: calendarStandbyIndicatorColor() }}
               />
             )}

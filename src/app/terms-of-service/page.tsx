@@ -1,187 +1,185 @@
 'use client';
 
+import { CheckCircle2 } from 'lucide-react';
+import { WkPageShell } from '@/components/wk/wk-page-shell';
 import {
-  FileText,
-  Users,
-  Shield,
-  CreditCard,
-  Lock,
-  AlertTriangle,
-  XCircle,
-  Scale,
-  Mail,
-} from 'lucide-react';
-import {
-  WkPageShell,
-  WkPageHero,
-  WkSectionCard,
-} from '@/components/wk/wk-page-shell';
+  LegalContact,
+  LegalPageFrame,
+  LegalPageHeader,
+  LegalSection,
+  LegalToc,
+} from '@/components/wk/legal-page';
+
+const SECTIONS = [
+  { id: 'service', label: 'The service' },
+  { id: 'responsibilities', label: 'Your responsibilities' },
+  { id: 'testimonials', label: 'Testimonials' },
+  { id: 'accounts', label: 'Accounts' },
+  { id: 'payments', label: 'Payments' },
+  { id: 'ip', label: 'Intellectual property' },
+  { id: 'prohibited', label: 'Prohibited use' },
+  { id: 'liability', label: 'Liability' },
+  { id: 'termination', label: 'Termination' },
+  { id: 'law', label: 'Governing law' },
+  { id: 'contact', label: 'Contact' },
+] as const;
+
+function CheckList({ items }: { items: readonly string[] }) {
+  return (
+    <ul className="grid gap-2 sm:grid-cols-2">
+      {items.map((item) => (
+        <li
+          key={item}
+          className="flex items-start gap-3 rounded-xl px-3 py-2.5"
+          style={{
+            backgroundColor: 'var(--wk-bg-subtle)',
+            border: '1px solid var(--wk-line)',
+            color: 'var(--wk-text)',
+          }}
+        >
+          <CheckCircle2
+            className="mt-0.5 h-4 w-4 flex-none"
+            style={{ color: 'var(--wk-accent)' }}
+          />
+          <span className="text-sm">{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export default function TermsOfServicePage() {
-  const currentDate = new Date().toLocaleDateString('en-GB', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-
   return (
     <WkPageShell>
-      <WkPageHero
-        eyebrow="SeaJourney"
-        icon={<FileText className="h-7 w-7" />}
-        title="Terms & Conditions"
-        description="By using SeaJourney, you agree to these Terms."
-        meta={`Last updated · ${currentDate}`}
-      />
-
-      <section className="pb-24">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-4xl space-y-6">
-            <WkSectionCard
-              icon={<FileText className="h-5 w-5" />}
-              title="1. Service Description"
-            >
-              <p>SeaJourney provides digital tools for:</p>
-              <ul>
-                <li>Logging sea service</li>
-                <li>Tracking vessel assignments</li>
-                <li>Managing crew data</li>
-                <li>Generating testimonials</li>
-                <li>Managing vessel records</li>
-              </ul>
-              <div className="wk-callout" data-tone="warn">
-                <strong>Important:</strong> SeaJourney is not a maritime
-                authority and does not certify or approve sea service.
-              </div>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<Users className="h-5 w-5" />}
-              title="2. User Responsibilities"
-            >
-              <p>You agree to:</p>
-              <ul>
-                <li>Provide accurate information</li>
-                <li>Use the platform lawfully</li>
-                <li>Not falsify records</li>
-                <li>Respect data integrity</li>
-                <li>Keep login details secure</li>
-              </ul>
-              <div className="wk-callout" data-tone="bad">
-                False information may result in account suspension or
-                termination.
-              </div>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<Shield className="h-5 w-5" />}
-              title="3. Testimonials & Sign-Offs"
-            >
-              <ul>
-                <li>Captains are responsible for the accuracy of testimonials.</li>
-                <li>SeaJourney only provides the digital tools.</li>
-                <li>Acceptance by the MCA or other authorities is not guaranteed.</li>
-              </ul>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<Users className="h-5 w-5" />}
-              title="4. Accounts"
-            >
-              <p>You must:</p>
-              <ul>
-                <li>Be at least 18 years old</li>
-                <li>Maintain accurate account information</li>
-                <li>Not share your account</li>
-              </ul>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<CreditCard className="h-5 w-5" />}
-              title="5. Subscriptions & Payments"
-            >
-              <ul>
-                <li>Payments are handled via Stripe.</li>
-                <li>Subscriptions renew automatically.</li>
-                <li>You can cancel anytime.</li>
-                <li>No refunds unless legally required.</li>
-              </ul>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<Lock className="h-5 w-5" />}
-              title="6. Intellectual Property"
-            >
-              <p>
-                All platform content, branding, and software belong to
-                SeaJourney. You may not copy, resell, or redistribute the
-                service.
-              </p>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<AlertTriangle className="h-5 w-5" />}
-              title="7. Prohibited Use"
-            >
-              <p>You may not:</p>
-              <ul>
-                <li>Misuse the system</li>
-                <li>Upload false data</li>
-                <li>Attempt unauthorised access</li>
-                <li>Harm the platform or users</li>
-              </ul>
-            </WkSectionCard>
-
-            <WkSectionCard
-              icon={<AlertTriangle className="h-5 w-5" />}
-              title="8. Limitation of Liability"
-            >
-              <p>SeaJourney is not responsible for:</p>
-              <ul>
-                <li>Rejected testimonials</li>
-                <li>Career outcomes</li>
-                <li>Incorrect user data</li>
-                <li>Regulatory decisions</li>
-              </ul>
-              <div className="wk-callout" data-tone="warn">
-                Use is at your own risk.
-              </div>
-            </WkSectionCard>
-
-            <div className="grid gap-6 md:grid-cols-2">
-              <WkSectionCard
-                compact
-                icon={<XCircle className="h-5 w-5" />}
-                title="9. Termination"
-              >
-                <p>
-                  We may suspend or terminate accounts that breach these Terms.
-                </p>
-              </WkSectionCard>
-
-              <WkSectionCard
-                compact
-                icon={<Scale className="h-5 w-5" />}
-                title="10. Governing Law"
-              >
-                <p>These Terms are governed by UK law.</p>
-              </WkSectionCard>
-            </div>
-
-            <WkSectionCard
-              icon={<Mail className="h-5 w-5" />}
-              title="11. Contact"
-            >
-              <p>
-                Email:{' '}
-                <a href="mailto:team@seajourney.co.uk">
-                  team@seajourney.co.uk
-                </a>
-              </p>
-            </WkSectionCard>
+      <LegalPageFrame
+        header={
+          <LegalPageHeader
+            current="terms"
+            title="Terms & Conditions"
+            description="By using SeaJourney you agree to these terms. Please read them before you create an account or subscribe."
+            extras={['UK law']}
+          />
+        }
+        toc={<LegalToc sections={SECTIONS} />}
+      >
+        <LegalSection id="service" kicker="01" title="Service description">
+          <p>SeaJourney provides digital tools for:</p>
+          <CheckList
+            items={[
+              'Logging sea service',
+              'Tracking vessel assignments',
+              'Managing crew data',
+              'Generating testimonials',
+              'Managing vessel records',
+            ]}
+          />
+          <div className="wk-callout" data-tone="warn">
+            <strong>Important:</strong> SeaJourney is not a maritime authority
+            and does not certify or approve sea service.
           </div>
+        </LegalSection>
+
+        <LegalSection id="responsibilities" kicker="02" title="User responsibilities">
+          <p>You agree to:</p>
+          <CheckList
+            items={[
+              'Provide accurate information',
+              'Use the platform lawfully',
+              'Not falsify records',
+              'Respect data integrity',
+              'Keep login details secure',
+            ]}
+          />
+          <div className="wk-callout" data-tone="bad">
+            False information may result in account suspension or termination.
+          </div>
+        </LegalSection>
+
+        <LegalSection id="testimonials" kicker="03" title="Testimonials & sign-offs">
+          <CheckList
+            items={[
+              'Captains are responsible for the accuracy of testimonials.',
+              'SeaJourney only provides the digital tools.',
+              'Acceptance by the MCA or other authorities is not guaranteed.',
+            ]}
+          />
+        </LegalSection>
+
+        <div className="grid gap-8 lg:grid-cols-2">
+          <LegalSection id="accounts" kicker="04" title="Accounts">
+            <p>You must:</p>
+            <CheckList
+              items={[
+                'Be at least 18 years old',
+                'Maintain accurate account information',
+                'Not share your account',
+              ]}
+            />
+          </LegalSection>
+          <LegalSection id="payments" kicker="05" title="Subscriptions & payments">
+            <CheckList
+              items={[
+                'Payments are handled via Stripe.',
+                'Subscriptions renew automatically.',
+                'You can cancel anytime.',
+                'No refunds unless legally required.',
+              ]}
+            />
+          </LegalSection>
         </div>
-      </section>
+
+        <LegalSection id="ip" kicker="06" title="Intellectual property">
+          <p>
+            All platform content, branding, and software belong to SeaJourney.
+            You may not copy, resell, or redistribute the service.
+          </p>
+        </LegalSection>
+
+        <div className="grid gap-8 lg:grid-cols-2">
+          <LegalSection id="prohibited" kicker="07" title="Prohibited use">
+            <p>You may not:</p>
+            <CheckList
+              items={[
+                'Misuse the system',
+                'Upload false data',
+                'Attempt unauthorised access',
+                'Harm the platform or users',
+              ]}
+            />
+          </LegalSection>
+          <LegalSection id="liability" kicker="08" title="Limitation of liability">
+            <p>SeaJourney is not responsible for:</p>
+            <CheckList
+              items={[
+                'Rejected testimonials',
+                'Career outcomes',
+                'Incorrect user data',
+                'Regulatory decisions',
+              ]}
+            />
+            <div className="wk-callout" data-tone="warn">
+              Use is at your own risk.
+            </div>
+          </LegalSection>
+        </div>
+
+        <div className="grid gap-8 lg:grid-cols-2">
+          <LegalSection id="termination" kicker="09" title="Termination">
+            <p>
+              We may suspend or terminate accounts that breach these Terms.
+            </p>
+          </LegalSection>
+          <LegalSection id="law" kicker="10" title="Governing law">
+            <p>These Terms are governed by UK law.</p>
+          </LegalSection>
+        </div>
+
+        <LegalContact
+          kicker="11 · Contact"
+          title="Questions about these terms"
+          body="SeaJourney · Email us if you need clarification before you subscribe or if you believe an account action was wrong."
+        />
+      </LegalPageFrame>
     </WkPageShell>
   );
 }

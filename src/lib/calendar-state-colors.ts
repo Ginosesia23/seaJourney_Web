@@ -160,7 +160,10 @@ export function calendarStateWash(
   return `color-mix(in srgb, ${accent} ${opacityPercent}%, ${ground})`;
 }
 
-/** Day cell: fill, number color, optional today inset outline. */
+/** Corner radius for colored day fills — matches landing / dashboard chrome. */
+export const CALENDAR_DAY_RADIUS_PX = 8;
+
+/** Day cell: fill, number color, rounded corners, optional today inset outline. */
 export function calendarDayCellStyle(
   state: DailyStatus,
   opts?: { today?: boolean },
@@ -171,6 +174,7 @@ export function calendarDayCellStyle(
   return {
     backgroundColor: swatch.fill,
     color: swatch.text,
+    borderRadius: CALENDAR_DAY_RADIUS_PX,
     ...(opts?.today ? { boxShadow: `inset 0 0 0 2px ${swatch.today}` } : {}),
   };
 }
@@ -185,6 +189,7 @@ export function calendarStateIconTileStyle(
   return {
     backgroundColor: swatch.fill,
     color: style === 'dark' ? '#FFFFFF' : swatch.text,
+    borderRadius: CALENDAR_DAY_RADIUS_PX,
   };
 }
 

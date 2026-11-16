@@ -562,9 +562,9 @@ export default function ForVesselsPage() {
               </Link>
             </div>
             <p className="mt-6 text-sm" style={{ color: 'var(--wk-text-muted)' }}>
-              Looking for individual crew features?{' '}
-              <Link href="/" className="font-medium underline-offset-2 hover:underline" style={{ color: 'var(--wk-accent)' }}>
-                View the crew landing page
+              Looking for the full product list?{' '}
+              <Link href="/features" className="font-medium underline-offset-2 hover:underline" style={{ color: 'var(--wk-accent)' }}>
+                Browse all features
               </Link>
             </p>
           </div>

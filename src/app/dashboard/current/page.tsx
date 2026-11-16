@@ -54,6 +54,7 @@ import { vesselTypes, vesselTypeValues } from '@/lib/vessel-types';
 import { calculateStandbyDays } from '@/lib/standby-calculation';
 import { findMissingDays } from '@/lib/fill-missing-days';
 import { useCalendarColorStyle } from '@/components/calendar-color-style-provider';
+import { CALENDAR_DOW_LABELS, calendarChrome } from '@/lib/calendar-chrome';
 import {
   calendarDayCellStyle,
   calendarStandbyIndicatorColor,
@@ -2881,25 +2882,25 @@ export default function CurrentPage() {
     }
 
     return (
-      <Card key={month.toISOString()} className="rounded-md border border-border shadow-none">
-        <CardHeader className="border-b border-border bg-muted/40 px-4 py-2.5">
-          <CardTitle className="text-xs font-medium">
+      <Card key={month.toISOString()} className={calendarChrome.monthCard}>
+        <CardHeader className={calendarChrome.monthHeader}>
+          <CardTitle className={calendarChrome.monthTitle}>
             {format(month, 'MMMM yyyy')}
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col px-4 pb-4 pt-3">
           <div className="flex-1 space-y-1">
             {/* Day headers */}
-            <div className="grid grid-cols-7 gap-1 mb-2">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                <div key={day} className="text-center text-xs font-medium text-muted-foreground py-1">
+            <div className={cn(calendarChrome.dowRow, 'mb-2')}>
+              {CALENDAR_DOW_LABELS.map((day, i) => (
+                <div key={`${day}-${i}`} className="py-0.5">
                   {day}
                 </div>
               ))}
             </div>
             
             {/* Calendar grid */}
-            <div className="grid grid-cols-7 gap-1">
+            <div className={calendarChrome.dayGrid}>
               {days.map((day, idx) => {
                 if (!day) {
                   return <div key={`empty-${idx}`} className="aspect-square" />;
@@ -3068,12 +3069,13 @@ export default function CurrentPage() {
                 return (
                   <Tooltip key={dateKey}>
                     <TooltipTrigger asChild>
-                      <div className="aspect-square rounded-[6px] overflow-hidden">
+                      <div className={calendarChrome.dayCell}>
                         <button
                           onClick={() => handleDateClick(day)}
                           disabled={isFuture}
                           className={cn(
-                            "w-full h-full rounded-[6px] text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                            "w-full h-full text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                            calendarChrome.daySurface,
                             secondaryIndicatorBar && "relative overflow-hidden",
                             !isFuture && "hover:scale-105 hover:shadow-md",
                             !isCurrentMonth && "opacity-40",
@@ -3115,19 +3117,19 @@ export default function CurrentPage() {
                           </div>
                           {secondaryIndicatorBar === 'watch' && (
                             <div
-                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-yellow-400"
+                              className={cn(calendarChrome.dayStrip, 'bg-yellow-400')}
                               aria-hidden
                             />
                           )}
                           {secondaryIndicatorBar === 'passage' && (
                             <div
-                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px] bg-blue-600"
+                              className={cn(calendarChrome.dayStrip, 'bg-blue-600')}
                               aria-hidden
                             />
                           )}
                           {secondaryIndicatorBar === 'standby' && (
                             <div
-                              className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 h-[20%] min-h-[2px] rounded-b-[6px]"
+                              className={calendarChrome.dayStrip}
                               style={{ backgroundColor: calendarStandbyIndicatorColor() }}
                               aria-hidden
                             />

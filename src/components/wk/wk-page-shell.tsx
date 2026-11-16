@@ -413,6 +413,7 @@ export function WkThemeToggle({
 
 const NAV_LINKS: Array<{ href: string; label: string }> = [
   { href: '/how-to-use', label: 'How it works' },
+  { href: '/features', label: 'Features' },
   { href: '/voyage-map', label: 'Voyage map' },
   { href: '/for-vessels', label: 'For vessels' },
   { href: '/request-demo', label: 'Request demo' },
@@ -437,9 +438,7 @@ function WkPageHeader({
       }}
     >
       <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" aria-label="SeaJourney home">
-          <Logo className="!text-[color:var(--wk-text)]" />
-        </Link>
+        <Logo className="!text-[color:var(--wk-text)]" />
 
         <nav className="hidden items-center gap-7 md:flex">
           {NAV_LINKS.map((l) => (
@@ -552,6 +551,7 @@ function WkPageFooter() {
               title="Product"
               links={[
                 { href: '/how-to-use', label: 'How it works' },
+                { href: '/features', label: 'All features' },
                 { href: '/voyage-map', label: 'Voyage map' },
                 { href: '/for-vessels', label: 'For vessels' },
                 { href: '/roadmap', label: 'Roadmap' },

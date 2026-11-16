@@ -1,24 +1,28 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode, SVGProps } from 'react';
 import { Settings } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+
+type HeaderIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 export function SettingsPageHeader({
   title = 'Settings',
   description,
   actions,
+  icon: Icon = Settings,
 }: {
   title?: string;
   description?: string;
   actions?: ReactNode;
+  icon?: HeaderIcon;
 }) {
   return (
     <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0 space-y-1">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Settings className="h-3.5 w-3.5" />
+          <Icon className="h-3.5 w-3.5" />
           <span>Dashboard</span>
           <span className="text-border">/</span>
           <span className="text-foreground">{title}</span>

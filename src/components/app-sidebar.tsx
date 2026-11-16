@@ -14,6 +14,7 @@ import {
   FileText,
   MapPin,
   Calendar,
+  CalendarDays,
   Navigation,
   Inbox,
   BarChart3,
@@ -23,6 +24,7 @@ import {
   CreditCard,
   PenTool,
   MessageSquare,
+  ClipboardCheck,
   ClipboardList,
   Database,
   UserCog,
@@ -261,6 +263,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/dashboard/documents", label: "Create document", icon: Layers, disabled: false, requiredRole: "vessel", featureFlag: 'vessel_document_generator' },
       { href: "/dashboard/vessel-documents", label: "Document archive", icon: FolderOpen, disabled: false, requiredRole: "vessel" },
+      { href: "/dashboard/audit", label: "Audit", icon: ClipboardCheck, disabled: false, requiredRole: "vessel" },
     ]
   },
   {
@@ -269,6 +272,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/dashboard/vessels", label: "My vessels", icon: Ship, disabled: false, hideForRoles: ['vessel'] },
       { href: "/dashboard/crew", label: "Manage crew", icon: Users, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
+      { href: "/dashboard/crew-calendar", label: "Crew calendar", icon: CalendarDays, requiredRole: "vessel", disabled: false, hideForRoles: ['captain'] },
       { href: "/dashboard/crew-roles", label: "Assign roles", icon: UserCog, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'] },
       { href: "/dashboard/requests", label: "Sea-time requests", icon: ClipboardList, requiredRole: "captain", disabled: false },
       { href: "/dashboard/crew-rotation", label: "Onboard crew", icon: RefreshCw, requiredRole: "vessel", disabled: true, hideForRoles: ['captain'], featureFlag: 'crew_rotation' },
@@ -543,7 +547,12 @@ export function AppSidebar({ userProfile, ...props }: AppSidebarProps) {
     if (item.hideForCrewLimited && isCrewNavRestricted) {
       if (!item.featureFlag || !isFeatureEnabled(item.featureFlag)) return false;
     }
-    if (item.href === '/dashboard/vessel-documents' && !hasPaidAccess) return false;
+    if (
+      (item.href === '/dashboard/vessel-documents' || item.href === '/dashboard/audit') &&
+      !hasPaidAccess
+    ) {
+      return false;
+    }
     if (item.featureFlag && !isFeatureEnabled(item.featureFlag)) return false;
     if (
       item.href === '/dashboard/career-documents' &&
